@@ -4,6 +4,8 @@ import { ApiResponse } from "../utlis/ApiResponse.js";
 import Post from "../models/userPost.models.js";
 import { uploadBufferToCloudinary } from "../utlis/cloudinary.js";
 import { getCoordinates } from "../utlis/getCoordinates.js";
+import Like from "../models/like.models.js";
+import Comment from "../models/comment.models.js";
 
 const extractMediaFiles = (files) => {
     const allFiles = [];
@@ -181,6 +183,9 @@ export const createProductPost = asyncHandler(async (req, res) => {
             throw new ApiError(500, "Cloudinary upload failed");
         }
     }
+    if (!parsedProduct?.link) {
+        throw new ApiError(400, "Product post must include a product link");
+    }
 
     const post = await Post.create({
         userId,
@@ -279,6 +284,9 @@ export const createServicePost = asyncHandler(async (req, res) => {
             throw new ApiError(500, "Cloudinary upload failed");
         }
     }
+    if (!parsedService?.link) {
+        throw new ApiError(400, "Service post must include a service link");
+    }
 
     const post = await Post.create({
         userId,
@@ -376,6 +384,10 @@ export const createBusinessPost = asyncHandler(async (req, res) => {
         } catch {
             throw new ApiError(500, "Cloudinary upload failed");
         }
+    }
+
+    if (!parsedBusiness?.link) {
+        throw new ApiError(400, "Business post must include a business link");
     }
 
     const post = await Post.create({
@@ -509,3 +521,106 @@ export const schedulePost = asyncHandler(async (req, res) => {
 
     return res.status(200).json(new ApiResponse(200, post, "Post scheduled successfully"));
 });
+export const getMyPosts = asyncHandler(async (req, res) => {
+    const userId = req.user?._id;
+    if (!userId) throw new ApiError(401, "Unauthorized: User ID missing");
+
+    const { postType, contentType, page = 1, limit = 10 } = req.query;
+
+    const filter = { userId };
+
+    if (postType) {
+        filter.postType = postType; // e.g., photo, video, reel, story
+    }
+
+    if (contentType) {
+        filter.contentType = contentType; // e.g., normal, product, service, business
+    }
+
+    const posts = await Post.find(filter)
+        .sort({ createdAt: -1 })
+        .skip((page - 1) * limit)
+        .limit(Number(limit));
+
+    const total = await Post.countDocuments(filter);
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            totalPosts: total,
+            page: Number(page),
+            totalPages: Math.ceil(total / limit),
+            posts
+        }, "User posts fetched successfully")
+    );
+});
+
+// Like a post
+export const likePost = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+    const { postId } = req.body;
+    if (!postId) throw new ApiError(400, "postId is required");
+
+    // Try to create a like (will fail if duplicate due to unique index)
+    try {
+        await Like.create({ userId, postId });
+        // Optionally increment like count on post
+        await Post.findByIdAndUpdate(postId, { $inc: { "engagement.likes": 1 } });
+        return res.status(200).json(new ApiResponse(200, null, "Post liked successfully"));
+    } catch (err) {
+        if (err.code === 11000) {
+            throw new ApiError(409, "You have already liked this post");
+        }
+        throw err;
+    }
+});
+
+// Unlike a post
+export const unlikePost = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+    const { postId } = req.body;
+    if (!postId) throw new ApiError(400, "postId is required");
+
+    const like = await Like.findOneAndDelete({ userId, postId });
+    if (like) {
+        await Post.findByIdAndUpdate(postId, { $inc: { "engagement.likes": -1 } });
+        return res.status(200).json(new ApiResponse(200, null, "Post unliked successfully"));
+    } else {
+        throw new ApiError(404, "Like not found for this post");
+    }
+});
+
+// Like a comment
+export const likeComment = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+    const { commentId } = req.body;
+    if (!commentId) throw new ApiError(400, "commentId is required");
+
+    try {
+        await Like.create({ userId, commentId });
+        // Optionally add userId to comment.likes array
+        await Comment.findByIdAndUpdate(commentId, { $addToSet: { likes: userId } });
+        return res.status(200).json(new ApiResponse(200, null, "Comment liked successfully"));
+    } catch (err) {
+        if (err.code === 11000) {
+            throw new ApiError(409, "You have already liked this comment");
+        }
+        throw err;
+    }
+});
+
+// Unlike a comment
+export const unlikeComment = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+    const { commentId } = req.body;
+    if (!commentId) throw new ApiError(400, "commentId is required");
+
+    const like = await Like.findOneAndDelete({ userId, commentId });
+    if (like) {
+        // Optionally remove userId from comment.likes array
+        await Comment.findByIdAndUpdate(commentId, { $pull: { likes: userId } });
+        return res.status(200).json(new ApiResponse(200, null, "Comment unliked successfully"));
+    } else {
+        throw new ApiError(404, "Like not found for this comment");
+    }
+});
+

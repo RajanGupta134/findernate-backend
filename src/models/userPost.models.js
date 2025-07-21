@@ -73,7 +73,8 @@ const ProductDetailsSchema = new mongoose.Schema({
     location: {
         name: String,
         coordinates: GeoJSONPointSchema
-    }
+    },
+    link: {type: String, required: true}
 }, { _id: false });
 
 // 💼 Service Details
@@ -112,7 +113,8 @@ const ServiceDetailsSchema = new mongoose.Schema({
     location: ServiceLocationSchema,
     requirements: [String],
     deliverables: [String],
-    tags: [String]
+    tags: [String],
+    link: {type: String, required: true}
 }, { _id: false });
 
 // 🏢 Business Details
@@ -164,7 +166,8 @@ const BusinessDetailsSchema = new mongoose.Schema({
     rating: Number,
     tags: [String],
     announcement: String,
-    promotions: [BusinessPromotionSchema]
+    promotions: [BusinessPromotionSchema],
+    link: {type: String, required: true}
 }, { _id: false });
 
 // 🧍 Normal Post Details (with fixed GeoJSON)
@@ -183,7 +186,7 @@ const NormalDetailsSchema = new mongoose.Schema({
 
 // 🎨 Customization Options
 const CustomizationSchema = new mongoose.Schema({
-    product: ProductDetailsSchema,
+    product:ProductDetailsSchema,
     service: ServiceDetailsSchema,
     business: BusinessDetailsSchema,
     normal: NormalDetailsSchema
@@ -234,14 +237,18 @@ const AnalyticsSchema = new mongoose.Schema({
 // 📬 Post Schema
 const PostSchema = new mongoose.Schema({
     userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    postType: { type: String, required: true, enum: ['photo', 'reel'] },
+    postType: { type: String, required: true, enum: ['photo', 'reel', 'video', 'story'] },
     contentType: { type: String, required: true, enum: ['normal', 'product', 'service', 'business'] },
     caption: String,
     description: String,
     hashtags: [String],
     mentions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     media: [MediaSchema],
-    customization: CustomizationSchema,
+    customization:{ product: ProductDetailsSchema,
+                   service: ServiceDetailsSchema,
+                   business: BusinessDetailsSchema,
+                   normal: NormalDetailsSchema 
+                },
     engagement: EngagementSchema,
     settings: SettingsSchema,
     createdAt: { type: Date, default: Date.now },

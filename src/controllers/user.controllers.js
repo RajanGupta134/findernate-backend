@@ -113,24 +113,24 @@ const verifyAndRegisterUser = asyncHandler(async (req, res) => {
     await user.save({ validateBeforeSave: false });
 
     const options = {
-        httpOnly: true,       
+        httpOnly: true,
         secure: true
     };
-    
+
 
     return res
-    .status(201)
-    .cookie("accessToken", accessToken, options)
-    .cookie("refreshToken", refreshToken, options)
+        .status(201)
+        .cookie("accessToken", accessToken, options)
+        .cookie("refreshToken", refreshToken, options)
 
-    .json(
-        new ApiResponse(201,
-            {
-                user,
-                accessToken,
-                refreshToken
-            }, "User registered successfully.")
-    );
+        .json(
+            new ApiResponse(201,
+                {
+                    user,
+                    accessToken,
+                    refreshToken
+                }, "User registered successfully.")
+        );
 });
 
 
@@ -209,16 +209,29 @@ const logOutUser = asyncHandler(async (req, res) => {
 const getUserProfile = asyncHandler(async (req, res) => {
     const userId = req.user._id;
     const user = await User.findById(userId).select(
-        "username fullName email phoneNumber gender dateOfBirth bio profileImageUrl location link followers following posts isBusinessProfile isEmailVerified isPhoneVerified"
+        "username fullName email phoneNumber gender dateOfBirth bio profileImageUrl location link followers following posts isBusinessProfile isEmailVerified isPhoneVerified createdAt"
     );
     if (!user) {
         throw new ApiError(404, "User not found");
     }
 
+    // Convert arrays to counts
+    const userProfile = {
+        ...user.toObject(),
+        followersCount: user.followers ? user.followers.length : 0,
+        followingCount: user.following ? user.following.length : 0,
+        postsCount: user.posts ? user.posts.length : 0
+    };
+
+    // Remove the original arrays
+    delete userProfile.followers;
+    delete userProfile.following;
+    delete userProfile.posts;
+
     return res
         .status(200)
         .json(
-            new ApiResponse(200, user, "User profile retrieved successfully")
+            new ApiResponse(200, userProfile, "User profile retrieved successfully")
         )
 });
 
@@ -443,13 +456,13 @@ const uploadProfileImage = asyncHandler(async (req, res) => {
 
 const sendPasswordResetOTP = asyncHandler(async (req, res) => {
     const { email } = req.body;
-    
-    if(!email) {
+
+    if (!email) {
         throw new ApiError(400, "Email is required");
     }
 
-    const user = await User.findOne({email});
-    if(!user) {
+    const user = await User.findOne({ email });
+    if (!user) {
         throw new ApiError(404, "User not found with this email");
     }
 
@@ -469,42 +482,42 @@ const sendPasswordResetOTP = asyncHandler(async (req, res) => {
             <p>This OTP is valid for 10 minutes.</p>
             <p>If you did not request this, please ignore this email.</p>`
     });
-    return res 
+    return res
         .status(200)
         .json(new ApiResponse(200, {}, "OTP sent to your email successfully for password reset"));
-    });
-  
-    const resetPasswordWithOTP = asyncHandler(async (req, res) => {
-        const { otp, newPassword, confirmPassword } = req.body;
-        if (!otp || !newPassword || !confirmPassword) {
-            throw new ApiError(400, "OTP, new password and confirm password are required");
-        }
+});
 
-        if(newPassword !== confirmPassword) {
-            throw new ApiError(400, "New password and confirm password do not match");
-        }
+const resetPasswordWithOTP = asyncHandler(async (req, res) => {
+    const { otp, newPassword, confirmPassword } = req.body;
+    if (!otp || !newPassword || !confirmPassword) {
+        throw new ApiError(400, "OTP, new password and confirm password are required");
+    }
 
-        const user = await User.findOne({ passwordResetOTP: otp});
+    if (newPassword !== confirmPassword) {
+        throw new ApiError(400, "New password and confirm password do not match");
+    }
 
-        if(!user) {
-            throw new ApiError(404, "No user found with this OTP");
-        }
+    const user = await User.findOne({ passwordResetOTP: otp });
 
-        if(!user.passwordResetOTPExpiry || user.passwordResetOTPExpiry < new Date()) {
-            throw new ApiError(400, "OTP has expired");
-        }
+    if (!user) {
+        throw new ApiError(404, "No user found with this OTP");
+    }
 
-        user.password = newPassword;
-        user.passwordResetOTP = undefined;
-        user.passwordResetOTPExpiry = undefined;
+    if (!user.passwordResetOTPExpiry || user.passwordResetOTPExpiry < new Date()) {
+        throw new ApiError(400, "OTP has expired");
+    }
 
-        await user.save({ validateBeforeSave: false });
+    user.password = newPassword;
+    user.passwordResetOTP = undefined;
+    user.passwordResetOTPExpiry = undefined;
 
-        return res 
-            .status(200)
-            .json(new ApiResponse(200, {}, "Password reset successfully"));
+    await user.save({ validateBeforeSave: false });
 
-    })
+    return res
+        .status(200)
+        .json(new ApiResponse(200, {}, "Password reset successfully"));
+
+})
 
 export {
     registerUser,

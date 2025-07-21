@@ -3,6 +3,7 @@ import { User } from '../models/user.models.js';
 import Story from '../models/story.models.js';
 import { ApiResponse } from '../utlis/ApiResponse.js';
 import { ApiError } from '../utlis/ApiError.js';
+import Comment from '../models/comment.models.js';
 
 export const getHomeFeed = async (req, res) => {
     try {
@@ -118,6 +119,58 @@ export const getHomeFeed = async (req, res) => {
         const skip = (page - 1) * limit;
         const paginatedFeed = rankedFeed.slice(skip, skip + limit);
 
+        // Fetch comments for each post in the paginated feed
+        const feedWithComments = await Promise.all(
+            paginatedFeed.map(async post => {
+                // Top-level comments
+                const comments = await Comment.find({
+                    postId: post._id,
+                    parentCommentId: null,
+                    isDeleted: false
+                })
+                    .sort({ createdAt: 1 })
+                    .populate('userId', 'username profileImageUrl')
+                    .select('_id content userId createdAt');
+
+                // For each comment, fetch replies
+                const commentsWithReplies = await Promise.all(
+                    comments.map(async c => {
+                        const replies = await Comment.find({
+                            parentCommentId: c._id,
+                            isDeleted: false
+                        })
+                            .sort({ createdAt: 1 })
+                            .populate('userId', 'username profileImageUrl')
+                            .select('_id content userId createdAt');
+                        return {
+                            commentId: c._id,
+                            content: c.content,
+                            createdAt: c.createdAt,
+                            user: c.userId ? {
+                                _id: c.userId._id,
+                                username: c.userId.username,
+                                profileImageUrl: c.userId.profileImageUrl
+                            } : null,
+                            replies: replies.map(r => ({
+                                commentId: r._id,
+                                content: r.content,
+                                createdAt: r.createdAt,
+                                user: r.userId ? {
+                                    _id: r.userId._id,
+                                    username: r.userId.username,
+                                    profileImageUrl: r.userId.profileImageUrl
+                                } : null
+                            }))
+                        };
+                    })
+                );
+                return {
+                    ...post,
+                    comments: commentsWithReplies
+                };
+            })
+        );
+
         // ✅ 7. Get stories from self + following (not followers)
         const storyUserIds = [userId, ...following];
         const stories = await Story.find({
@@ -132,7 +185,7 @@ export const getHomeFeed = async (req, res) => {
         return res.status(200).json(
             new ApiResponse(200, {
                 stories,
-                feed: paginatedFeed,
+                feed: feedWithComments,
                 pagination: {
                     page,
                     limit,
