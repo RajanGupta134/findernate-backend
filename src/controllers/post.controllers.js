@@ -67,18 +67,45 @@ export const createNormalPost = asyncHandler(async (req, res) => {
     for (const file of files) {
         try {
             const result = await uploadBufferToCloudinary(file.buffer, "posts");
-            uploadedMedia.push({
-                type: result.resource_type,
-                url: result.secure_url,
-                thumbnailUrl: result.secure_url,
-                fileSize: result.bytes,
-                format: result.format,
-                duration: result.duration || null,
-                dimensions: {
-                    width: result.width,
-                    height: result.height,
-                },
-            });
+            if (result.resource_type === "image") {
+                const thumbnailUrl = result.secure_url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+                uploadedMedia.push({
+                    type: result.resource_type,
+                    url: result.secure_url,
+                    thumbnailUrl,
+                    fileSize: result.bytes,
+                    format: result.format,
+                    duration: result.duration || null,
+                    dimensions: {
+                        width: result.width,
+                        height: result.height,
+                    },
+                });
+            } else if (result.resource_type === "video") {
+                let thumbnailUrl;
+                const customThumbnail = req.files?.thumbnail?.[0];
+                if (customThumbnail) {
+                    const thumbResult = await uploadBufferToCloudinary(customThumbnail.buffer, "posts");
+                    thumbnailUrl = thumbResult.secure_url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+                } else {
+                    // Generate Cloudinary thumbnail from video URL (first frame, 300x300 crop)
+                    thumbnailUrl = result.secure_url
+                        .replace('/upload/', '/upload/w_300,h_300,c_fill,so_1/')
+                        .replace(/\.(mp4|mov|webm)$/i, '.jpg');
+                }
+                uploadedMedia.push({
+                    type: result.resource_type,
+                    url: result.secure_url,
+                    thumbnailUrl,
+                    fileSize: result.bytes,
+                    format: result.format,
+                    duration: result.duration || null,
+                    dimensions: {
+                        width: result.width,
+                        height: result.height,
+                    },
+                });
+            }
         } catch {
             throw new ApiError(500, "Cloudinary upload failed");
         }
@@ -166,18 +193,45 @@ export const createProductPost = asyncHandler(async (req, res) => {
         try {
 
             const result = await uploadBufferToCloudinary(file.buffer, "posts");
-            uploadedMedia.push({
-                type: result.resource_type,
-                url: result.secure_url,
-                thumbnailUrl: result.secure_url,
-                fileSize: result.bytes,
-                format: result.format,
-                duration: result.duration || null,
-                dimensions: {
-                    width: result.width,
-                    height: result.height,
-                },
-            });
+            if (result.resource_type === "image") {
+                const thumbnailUrl = result.secure_url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+                uploadedMedia.push({
+                    type: result.resource_type,
+                    url: result.secure_url,
+                    thumbnailUrl,
+                    fileSize: result.bytes,
+                    format: result.format,
+                    duration: result.duration || null,
+                    dimensions: {
+                        width: result.width,
+                        height: result.height,
+                    },
+                });
+            } else if (result.resource_type === "video") {
+                let thumbnailUrl;
+                const customThumbnail = req.files?.thumbnail?.[0];
+                if (customThumbnail) {
+                    const thumbResult = await uploadBufferToCloudinary(customThumbnail.buffer, "posts");
+                    thumbnailUrl = thumbResult.secure_url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+                } else {
+                    // Generate Cloudinary thumbnail from video URL (first frame, 300x300 crop)
+                    thumbnailUrl = result.secure_url
+                        .replace('/upload/', '/upload/w_300,h_300,c_fill,so_1/')
+                        .replace(/\.(mp4|mov|webm)$/i, '.jpg');
+                }
+                uploadedMedia.push({
+                    type: result.resource_type,
+                    url: result.secure_url,
+                    thumbnailUrl,
+                    fileSize: result.bytes,
+                    format: result.format,
+                    duration: result.duration || null,
+                    dimensions: {
+                        width: result.width,
+                        height: result.height,
+                    },
+                });
+            }
         } catch (error) {
             console.error("Upload failed for:", file.originalname, error);
             throw new ApiError(500, "Cloudinary upload failed");
@@ -268,18 +322,45 @@ export const createServicePost = asyncHandler(async (req, res) => {
     for (const file of files) {
         try {
             const result = await uploadBufferToCloudinary(file.buffer, "posts");
-            uploadedMedia.push({
-                type: result.resource_type,
-                url: result.secure_url,
-                thumbnailUrl: result.secure_url,
-                fileSize: result.bytes,
-                format: result.format,
-                duration: result.duration || null,
-                dimensions: {
-                    width: result.width,
-                    height: result.height,
-                },
-            });
+            if (result.resource_type === "image") {
+                const thumbnailUrl = result.secure_url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+                uploadedMedia.push({
+                    type: result.resource_type,
+                    url: result.secure_url,
+                    thumbnailUrl,
+                    fileSize: result.bytes,
+                    format: result.format,
+                    duration: result.duration || null,
+                    dimensions: {
+                        width: result.width,
+                        height: result.height,
+                    },
+                });
+            } else if (result.resource_type === "video") {
+                let thumbnailUrl;
+                const customThumbnail = req.files?.thumbnail?.[0];
+                if (customThumbnail) {
+                    const thumbResult = await uploadBufferToCloudinary(customThumbnail.buffer, "posts");
+                    thumbnailUrl = thumbResult.secure_url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+                } else {
+                    // Generate Cloudinary thumbnail from video URL (first frame, 300x300 crop)
+                    thumbnailUrl = result.secure_url
+                        .replace('/upload/', '/upload/w_300,h_300,c_fill,so_1/')
+                        .replace(/\.(mp4|mov|webm)$/i, '.jpg');
+                }
+                uploadedMedia.push({
+                    type: result.resource_type,
+                    url: result.secure_url,
+                    thumbnailUrl,
+                    fileSize: result.bytes,
+                    format: result.format,
+                    duration: result.duration || null,
+                    dimensions: {
+                        width: result.width,
+                        height: result.height,
+                    },
+                });
+            }
         } catch {
             throw new ApiError(500, "Cloudinary upload failed");
         }
@@ -369,18 +450,45 @@ export const createBusinessPost = asyncHandler(async (req, res) => {
     for (const file of files) {
         try {
             const result = await uploadBufferToCloudinary(file.buffer, "posts");
-            uploadedMedia.push({
-                type: result.resource_type,
-                url: result.secure_url,
-                thumbnailUrl: result.secure_url,
-                fileSize: result.bytes,
-                format: result.format,
-                duration: result.duration || null,
-                dimensions: {
-                    width: result.width,
-                    height: result.height,
-                },
-            });
+            if (result.resource_type === "image") {
+                const thumbnailUrl = result.secure_url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+                uploadedMedia.push({
+                    type: result.resource_type,
+                    url: result.secure_url,
+                    thumbnailUrl,
+                    fileSize: result.bytes,
+                    format: result.format,
+                    duration: result.duration || null,
+                    dimensions: {
+                        width: result.width,
+                        height: result.height,
+                    },
+                });
+            } else if (result.resource_type === "video") {
+                let thumbnailUrl;
+                const customThumbnail = req.files?.thumbnail?.[0];
+                if (customThumbnail) {
+                    const thumbResult = await uploadBufferToCloudinary(customThumbnail.buffer, "posts");
+                    thumbnailUrl = thumbResult.secure_url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+                } else {
+                    // Generate Cloudinary thumbnail from video URL (first frame, 300x300 crop)
+                    thumbnailUrl = result.secure_url
+                        .replace('/upload/', '/upload/w_300,h_300,c_fill,so_1/')
+                        .replace(/\.(mp4|mov|webm)$/i, '.jpg');
+                }
+                uploadedMedia.push({
+                    type: result.resource_type,
+                    url: result.secure_url,
+                    thumbnailUrl,
+                    fileSize: result.bytes,
+                    format: result.format,
+                    duration: result.duration || null,
+                    dimensions: {
+                        width: result.width,
+                        height: result.height,
+                    },
+                });
+            }
         } catch {
             throw new ApiError(500, "Cloudinary upload failed");
         }
@@ -530,11 +638,11 @@ export const getMyPosts = asyncHandler(async (req, res) => {
     const filter = { userId };
 
     if (postType) {
-        filter.postType = postType; // e.g., photo, video, reel, story
+        filter.postType = postType;
     }
 
     if (contentType) {
-        filter.contentType = contentType; // e.g., normal, product, service, business
+        filter.contentType = contentType;
     }
 
     const posts = await Post.find(filter)
@@ -544,12 +652,36 @@ export const getMyPosts = asyncHandler(async (req, res) => {
 
     const total = await Post.countDocuments(filter);
 
+    // Ensure thumbnailUrl is always present in media array, and generate for videos if missing
+    const postsWithThumbnails = posts.map(post => {
+        const postObj = post.toObject();
+        postObj.media = (postObj.media || []).map(media => {
+            let thumbnailUrl = media.thumbnailUrl ?? null;
+            if (
+                media.type === "video" &&
+                (!thumbnailUrl || thumbnailUrl === "null") &&
+                typeof media.url === "string"
+            ) {
+                // Generate Cloudinary thumbnail from video URL (first frame, 300x300 crop)
+                // Example: .../upload/ -> .../upload/w_300,h_300,c_fill,so_1/ and .mp4 -> .jpg
+                thumbnailUrl = media.url
+                    .replace('/upload/', '/upload/w_300,h_300,c_fill,so_1/')
+                    .replace(/\.(mp4|mov|webm)$/i, '.jpg');
+            }
+            return {
+                ...media,
+                thumbnailUrl
+            };
+        });
+        return postObj;
+    });
+
     return res.status(200).json(
         new ApiResponse(200, {
             totalPosts: total,
             page: Number(page),
             totalPages: Math.ceil(total / limit),
-            posts
+            posts: postsWithThumbnails
         }, "User posts fetched successfully")
     );
 });

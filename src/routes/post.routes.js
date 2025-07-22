@@ -23,6 +23,7 @@ const mediaUpload = upload.fields([
     { name: "video", maxCount: 10 },
     { name: "reel", maxCount: 10 },
     { name: "story", maxCount: 10 },
+    { name: "thumbnail", maxCount: 1 },
 ]);
 
 router.route("/create/normal").post(mediaUpload, verifyJWT, createNormalPost);
