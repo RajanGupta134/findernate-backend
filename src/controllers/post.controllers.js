@@ -509,3 +509,84 @@ export const schedulePost = asyncHandler(async (req, res) => {
 
     return res.status(200).json(new ApiResponse(200, post, "Post scheduled successfully"));
 });
+
+// Get user profile posts with filters
+export const getUserProfilePosts = asyncHandler(async (req, res) => {
+    const { userId } = req.params;
+    const { postType, contentType, page = 1, limit = 20, sortBy = 'createdAt', sortOrder = 'desc' } = req.query;
+
+    if (!userId) {
+        throw new ApiError(400, "User ID is required");
+    }
+
+    // Build filter object
+    const filter = { 
+        userId,
+        status: { $in: ['published', 'scheduled'] } // Only show published or scheduled posts
+    };
+
+    // Apply post type filter (photo, reel, video)
+    if (postType) {
+        const validPostTypes = ['photo', 'reel', 'video'];
+        if (!validPostTypes.includes(postType.toLowerCase())) {
+            throw new ApiError(400, "Invalid post type. Must be one of: photo, reel, video");
+        }
+        filter.postType = postType.toLowerCase();
+    }
+
+    // Apply content type filter (normal, business, product, service)
+    if (contentType) {
+        const validContentTypes = ['normal', 'business', 'product', 'service'];
+        if (!validContentTypes.includes(contentType.toLowerCase())) {
+            throw new ApiError(400, "Invalid content type. Must be one of: normal, business, product, service");
+        }
+        filter.contentType = contentType.toLowerCase();
+    }
+
+    // Calculate pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const sortDirection = sortOrder === 'asc' ? 1 : -1;
+    const sortObj = { [sortBy]: sortDirection };
+
+    try {
+        // Get posts with pagination
+        const posts = await Post.find(filter)
+            .populate('userId', 'username profilePicture fullName isVerified')
+            .populate('mentions', 'username fullName profilePicture')
+            .sort(sortObj)
+            .skip(skip)
+            .limit(parseInt(limit))
+            .lean();
+
+        // Get total count for pagination info
+        const totalPosts = await Post.countDocuments(filter);
+        const totalPages = Math.ceil(totalPosts / parseInt(limit));
+        const hasNextPage = parseInt(page) < totalPages;
+        const hasPrevPage = parseInt(page) > 1;
+
+        // Prepare response with pagination metadata
+        const response = {
+            posts,
+            pagination: {
+                currentPage: parseInt(page),
+                totalPages,
+                totalPosts,
+                hasNextPage,
+                hasPrevPage,
+                limit: parseInt(limit)
+            },
+            filters: {
+                postType: postType || 'all',
+                contentType: contentType || 'all'
+            }
+        };
+
+        return res.status(200).json(
+            new ApiResponse(200, response, "User profile posts fetched successfully")
+        );
+
+    } catch (error) {
+        console.error("Error fetching user profile posts:", error);
+        throw new ApiError(500, "Failed to fetch user profile posts");
+    }
+});
