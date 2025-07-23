@@ -7,6 +7,7 @@ import {
     createProductPost,
     createServicePost,
     createBusinessPost,
+    getUserProfilePosts,
     getMyPosts,
 } from "../controllers/post.controllers.js";
 import { getHomeFeed } from "../controllers/homeFeed.controllers.js";
@@ -30,7 +31,7 @@ router.route("/create/normal").post(mediaUpload, verifyJWT, createNormalPost);
 router.route("/create/service").post(mediaUpload, verifyJWT, createServicePost);
 router.route("/create/product").post(mediaUpload, verifyJWT, createProductPost);
 router.route("/create/business").post(mediaUpload, verifyJWT, createBusinessPost);
-
+router.route("/user/:userId/profile").get(verifyJWT, getUserProfilePosts);
 router.route("/home-feed").get(verifyJWT, getHomeFeed);
 router.route("/myPosts").get(verifyJWT, getMyPosts);
 router.route("/notifications").get(verifyJWT, getNotifications);

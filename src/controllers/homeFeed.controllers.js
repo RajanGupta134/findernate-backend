@@ -323,6 +323,31 @@ export const getHomeFeed = async (req, res) => {
                 seen.add(id);
                 return true;
             });
+            
+            //Feed Shuffler based on Math.random()
+            function shuffleArray(arr){
+                return arr
+                       .map(value =>({value, sort:Math.random()}))
+                       .sort((a,b) => a.sort - b.sort)
+                       .map(({value}) => value);
+            }
+            // Seperate the Follwed Posts from Others
+            const followedUserIds = new Set(following.map(id => id.toString()));
+            const followedFeed = deduplicated
+                                 .filter(post => followedUserIds.has(post.userId._id.toString()))
+                                 .sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+
+            let otherFeed = deduplicated.filter(post => !followedUserIds.has(post.userId._id.toString()));
+
+            if(followedUserIds.size === 0){
+                otherFeed = shuffleArray([...followedFeed, ...otherFeed]);
+                followedFeed.length = 0;
+            } else{
+                otherFeed = shuffleArray(otherFeed)
+            }
+
+        const rankedFeed = [...followedFeed, ...otherFeed];
 
         const rankedFeed = shuffleArray(deduplicated);
 
