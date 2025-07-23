@@ -7,8 +7,8 @@ import {
     createProductPost,
     createServicePost,
     createBusinessPost,
-    getMyPosts,
     getUserProfilePosts,
+    getMyPosts,
 } from "../controllers/post.controllers.js";
 import { getHomeFeed } from "../controllers/homeFeed.controllers.js";
 import { likePost, unlikePost, likeComment, unlikeComment } from "../controllers/like.controllers.js";
@@ -34,7 +34,6 @@ router.route("/create/product").post(mediaUpload, verifyJWT, createProductPost);
 router.route("/create/business").post(mediaUpload, verifyJWT, createBusinessPost);
 router.route("/user/:userId/profile").get(verifyJWT, getUserProfilePosts);
 router.route("/switch/profile/:userId").get(verifyJWT, getProfileTabContent);
-
 router.route("/home-feed").get(verifyJWT, getHomeFeed);
 router.route("/myPosts").get(verifyJWT, getMyPosts);
 router.route("/notifications").get(verifyJWT, getNotifications);

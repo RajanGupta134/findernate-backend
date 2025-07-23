@@ -629,6 +629,7 @@ export const schedulePost = asyncHandler(async (req, res) => {
 
     return res.status(200).json(new ApiResponse(200, post, "Post scheduled successfully"));
 });
+
 export const getMyPosts = asyncHandler(async (req, res) => {
     const userId = req.user?._id;
     if (!userId) throw new ApiError(401, "Unauthorized: User ID missing");
