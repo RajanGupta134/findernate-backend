@@ -8,13 +8,14 @@ import { getCoordinates } from '../utlis/getCoordinates.js';
 export const searchAllContent = async (req, res) => {
     try {
         const {
-            q,                     // search query
-            contentType,           // optional filter: 'normal', 'reel', etc.
+            q,
+            contentType,
+            postType,
             startDate,
             endDate,
-            coordinates,           // format: 'lng,lat' (from frontend for "Near me")
-            distance,              // in kilometers
-            near,                  // place name for "Near [place]"
+            coordinates,
+            distance,
+            near,
             page = 1,
             limit = 20
         } = req.query;
@@ -24,6 +25,13 @@ export const searchAllContent = async (req, res) => {
         const searchRegex = new RegExp(q, 'i');
         const skip = (page - 1) * limit;
 
+        // 🔍 Parse postType (can be comma-separated)
+        let postTypeArray = [];
+        if (postType) {
+            postTypeArray = postType.split(',').map(type => type.trim());
+        }
+
+        // 🔎 Base Post filters
         const basePostFilters = {
             $or: [
                 { caption: searchRegex },
@@ -44,26 +52,30 @@ export const searchAllContent = async (req, res) => {
             contentType: { $in: ['normal', 'service', 'product', 'business'] }
         };
 
+        // Filter by contentType
         if (contentType && contentType !== 'reel') {
             basePostFilters.contentType = contentType;
         }
 
-        // 📅 Date filter
+        // Filter by postType if provided
+        if (postTypeArray.length > 0) {
+            basePostFilters.postType = { $in: postTypeArray };
+        }
+
+        // 📅 Date filtering
         if (startDate || endDate) {
             basePostFilters.createdAt = {};
             if (startDate) basePostFilters.createdAt.$gte = new Date(startDate);
             if (endDate) basePostFilters.createdAt.$lte = new Date(endDate);
         }
 
-        // 📍 Location filter: "Near me" (coordinates from frontend) or "Near [place]" (geocoded)
+        // 📍 Location filtering
         let lng, lat;
         let useLocationFilter = false;
         if (coordinates && distance) {
-            // Near me: coordinates from frontend
             [lng, lat] = coordinates.split(',').map(Number);
             useLocationFilter = true;
         } else if (near && distance) {
-            // Near [place]: geocode the place name
             const geo = await getCoordinates(near);
             if (geo && geo.longitude && geo.latitude) {
                 lng = geo.longitude;
@@ -96,7 +108,7 @@ export const searchAllContent = async (req, res) => {
             }));
         }
 
-        // 📥 Fetch Posts with popularity scoring
+        // 📥 Fetch Posts
         const rawPosts = await Post.find(basePostFilters)
             .populate('userId', 'username profileImageUrl')
             .lean();
@@ -124,7 +136,7 @@ export const searchAllContent = async (req, res) => {
             };
         });
 
-        // 📥 Fetch Reels if requested or by default
+        // 📥 Fetch Reels
         let scoredReels = [];
         if (!contentType || contentType === 'reel') {
             const reelFilters = {
@@ -133,6 +145,10 @@ export const searchAllContent = async (req, res) => {
                     { hashtags: searchRegex }
                 ]
             };
+
+            if (postTypeArray.length > 0) {
+                reelFilters.postType = { $in: postTypeArray };
+            }
 
             if (startDate || endDate) {
                 reelFilters.createdAt = {};
@@ -160,13 +176,13 @@ export const searchAllContent = async (req, res) => {
             });
         }
 
-        // 🧠 Merge and sort by score
+        // 🧠 Merge + sort
         const combinedContent = [...scoredPosts, ...scoredReels]
             .sort((a, b) => b._score - a._score);
 
         const paginatedContent = combinedContent.slice(skip, skip + limit);
 
-        // 🧑 Fetch related users
+        // 👤 Search Users
         const users = await User.find({
             $or: [
                 { username: searchRegex },

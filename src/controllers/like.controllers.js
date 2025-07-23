@@ -5,6 +5,7 @@ import Like from "../models/like.models.js";
 import Post from "../models/userPost.models.js";
 import Comment from "../models/comment.models.js";
 import { createLikeNotification } from "./notification.controllers.js";
+import { createUnlikeNotification } from "./notification.controllers.js";
 
 // Like a post
 export const likePost = asyncHandler(async (req, res) => {
@@ -20,7 +21,18 @@ export const likePost = asyncHandler(async (req, res) => {
         if (post && post.userId.toString() !== userId.toString()) {
             await createLikeNotification({ recipientId: post.userId, sourceUserId: userId, postId });
         }
-        return res.status(200).json(new ApiResponse(200, null, "Post liked successfully"));
+        // Return updated likedBy and isLikedBy
+        const likes = await Like.find({ postId }).lean();
+        const userIds = likes.map(like => like.userId.toString());
+        let users = [];
+        if (userIds.length > 0) {
+            users = await Post.db.model('User').find(
+                { _id: { $in: userIds } },
+                'username profileImageUrl fullName isVerified'
+            ).lean();
+        }
+        const isLikedBy = userIds.includes(userId.toString());
+        return res.status(200).json(new ApiResponse(200, { likedBy: users, isLikedBy }, "Post liked successfully"));
     } catch (err) {
         if (err.code === 11000) {
             throw new ApiError(409, "You have already liked this post");
@@ -38,7 +50,23 @@ export const unlikePost = asyncHandler(async (req, res) => {
     const like = await Like.findOneAndDelete({ userId, postId });
     if (like) {
         await Post.findByIdAndUpdate(postId, { $inc: { "engagement.likes": -1 } });
-        return res.status(200).json(new ApiResponse(200, null, "Post unliked successfully"));
+        // Notify post owner (if not self)
+        const post = await Post.findById(postId).select("userId");
+        if (post && post.userId.toString() !== userId.toString()) {
+            await createUnlikeNotification({ recipientId: post.userId, sourceUserId: userId, postId });
+        }
+        // Return updated likedBy and isLikedBy
+        const likes = await Like.find({ postId }).lean();
+        const userIds = likes.map(like => like.userId.toString());
+        let users = [];
+        if (userIds.length > 0) {
+            users = await Post.db.model('User').find(
+                { _id: { $in: userIds } },
+                'username profileImageUrl fullName isVerified'
+            ).lean();
+        }
+        const isLikedBy = userIds.includes(userId.toString());
+        return res.status(200).json(new ApiResponse(200, { likedBy: users, isLikedBy }, "Post unliked successfully"));
     } else {
         throw new ApiError(404, "Like not found for this post");
     }
@@ -58,7 +86,18 @@ export const likeComment = asyncHandler(async (req, res) => {
         if (comment && comment.userId.toString() !== userId.toString()) {
             await createLikeNotification({ recipientId: comment.userId, sourceUserId: userId, commentId, postId: comment.postId });
         }
-        return res.status(200).json(new ApiResponse(200, null, "Comment liked successfully"));
+        // Return updated likedBy and isLikedBy
+        const likes = await Like.find({ commentId }).lean();
+        const userIds = likes.map(like => like.userId.toString());
+        let users = [];
+        if (userIds.length > 0) {
+            users = await Post.db.model('User').find(
+                { _id: { $in: userIds } },
+                'username profileImageUrl fullName isVerified'
+            ).lean();
+        }
+        const isLikedBy = userIds.includes(userId.toString());
+        return res.status(200).json(new ApiResponse(200, { likedBy: users, isLikedBy }, "Comment liked successfully"));
     } catch (err) {
         if (err.code === 11000) {
             throw new ApiError(409, "You have already liked this comment");
@@ -76,7 +115,23 @@ export const unlikeComment = asyncHandler(async (req, res) => {
     const like = await Like.findOneAndDelete({ userId, commentId });
     if (like) {
         await Comment.findByIdAndUpdate(commentId, { $pull: { likes: userId } });
-        return res.status(200).json(new ApiResponse(200, null, "Comment unliked successfully"));
+        // Notify comment owner (if not self)
+        const comment = await Comment.findById(commentId).select("userId postId");
+        if (comment && comment.userId.toString() !== userId.toString()) {
+            await createUnlikeNotification({ recipientId: comment.userId, sourceUserId: userId, commentId, postId: comment.postId });
+        }
+        // Return updated likedBy and isLikedBy
+        const likes = await Like.find({ commentId }).lean();
+        const userIds = likes.map(like => like.userId.toString());
+        let users = [];
+        if (userIds.length > 0) {
+            users = await Post.db.model('User').find(
+                { _id: { $in: userIds } },
+                'username profileImageUrl fullName isVerified'
+            ).lean();
+        }
+        const isLikedBy = userIds.includes(userId.toString());
+        return res.status(200).json(new ApiResponse(200, { likedBy: users, isLikedBy }, "Comment unliked successfully"));
     } else {
         throw new ApiError(404, "Like not found for this comment");
     }

@@ -75,6 +75,31 @@ export const createFollowNotification = asyncHandler(async ({ recipientId, sourc
     sendRealTimeNotification(recipientId, notification);
 });
 
+// 🔴 Unlike Notification
+export const createUnlikeNotification = asyncHandler(async ({ recipientId, sourceUserId, postId, commentId }) => {
+    if (!recipientId || !sourceUserId) {
+        throw new ApiError(400, "recipientId and sourceUserId are required");
+    }
+
+    const type = "unlike";
+    const message = commentId ? "Someone unliked your comment" : "Someone unliked your post";
+
+    if (!postId && !commentId) {
+        throw new ApiError(400, "Either postId or commentId is required");
+    }
+
+    const notification = await Notification.create({
+        receiverId: recipientId,
+        type,
+        senderId: sourceUserId,
+        postId,
+        commentId,
+        message
+    });
+
+    sendRealTimeNotification(recipientId, notification);
+});
+
 // 📥 Get Logged-in User's Notifications
 export const getNotifications = asyncHandler(async (req, res) => {
     const receiverId = req.user._id;

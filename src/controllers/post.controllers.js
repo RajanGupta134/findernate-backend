@@ -633,7 +633,11 @@ export const getMyPosts = asyncHandler(async (req, res) => {
     const userId = req.user?._id;
     if (!userId) throw new ApiError(401, "Unauthorized: User ID missing");
 
-    const { postType, contentType, page = 1, limit = 10 } = req.query;
+    const { postType, contentType } = req.query;
+    let { page, limit } = req.query;
+
+    page = parseInt(page) > 0 ? parseInt(page) : 1;
+    limit = parseInt(limit) > 0 ? parseInt(limit) : 10;
 
     const filter = { userId };
 
@@ -648,11 +652,10 @@ export const getMyPosts = asyncHandler(async (req, res) => {
     const posts = await Post.find(filter)
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
-        .limit(Number(limit));
+        .limit(limit);
 
     const total = await Post.countDocuments(filter);
 
-    // Ensure thumbnailUrl is always present in media array, and generate for videos if missing
     const postsWithThumbnails = posts.map(post => {
         const postObj = post.toObject();
         postObj.media = (postObj.media || []).map(media => {
@@ -662,8 +665,6 @@ export const getMyPosts = asyncHandler(async (req, res) => {
                 (!thumbnailUrl || thumbnailUrl === "null") &&
                 typeof media.url === "string"
             ) {
-                // Generate Cloudinary thumbnail from video URL (first frame, 300x300 crop)
-                // Example: .../upload/ -> .../upload/w_300,h_300,c_fill,so_1/ and .mp4 -> .jpg
                 thumbnailUrl = media.url
                     .replace('/upload/', '/upload/w_300,h_300,c_fill,so_1/')
                     .replace(/\.(mp4|mov|webm)$/i, '.jpg');
@@ -676,83 +677,157 @@ export const getMyPosts = asyncHandler(async (req, res) => {
         return postObj;
     });
 
+    // Enhancement: Add isLikedBy and likedBy fields (like getUserProfilePosts)
+    const currentUserId = req.user?._id?.toString();
+    const postIds = postsWithThumbnails.map(post => post._id.toString());
+    const likes = await Like.find({ postId: { $in: postIds } }).lean();
+    // Map postId to array of userIds who liked it
+    const likesByPost = {};
+    likes.forEach(like => {
+        const pid = like.postId.toString();
+        if (!likesByPost[pid]) likesByPost[pid] = [];
+        likesByPost[pid].push(like.userId.toString());
+    });
+    // Fetch user details for all liked users
+    const allLikedUserIds = Array.from(new Set(likes.flatMap(like => like.userId.toString())));
+    let likedUsersMap = {};
+    if (allLikedUserIds.length > 0) {
+        const likedUsers = await Post.db.model('User').find(
+            { _id: { $in: allLikedUserIds } },
+            'username profileImageUrl fullName isVerified'
+        ).lean();
+        likedUsersMap = likedUsers.reduce((acc, user) => {
+            acc[user._id.toString()] = user;
+            return acc;
+        }, {});
+    }
+    postsWithThumbnails.forEach(post => {
+        const pid = post._id.toString();
+        const likedByIds = likesByPost[pid] || [];
+        post.likedBy = likedByIds.map(uid => likedUsersMap[uid]).filter(Boolean); // array of user details
+        post.isLikedBy = currentUserId ? likedByIds.includes(currentUserId) : false;
+    });
+
     return res.status(200).json(
         new ApiResponse(200, {
             totalPosts: total,
-            page: Number(page),
+            page,
             totalPages: Math.ceil(total / limit),
             posts: postsWithThumbnails
         }, "User posts fetched successfully")
     );
 });
 
-// Like a post
-export const likePost = asyncHandler(async (req, res) => {
-    const userId = req.user._id;
-    const { postId } = req.body;
-    if (!postId) throw new ApiError(400, "postId is required");
 
-    // Try to create a like (will fail if duplicate due to unique index)
-    try {
-        await Like.create({ userId, postId });
-        // Optionally increment like count on post
-        await Post.findByIdAndUpdate(postId, { $inc: { "engagement.likes": 1 } });
-        return res.status(200).json(new ApiResponse(200, null, "Post liked successfully"));
-    } catch (err) {
-        if (err.code === 11000) {
-            throw new ApiError(409, "You have already liked this post");
+export const getUserProfilePosts = asyncHandler(async (req, res) => {
+    const { userId } = req.params;
+    const {
+        postType,
+        contentType,
+        page,
+        limit,
+        sortBy = 'createdAt',
+        sortOrder = 'desc'
+    } = req.query;
+
+    if (!userId) {
+        throw new ApiError(400, "User ID is required");
+    }
+
+    // Parse pagination values or use defaults
+    const currentPage = parseInt(page) || 1;
+    const pageLimit = parseInt(limit) || 20;
+    const skip = (currentPage - 1) * pageLimit;
+
+    const sortDirection = sortOrder === 'asc' ? 1 : -1;
+    const sortObj = { [sortBy]: sortDirection };
+
+    // Build filter object
+    const filter = {
+        userId,
+        status: { $in: ['published', 'scheduled'] }
+    };
+
+    if (postType) {
+        const validPostTypes = ['photo', 'reel', 'video'];
+        if (!validPostTypes.includes(postType.toLowerCase())) {
+            throw new ApiError(400, "Invalid post type. Must be one of: photo, reel, video");
         }
-        throw err;
+        filter.postType = postType.toLowerCase();
     }
-});
 
-// Unlike a post
-export const unlikePost = asyncHandler(async (req, res) => {
-    const userId = req.user._id;
-    const { postId } = req.body;
-    if (!postId) throw new ApiError(400, "postId is required");
-
-    const like = await Like.findOneAndDelete({ userId, postId });
-    if (like) {
-        await Post.findByIdAndUpdate(postId, { $inc: { "engagement.likes": -1 } });
-        return res.status(200).json(new ApiResponse(200, null, "Post unliked successfully"));
-    } else {
-        throw new ApiError(404, "Like not found for this post");
+    if (contentType) {
+        const validContentTypes = ['normal', 'business', 'product', 'service'];
+        if (!validContentTypes.includes(contentType.toLowerCase())) {
+            throw new ApiError(400, "Invalid content type. Must be one of: normal, business, product, service");
+        }
+        filter.contentType = contentType.toLowerCase();
     }
-});
-
-// Like a comment
-export const likeComment = asyncHandler(async (req, res) => {
-    const userId = req.user._id;
-    const { commentId } = req.body;
-    if (!commentId) throw new ApiError(400, "commentId is required");
 
     try {
-        await Like.create({ userId, commentId });
-        // Optionally add userId to comment.likes array
-        await Comment.findByIdAndUpdate(commentId, { $addToSet: { likes: userId } });
-        return res.status(200).json(new ApiResponse(200, null, "Comment liked successfully"));
-    } catch (err) {
-        if (err.code === 11000) {
-            throw new ApiError(409, "You have already liked this comment");
+        const posts = await Post.find(filter)
+            .populate('userId', 'username profilePicture fullName isVerified')
+            .populate('mentions', 'username fullName profilePicture')
+            .sort(sortObj)
+            .skip(skip)
+            .limit(pageLimit)
+            .lean();
+
+        const totalPosts = await Post.countDocuments(filter);
+        const totalPages = Math.ceil(totalPosts / pageLimit);
+
+        // Enhancement: Add isLikedBy and likedBy fields
+        const currentUserId = req.user?._id?.toString();
+        const postIds = posts.map(post => post._id);
+        // Fetch all likes for these posts
+        const likes = await Like.find({ postId: { $in: postIds } }).lean();
+        // Map postId to array of userIds who liked it
+        const likesByPost = {};
+        likes.forEach(like => {
+            const pid = like.postId.toString();
+            if (!likesByPost[pid]) likesByPost[pid] = [];
+            likesByPost[pid].push(like.userId.toString());
+        });
+        // Add isLikedBy and likedBy to each post
+        // Instead of just userIds, fetch user details for likedBy
+        const allLikedUserIds = Array.from(new Set(likes.flatMap(like => like.userId.toString())));
+        let likedUsersMap = {};
+        if (allLikedUserIds.length > 0) {
+            const likedUsers = await Post.db.model('User').find(
+                { _id: { $in: allLikedUserIds } },
+                'username profileImageUrl fullName isVerified'
+            ).lean();
+            likedUsersMap = likedUsers.reduce((acc, user) => {
+                acc[user._id.toString()] = user;
+                return acc;
+            }, {});
         }
-        throw err;
+        posts.forEach(post => {
+            const pid = post._id.toString();
+            const likedByIds = likesByPost[pid] || [];
+            post.likedBy = likedByIds.map(uid => likedUsersMap[uid]).filter(Boolean); // array of user details
+            post.isLikedBy = currentUserId ? likedByIds.includes(currentUserId) : false;
+        });
+
+        return res.status(200).json(
+            new ApiResponse(200, {
+                posts,
+                pagination: {
+                    currentPage,
+                    totalPages,
+                    totalPosts,
+                    hasNextPage: currentPage < totalPages,
+                    hasPrevPage: currentPage > 1,
+                    limit: pageLimit
+                },
+                filters: {
+                    postType: postType || 'all',
+                    contentType: contentType || 'all'
+                }
+            }, "User profile posts fetched successfully")
+        );
+    } catch (error) {
+        console.error("Error fetching user profile posts:", error);
+        throw new ApiError(500, "Failed to fetch user profile posts");
     }
 });
-
-// Unlike a comment
-export const unlikeComment = asyncHandler(async (req, res) => {
-    const userId = req.user._id;
-    const { commentId } = req.body;
-    if (!commentId) throw new ApiError(400, "commentId is required");
-
-    const like = await Like.findOneAndDelete({ userId, commentId });
-    if (like) {
-        // Optionally remove userId from comment.likes array
-        await Comment.findByIdAndUpdate(commentId, { $pull: { likes: userId } });
-        return res.status(200).json(new ApiResponse(200, null, "Comment unliked successfully"));
-    } else {
-        throw new ApiError(404, "Like not found for this comment");
-    }
-});
-

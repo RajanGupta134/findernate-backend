@@ -8,11 +8,13 @@ import {
     createServicePost,
     createBusinessPost,
     getMyPosts,
+    getUserProfilePosts,
 } from "../controllers/post.controllers.js";
 import { getHomeFeed } from "../controllers/homeFeed.controllers.js";
 import { likePost, unlikePost, likeComment, unlikeComment } from "../controllers/like.controllers.js";
-import {createComment, getCommentsByPost, getCommentById, updateComment, deleteComment } from "../controllers/comment.controllers.js";
+import { createComment, getCommentsByPost, getCommentById, updateComment, deleteComment } from "../controllers/comment.controllers.js";
 import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, deleteNotification } from "../controllers/notification.controllers.js";
+import { getProfileTabContent } from "../controllers/switch.controllers.js";
 
 
 const router = Router();
@@ -30,6 +32,8 @@ router.route("/create/normal").post(mediaUpload, verifyJWT, createNormalPost);
 router.route("/create/service").post(mediaUpload, verifyJWT, createServicePost);
 router.route("/create/product").post(mediaUpload, verifyJWT, createProductPost);
 router.route("/create/business").post(mediaUpload, verifyJWT, createBusinessPost);
+router.route("/user/:userId/profile").get(verifyJWT, getUserProfilePosts);
+router.route("/switch/profile/:userId").get(verifyJWT, getProfileTabContent);
 
 router.route("/home-feed").get(verifyJWT, getHomeFeed);
 router.route("/myPosts").get(verifyJWT, getMyPosts);
