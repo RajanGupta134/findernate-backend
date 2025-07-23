@@ -10,12 +10,13 @@ const LikeSchema = new mongoose.Schema({
     postId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Post',
-        required: true,
+        required: function () { return !this.commentId; }, // Only required if commentId is not present
         index: true
     },
     commentId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Comment',
+        required: function () { return !this.postId; }, // Only required if postId is not present
         default: null // Optional – supports likes on comments too
     },
     createdAt: {
