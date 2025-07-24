@@ -1,6 +1,7 @@
 import Post from '../models/userPost.models.js';
 import Reel from '../models/reels.models.js';
 import { User } from '../models/user.models.js';
+import SearchSuggestion from '../models/searchSuggestion.models.js';
 import { ApiResponse } from '../utlis/ApiResponse.js';
 import { ApiError } from '../utlis/ApiError.js';
 import { getCoordinates } from '../utlis/getCoordinates.js';
@@ -8,7 +9,7 @@ import { getCoordinates } from '../utlis/getCoordinates.js';
 export const searchAllContent = async (req, res) => {
     try {
         const {
-            q,                     // search query
+            searchTerm,            // search query (renamed from 'q')
             contentType,           // optional filter: 'normal', 'reel', etc.
             startDate,
             endDate,
@@ -19,9 +20,33 @@ export const searchAllContent = async (req, res) => {
             limit = 20
         } = req.query;
 
-        if (!q) throw new ApiError(400, "Search query 'q' is required");
+        if (!searchTerm) throw new ApiError(400, "Search term 'searchTerm' is required");
 
-        const searchRegex = new RegExp(q, 'i');
+        // Track search keyword if it's 3+ characters
+        if (searchTerm.trim().length >= 3) {
+            const normalizedKeyword = searchTerm.trim().toLowerCase();
+            try {
+                const existingSuggestion = await SearchSuggestion.findOne({ 
+                    keyword: normalizedKeyword 
+                });
+
+                if (existingSuggestion) {
+                    existingSuggestion.searchCount += 1;
+                    existingSuggestion.lastSearched = new Date();
+                    await existingSuggestion.save();
+                } else {
+                    await SearchSuggestion.create({
+                        keyword: normalizedKeyword,
+                        searchCount: 1,
+                        lastSearched: new Date()
+                    });
+                }
+            } catch (error) {
+                console.log('Error tracking search keyword:', error);
+            }
+        }
+
+        const searchRegex = new RegExp(searchTerm, 'i');
         const skip = (page - 1) * limit;
 
         const basePostFilters = {
@@ -177,17 +202,48 @@ export const searchAllContent = async (req, res) => {
             .limit(limit)
             .select('username fullName profileImageUrl');
 
+        const totalResults = combinedContent.length;
+        const totalUsers = users.length;
+        const currentPage = parseInt(page);
+        const itemsPerPage = parseInt(limit);
+        const totalPages = Math.ceil(totalResults / itemsPerPage);
+        const hasNextPage = currentPage < totalPages;
+        const hasPrevPage = currentPage > 1;
+        const startIndex = (currentPage - 1) * itemsPerPage + 1;
+        const endIndex = Math.min(currentPage * itemsPerPage, totalResults);
+
         return res.status(200).json(
             new ApiResponse(200, {
+                searchTerm,
                 results: paginatedContent,
                 users,
                 pagination: {
-                    page: parseInt(page),
-                    limit: parseInt(limit),
-                    total: combinedContent.length,
-                    totalPages: Math.ceil(combinedContent.length / limit)
+                    currentPage,
+                    itemsPerPage,
+                    totalResults,
+                    totalUsers,
+                    totalPages,
+                    hasNextPage,
+                    hasPrevPage,
+                    nextPage: hasNextPage ? currentPage + 1 : null,
+                    prevPage: hasPrevPage ? currentPage - 1 : null,
+                    startIndex: totalResults > 0 ? startIndex : 0,
+                    endIndex: totalResults > 0 ? endIndex : 0,
+                    resultRange: totalResults > 0 ? `${startIndex}-${endIndex} of ${totalResults}` : "0 of 0"
+                },
+                filters: {
+                    contentType: contentType || 'all',
+                    dateRange: {
+                        startDate: startDate || null,
+                        endDate: endDate || null
+                    },
+                    location: {
+                        coordinates: coordinates || null,
+                        near: near || null,
+                        distance: distance || null
+                    }
                 }
-            }, "Search results retrieved successfully")
+            }, `Found ${totalResults} content results and ${totalUsers} users for "${searchTerm}"`)
         );
 
     } catch (error) {
