@@ -349,7 +349,7 @@ export const getHomeFeed = async (req, res) => {
 
         const rankedFeed = [...followedFeed, ...otherFeed];
 
-        const rankedFeed = shuffleArray(deduplicated);
+        rankedFeed = shuffleArray(deduplicated);
 
         const page = parseInt(req.query.page, 10) || 1;
         const limit = parseInt(req.query.limit, 10) || 20;
