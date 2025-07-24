@@ -1,6 +1,7 @@
 import Post from '../models/userPost.models.js';
 import Reel from '../models/reels.models.js';
 import { User } from '../models/user.models.js';
+import SearchSuggestion from '../models/searchSuggestion.models.js';
 import { ApiResponse } from '../utlis/ApiResponse.js';
 import { ApiError } from '../utlis/ApiError.js';
 import { getCoordinates } from '../utlis/getCoordinates.js';
@@ -20,6 +21,30 @@ export const searchAllContent = async (req, res) => {
         } = req.query;
 
         if (!q) throw new ApiError(400, "Search query 'q' is required");
+
+        // Track search keyword if it's 3+ characters
+        if (q.trim().length >= 3) {
+            const normalizedKeyword = q.trim().toLowerCase();
+            try {
+                const existingSuggestion = await SearchSuggestion.findOne({ 
+                    keyword: normalizedKeyword 
+                });
+
+                if (existingSuggestion) {
+                    existingSuggestion.searchCount += 1;
+                    existingSuggestion.lastSearched = new Date();
+                    await existingSuggestion.save();
+                } else {
+                    await SearchSuggestion.create({
+                        keyword: normalizedKeyword,
+                        searchCount: 1,
+                        lastSearched: new Date()
+                    });
+                }
+            } catch (error) {
+                console.log('Error tracking search keyword:', error);
+            }
+        }
 
         const searchRegex = new RegExp(q, 'i');
         const skip = (page - 1) * limit;
