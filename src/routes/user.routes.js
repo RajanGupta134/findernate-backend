@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { upload } from "../middlewares/multerConfig.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
-import { loginUser, logOutUser, registerUser, verifyAndRegisterUser, getUserProfile, updateUserProfile, changePassword, deleteAccount, searchUsers, verifyEmailWithOTP, uploadProfileImage, sendVerificationOTPForEmail, sendPasswordResetOTP, resetPasswordWithOTP } from "../controllers/user.controllers.js";
+import { loginUser, logOutUser, registerUser, verifyAndRegisterUser, getUserProfile, updateUserProfile, changePassword, deleteAccount, searchUsers, verifyEmailWithOTP, uploadProfileImage, sendVerificationOTPForEmail, sendPasswordResetOTP, resetPasswordWithOTP, getOtherUserProfile } from "../controllers/user.controllers.js";
 import { searchAllContent } from "../controllers/searchAllContent.controllers.js";
 import { followUser, unfollowUser, getFollowers, getFollowing } from "../controllers/follower.controllers.js";
 import { getSearchSuggestions, trackSearchKeyword, getPopularSearches, clearSearchSuggestions } from "../controllers/searchSuggestion.controllers.js";
@@ -35,5 +35,8 @@ router.get("/search-suggestions", verifyJWT, getSearchSuggestions);
 router.post("/track-search", verifyJWT, trackSearchKeyword);
 router.get("/popular-searches", verifyJWT, getPopularSearches);
 router.delete("/search-suggestions", verifyJWT, clearSearchSuggestions);
+
+// Get other user profile by userId or username
+router.get("/profile/other", verifyJWT, getOtherUserProfile);
 
 export default router;
