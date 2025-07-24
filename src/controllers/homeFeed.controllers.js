@@ -5,14 +5,6 @@ import { ApiResponse } from '../utlis/ApiResponse.js';
 import { ApiError } from '../utlis/ApiError.js';
 import Comment from '../models/comment.models.js';
 
-// Helper function to shuffle array
-function shuffleArray(arr) {
-    return arr
-        .map(value => ({ value, sort: Math.random() }))
-        .sort((a, b) => a.sort - b.sort)
-        .map(({ value }) => value);
-}
-
 export const getHomeFeed = async (req, res) => {
     try {
         const userId = req.user._id;
@@ -25,6 +17,7 @@ export const getHomeFeed = async (req, res) => {
         const now = new Date();
         const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
+        // ✅ 1. Get following and followers
         const user = await User.findById(userId).select('following followers');
         const following = user?.following || [];
         const followers = user?.followers || [];
@@ -34,9 +27,11 @@ export const getHomeFeed = async (req, res) => {
             ...followers.map(id => id.toString())
         ])];
 
+        // ✅ 2. Base post filter
         const allowedTypes = ['normal', 'service', 'product', 'business'];
         const baseQuery = { contentType: { $in: allowedTypes } };
 
+        // ✅ 3a. Posts from followed/follower users
         const followedPosts = await Post.find({
             ...baseQuery,
             userId: { $in: feedUserIds }
@@ -45,6 +40,7 @@ export const getHomeFeed = async (req, res) => {
             .limit(FEED_LIMIT)
             .populate('userId', 'username profileImageUrl');
 
+        // ✅ 3b. Trending posts
         const trendingPosts = await Post.find({
             ...baseQuery,
             createdAt: { $gte: yesterday }
@@ -59,6 +55,7 @@ export const getHomeFeed = async (req, res) => {
             .limit(FEED_LIMIT)
             .populate('userId', 'username profileImageUrl');
 
+        // ✅ 3c. Nearby posts
         let nearbyPosts = [];
         if (userLocation && userLocation.coordinates) {
             nearbyPosts = await Post.find({
@@ -74,6 +71,7 @@ export const getHomeFeed = async (req, res) => {
                 .populate('userId', 'username profileImageUrl');
         }
 
+        //  3d. Non-followed users' posts
         const nonFollowedPosts = await Post.find({
             ...baseQuery,
             userId: { $nin: [...feedUserIds, userId] }
@@ -82,6 +80,7 @@ export const getHomeFeed = async (req, res) => {
             .limit(FEED_LIMIT)
             .populate('userId', 'username profileImageUrl');
 
+        // ✅ 4. Define content-type weight
         const getContentTypeWeight = (type) => {
             switch (type) {
                 case 'product': return 0.5;
@@ -92,13 +91,15 @@ export const getHomeFeed = async (req, res) => {
             }
         };
 
+        // ✅ 5. Score & tag posts
         const scoredPosts = [
-            ...followedPosts.map(p => Object.assign(p, { _score: 4 + getContentTypeWeight(p.contentType) })),
-            ...nearbyPosts.map(p => Object.assign(p, { _score: 3 + getContentTypeWeight(p.contentType) })),
-            ...trendingPosts.map(p => Object.assign(p, { _score: 2 + getContentTypeWeight(p.contentType) })),
-            ...nonFollowedPosts.map(p => Object.assign(p, { _score: 1 + getContentTypeWeight(p.contentType) })),
+            ...followedPosts.map(p => ({ ...p.toObject(), _score: 4 + getContentTypeWeight(p.contentType) })),
+            ...nearbyPosts.map(p => ({ ...p.toObject(), _score: 3 + getContentTypeWeight(p.contentType) })),
+            ...trendingPosts.map(p => ({ ...p.toObject(), _score: 2 + getContentTypeWeight(p.contentType) })),
+            ...nonFollowedPosts.map(p => ({ ...p.toObject(), _score: 1 + getContentTypeWeight(p.contentType) })),
         ];
 
+        // ✅ 6. Deduplicate and sort
         const seen = new Set();
         const deduplicated = scoredPosts
             .filter(post => {
@@ -107,41 +108,27 @@ export const getHomeFeed = async (req, res) => {
                 seen.add(id);
                 return true;
             });
-            
-            //Feed Shuffler based on Math.random()
-            function shuffleArray(arr){
-                return arr
-                       .map(value =>({value, sort:Math.random()}))
-                       .sort((a,b) => a.sort - b.sort)
-                       .map(({value}) => value);
-            }
-            // Seperate the Follwed Posts from Others
-            const followedUserIds = new Set(following.map(id => id.toString()));
-            const followedFeed = deduplicated
-                                 .filter(post => followedUserIds.has(post.userId._id.toString()))
-                                 .sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
 
-
-            let otherFeed = deduplicated.filter(post => !followedUserIds.has(post.userId._id.toString()));
-
-            if(followedUserIds.size === 0){
-                otherFeed = shuffleArray([...followedFeed, ...otherFeed]);
-                followedFeed.length = 0;
-            } else{
-                otherFeed = shuffleArray(otherFeed)
-            }
-
-        const rankedFeed = [...followedFeed, ...otherFeed];
+        // Shuffle all posts together
+        function shuffleArray(arr) {
+            return arr
+                .map(value => ({ value, sort: Math.random() }))
+                .sort((a, b) => a.sort - b.sort)
+                .map(({ value }) => value);
+        }
 
         const rankedFeed = shuffleArray(deduplicated);
 
+        // --- Pagination logic ---
         const page = parseInt(req.query.page, 10) || 1;
         const limit = parseInt(req.query.limit, 10) || 20;
         const skip = (page - 1) * limit;
         const paginatedFeed = rankedFeed.slice(skip, skip + limit);
 
+        // Fetch comments for each post in the paginated feed
         const feedWithComments = await Promise.all(
             paginatedFeed.map(async post => {
+                // Top-level comments
                 const comments = await Comment.find({
                     postId: post._id,
                     parentCommentId: null,
@@ -151,6 +138,7 @@ export const getHomeFeed = async (req, res) => {
                     .populate('userId', 'username profileImageUrl')
                     .select('_id content userId createdAt');
 
+                // For each comment, fetch replies
                 const commentsWithReplies = await Promise.all(
                     comments.map(async c => {
                         const replies = await Comment.find({
@@ -189,6 +177,7 @@ export const getHomeFeed = async (req, res) => {
             })
         );
 
+        // ✅ 7. Get stories from self + following (not followers)
         const storyUserIds = [userId, ...following];
         const stories = await Story.find({
             userId: { $in: storyUserIds },
@@ -198,6 +187,7 @@ export const getHomeFeed = async (req, res) => {
             .sort({ createdAt: -1 })
             .populate('userId', 'username profileImageUrl');
 
+        // ✅ 8. Return both
         return res.status(200).json(
             new ApiResponse(200, {
                 stories,
