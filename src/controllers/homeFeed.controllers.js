@@ -117,7 +117,7 @@ export const getHomeFeed = async (req, res) => {
                 .map(({ value }) => value);
         }
 
-        const rankedFeed = shuffleArray(deduplicated);
+        rankedFeed = shuffleArray(deduplicated);
 
         // --- Pagination logic ---
         const page = parseInt(req.query.page, 10) || 1;

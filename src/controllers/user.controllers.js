@@ -10,8 +10,6 @@ import Follower from "../models/follower.models.js";
 import mongoose from "mongoose";
 
 
-
-
 const generateAcessAndRefreshToken = async (userId) => {
     try {
         const user = await User.findById(userId);
@@ -209,77 +207,49 @@ const logOutUser = asyncHandler(async (req, res) => {
         )
 });
 
-// const getUserProfile = asyncHandler(async (req, res) => {
-//     const userId = req.user._id;
-//     const user = await User.findById(userId).select(
-//         "username fullName email phoneNumber gender dateOfBirth bio profileImageUrl location link followers following posts isBusinessProfile isEmailVerified isPhoneVerified createdAt"
-//     );
-//     if (!user) {
-//         throw new ApiError(404, "User not found");
-//     }
+const getUserProfile = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
 
-//     // Convert arrays to counts
-//     const userProfile = {
-//         ...user.toObject(),
-//         followersCount: user.followers ? user.followers.length : 0,
-//         followingCount: user.following ? user.following.length : 0,
-//         postsCount: user.posts ? user.posts.length : 0
-//     };
+    const user = await User.findById(userId).select(
+        "username fullName email phoneNumber gender dateOfBirth bio profileImageUrl location link followers following posts isBusinessProfile isEmailVerified isPhoneVerified createdAt"
+    );
 
-//     // Remove the original arrays
-//     delete userProfile.followers;
-//     delete userProfile.following;
-//     delete userProfile.posts;
+    if (!user) {
+        throw new ApiError(404, "User not found");
+    }
 
-//     return res
-//         .status(200)
-//         .json(
-//             new ApiResponse(200, userProfile, "User profile retrieved successfully")
-//         )
-// });
-    const getUserProfile = asyncHandler(async (req, res) => {
-        const userId = req.user._id;
+    const followersCount = user.followers?.length || 0;
+    const followingCount = user.following?.length || 0;
+    const postsCount = user.posts?.length || 0;
 
-        const user = await User.findById(userId).select(
-            "username fullName email phoneNumber gender dateOfBirth bio profileImageUrl location link followers following posts isBusinessProfile isEmailVerified isPhoneVerified createdAt"
-        );
-
-        if (!user) {
-            throw new ApiError(404, "User not found");
-        }
-
-        const followersCount = user.followers?.length || 0;
-        const followingCount = user.following?.length || 0;
-        const postsCount = user.posts?.length || 0;
-
-        const userProfile = {
+    const userProfile = {
+        _id: user._id,
+        userId: {
             _id: user._id,
-            userId: {
-                _id: user._id,
-                username: user.username,
-                email: user.email,
-                fullName: user.fullName,
-                phoneNumber: user.phoneNumber,
-                dateOfBirth: user.dateOfBirth,
-                gender: user.gender,
-                isBusinessProfile: user.isBusinessProfile,
-                isEmailVerified: user.isEmailVerified,
-                isPhoneVerified: user.isPhoneVerified,
-                createdAt: user.createdAt,
-                bio: user.bio,
-                link: user.link,
-                location: user.location,
-                profileImageUrl: user.profileImageUrl,
-                followersCount,
-                followingCount,
-                postsCount
-            }
-        };
+            username: user.username,
+            email: user.email,
+            fullName: user.fullName,
+            phoneNumber: user.phoneNumber,
+            dateOfBirth: user.dateOfBirth,
+            gender: user.gender,
+            isBusinessProfile: user.isBusinessProfile,
+            isEmailVerified: user.isEmailVerified,
+            isPhoneVerified: user.isPhoneVerified,
+            createdAt: user.createdAt,
+            bio: user.bio,
+            link: user.link,
+            location: user.location,
+            profileImageUrl: user.profileImageUrl,
+            followersCount,
+            followingCount,
+            postsCount
+        }
+    };
 
-        return res.status(200).json(
-            new ApiResponse(200, userProfile, "User profile retrieved successfully")
-        );
-    });
+    return res.status(200).json(
+        new ApiResponse(200, userProfile, "User profile retrieved successfully")
+    );
+});
 
 
 const updateUserProfile = asyncHandler(async (req, res) => {
@@ -564,7 +534,6 @@ const resetPasswordWithOTP = asyncHandler(async (req, res) => {
         .json(new ApiResponse(200, {}, "Password reset successfully"));
 
 })
-
 
 const getOtherUserProfile = asyncHandler(async (req, res) => {
     const { identifier } = req.query;
