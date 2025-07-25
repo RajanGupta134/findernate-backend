@@ -6,6 +6,9 @@ import { v4 as uuidv4 } from "uuid";
 import { sendEmail } from "../utlis/sendEmail.js"
 import { uploadBufferToCloudinary } from "../utlis/cloudinary.js";
 import { TempUser } from "../models/tempUser.models.js";
+import Follower from "../models/follower.models.js";
+import mongoose from "mongoose";
+
 
 
 
@@ -530,7 +533,6 @@ const sendPasswordResetOTP = asyncHandler(async (req, res) => {
         .status(200)
         .json(new ApiResponse(200, {}, "OTP sent to your email successfully for password reset"));
 });
-
 const resetPasswordWithOTP = asyncHandler(async (req, res) => {
     const { otp, newPassword, confirmPassword } = req.body;
     if (!otp || !newPassword || !confirmPassword) {
@@ -563,6 +565,74 @@ const resetPasswordWithOTP = asyncHandler(async (req, res) => {
 
 })
 
+
+const getOtherUserProfile = asyncHandler(async (req, res) => {
+    const { identifier } = req.query;
+    const currentUserId = req.user._id;
+
+    if (!identifier) {
+        throw new ApiError(400, "User identifier (userId or username) is required");
+    }
+
+    let targetUser;
+
+    // Check if identifier is a valid MongoDB ObjectId
+    if (mongoose.Types.ObjectId.isValid(identifier)) {
+        targetUser = await User.findById(identifier).select('-password -refreshToken -emailVerificationToken -emailOTP -emailOTPExpiry -passwordResetOTP -passwordResetOTPExpiry -phoneVerificationCode -phoneVerificationExpiry');
+    }
+
+    // If not found by ID or not a valid ObjectId, search by username
+    if (!targetUser) {
+        targetUser = await User.findOne({ username: identifier.toLowerCase() }).select('-password -refreshToken -emailVerificationToken -emailOTP -emailOTPExpiry -passwordResetOTP -passwordResetOTPExpiry -phoneVerificationCode -phoneVerificationExpiry');
+    }
+
+    if (!targetUser) {
+        throw new ApiError(404, "User not found");
+    }
+
+    // Check if current user follows the target user
+    const isFollowing = await Follower.findOne({
+        userId: targetUser._id,
+        followerId: currentUserId
+    });
+
+    // Calculate counts
+    const followersCount = await Follower.countDocuments({ userId: targetUser._id });
+    const followingCount = await Follower.countDocuments({ followerId: targetUser._id });
+    const postsCount = targetUser.posts ? targetUser.posts.length : 0;
+
+    // Prepare user data with counts
+    const userWithCounts = {
+        _id: targetUser._id,
+        username: targetUser.username,
+        email: targetUser.email,
+        fullName: targetUser.fullName,
+        phoneNumber: targetUser.phoneNumber || "",
+        dateOfBirth: targetUser.dateOfBirth || "",
+        gender: targetUser.gender || "",
+        isBusinessProfile: targetUser.isBusinessProfile,
+        isEmailVerified: targetUser.isEmailVerified,
+        isPhoneVerified: targetUser.isPhoneVerified,
+        bio: targetUser.bio || "",
+        link: targetUser.link || "",
+        location: targetUser.location || "",
+        profileImageUrl: targetUser.profileImageUrl || "",
+        followersCount,
+        followingCount,
+        postsCount
+    };
+
+    const responseData = {
+        _id: targetUser._id,
+        isFollowedBy: isFollowing ? "True" : "False",
+        userId: userWithCounts
+    };
+
+    return res.status(200).json(
+        new ApiResponse(200, responseData, "User profile retrieved successfully")
+    );
+});
+
 export {
     registerUser,
     verifyAndRegisterUser,
@@ -577,5 +647,6 @@ export {
     sendVerificationOTPForEmail,
     uploadProfileImage,
     sendPasswordResetOTP,
-    resetPasswordWithOTP
+    resetPasswordWithOTP,
+    getOtherUserProfile
 };
