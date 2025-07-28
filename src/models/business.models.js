@@ -46,6 +46,16 @@ const BusinessSchema = new mongoose.Schema({
         views: { type: Number, default: 0 },
         clicks: { type: Number, default: 0 },
         conversions: { type: Number, default: 0 }
+    },
+    plan: {
+        type: String,
+        enum: ['Free', 'Small Business', 'Corporate'],
+        default: 'Free'
+    },
+    subscriptionStatus: {
+        type: String,
+        enum: ['active', 'inactive', 'pending'],
+        default: 'pending'
     }
 }, { timestamps: true });
 

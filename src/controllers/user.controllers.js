@@ -7,7 +7,15 @@ import { sendEmail } from "../utlis/sendEmail.js"
 import { uploadBufferToCloudinary } from "../utlis/cloudinary.js";
 import { TempUser } from "../models/tempUser.models.js";
 import Follower from "../models/follower.models.js";
+import Post from "../models/userPost.models.js";
+import Comment from "../models/comment.models.js";
+import Like from "../models/like.models.js";
+import Business from "../models/business.models.js";
+import Story from "../models/story.models.js";
 import mongoose from "mongoose";
+import SearchSuggestion from "../models/searchSuggestion.models.js";
+import Media from "../models/mediaUser.models.js";
+import { v2 as cloudinary } from "cloudinary";
 
 
 const generateAcessAndRefreshToken = async (userId) => {
@@ -337,9 +345,78 @@ const deleteAccount = asyncHandler(async (req, res) => {
     if (!isMatch) {
         throw new ApiError(401, "Password is incorrect");
     }
-    user.refreshToken = null;
 
+    const userId = user._id;
+
+    // --- Delete all user media from Cloudinary and DB ---
+    let mediaCleanup = { deleted: 0, failed: 0, errors: [] };
+    try {
+        const userMedia = await Media.find({ uploadedBy: userId });
+        for (const media of userMedia) {
+            try {
+                // Extract public_id from Cloudinary URL
+                // Example: https://res.cloudinary.com/<cloud_name>/<resource_type>/upload/v1234567890/folder/filename.jpg
+                // public_id = folder/filename (without extension)
+                const urlParts = media.url.split("/");
+                // Remove version and domain parts
+                // Find the index of 'upload' (Cloudinary always has .../upload/...)
+                const uploadIdx = urlParts.findIndex(part => part === "upload");
+                let publicIdWithExt = urlParts.slice(uploadIdx + 1).join("/");
+                // Remove extension
+                const lastDot = publicIdWithExt.lastIndexOf(".");
+                const publicId = lastDot !== -1 ? publicIdWithExt.substring(0, lastDot) : publicIdWithExt;
+                // Delete from Cloudinary
+                await cloudinary.uploader.destroy(publicId, { resource_type: media.type });
+                mediaCleanup.deleted++;
+            } catch (err) {
+                mediaCleanup.failed++;
+                mediaCleanup.errors.push({ mediaId: media._id, error: err.message });
+            }
+        }
+        // Delete all media records for user
+        await Media.deleteMany({ uploadedBy: userId });
+    } catch (err) {
+        mediaCleanup.errors.push({ error: 'Failed to clean up media', details: err.message });
+    }
+    // --- End media cleanup ---
+
+    // Clean up all user-related data
+    const cleanupResults = await Promise.allSettled([
+        // Delete all posts by the user
+        Post.deleteMany({ userId }),
+        // Delete all comments by the user
+        Comment.deleteMany({ userId }),
+        // Delete all likes by the user
+        Like.deleteMany({ userId }),
+        // Delete business profile if exists
+        Business.deleteOne({ userId }),
+        // Delete all stories by the user
+        Story.deleteMany({ userId }),
+        // Remove user from followers/following lists
+        User.updateMany(
+            { followers: userId },
+            { $pull: { followers: userId } }
+        ),
+        User.updateMany(
+            { following: userId },
+            { $pull: { following: userId } }
+        ),
+        // Remove user from mentions in posts
+        Post.updateMany(
+            { mentions: userId },
+            { $pull: { mentions: userId } }
+        ),
+        // Remove likes on user's posts
+        Like.deleteMany({ postId: { $in: user.posts || [] } }),
+        // Remove comments on user's posts
+        Comment.deleteMany({ postId: { $in: user.posts || [] } })
+    ]);
+
+    // Clear refresh token
+    user.refreshToken = null;
     await user.save({ validateBeforeSave: false });
+
+    // Delete the user account
     await user.deleteOne();
 
     return res
@@ -349,11 +426,22 @@ const deleteAccount = asyncHandler(async (req, res) => {
         .json(
             new ApiResponse(
                 200,
-                {},
+                {
+                    message: "Account and all associated data deleted successfully",
+                    mediaCleanup,
+                    cleanupResults: cleanupResults.map((result, index) => ({
+                        operation: [
+                            "posts", "comments", "likes", "business", "stories",
+                            "followers_cleanup", "following_cleanup", "mentions_cleanup",
+                            "post_likes_cleanup", "post_comments_cleanup"
+                        ][index],
+                        status: result.status,
+                        ...(result.status === 'rejected' && { error: result.reason?.message })
+                    }))
+                },
                 "Account deleted Successfully"
             )
         )
-
 });
 
 const searchUsers = asyncHandler(async (req, res) => {
@@ -363,13 +451,37 @@ const searchUsers = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Search query is required");
     }
 
+    // Track search keyword if it's 3+ characters
+    if (query.trim().length >= 3) {
+        const normalizedKeyword = query.trim().toLowerCase();
+        try {
+            const existingSuggestion = await SearchSuggestion.findOne({
+                keyword: normalizedKeyword
+            });
+
+            if (existingSuggestion) {
+                existingSuggestion.searchCount += 1;
+                existingSuggestion.lastSearched = new Date();
+                await existingSuggestion.save();
+            } else {
+                await SearchSuggestion.create({
+                    keyword: normalizedKeyword,
+                    searchCount: 1,
+                    lastSearched: new Date()
+                });
+            }
+        } catch (error) {
+            console.log('Error tracking search keyword:', error);
+        }
+    }
+
     const user = await User.find({
         accountStatus: "active",
         $or: [
             { username: new RegExp(query, "i") },
             { fullNameLower: new RegExp(query, "i") }
         ]
-    }).select("username fullName profileImageUrl");
+    }).select("username fullName profileImageUrl bio location");
 
     return res
         .status(200)
@@ -588,7 +700,8 @@ const getOtherUserProfile = asyncHandler(async (req, res) => {
         profileImageUrl: targetUser.profileImageUrl || "",
         followersCount,
         followingCount,
-        postsCount
+        postsCount,
+        createdAt: targetUser.createdAt // Add this line
     };
 
     const responseData = {

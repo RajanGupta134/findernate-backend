@@ -27,8 +27,8 @@ export const searchAllContent = async (req, res) => {
         if (q.trim().length >= 3) {
             const normalizedKeyword = q.trim().toLowerCase();
             try {
-                const existingSuggestion = await SearchSuggestion.findOne({ 
-                    keyword: normalizedKeyword 
+                const existingSuggestion = await SearchSuggestion.findOne({
+                    keyword: normalizedKeyword
                 });
 
                 if (existingSuggestion) {
@@ -135,7 +135,7 @@ export const searchAllContent = async (req, res) => {
 
         // 📥 Fetch Posts
         const rawPosts = await Post.find(basePostFilters)
-            .populate('userId', 'username profileImageUrl')
+            .populate('userId', 'username profileImageUrl bio location')
             .lean();
 
         const scoredPosts = rawPosts.map(post => {
@@ -182,7 +182,7 @@ export const searchAllContent = async (req, res) => {
             }
 
             const rawReels = await Reel.find(reelFilters)
-                .populate('userId', 'username profileImageUrl')
+                .populate('userId', 'username profileImageUrl bio location')
                 .lean();
 
             scoredReels = rawReels.map(reel => {
@@ -216,7 +216,7 @@ export const searchAllContent = async (req, res) => {
             ]
         })
             .limit(limit)
-            .select('username fullName profileImageUrl');
+            .select('username fullName profileImageUrl bio location');
 
         return res.status(200).json(
             new ApiResponse(200, {

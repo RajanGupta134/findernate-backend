@@ -1,5 +1,6 @@
 import { User } from "../models/user.models.js";
 import Business from "../models/business.models.js";
+import Post from "../models/userPost.models.js";
 import { ApiError } from "../utlis/ApiError.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import { asyncHandler } from "../utlis/asyncHandler.js";
@@ -21,10 +22,14 @@ export const switchToBusinessProfile = asyncHandler(async (req, res) => {
     // Check if business profile exists
     const business = await Business.findOne({ userId }).lean();
     if (user.isBusinessProfile && business) {
+        const businessObj = { ...business };
+        if (businessObj.rating !== undefined) {
+            delete businessObj.rating;
+        }
         return res.status(200).json(
             new ApiResponse(200, {
                 alreadyBusiness: true,
-                businessProfile: business
+                businessProfile: businessObj
             }, "Switched to business profile")
         );
     }
@@ -115,7 +120,9 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
         tags: uniqueTags,
         website,
         gstNumber,
-        aadhaarNumber
+        aadhaarNumber,
+        plan: 'Free',
+        subscriptionStatus: 'pending'
     });
 
     // Update user profile
@@ -124,7 +131,7 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
     await user.save();
 
     return res.status(201).json(
-        new ApiResponse(201, { business, tags: uniqueTags }, "Business profile created successfully")
+        new ApiResponse(201, { business, tags: uniqueTags, planSelectionRequired: true }, "Business profile created successfully. Please select a subscription plan.")
     );
 });
 
@@ -139,12 +146,65 @@ export const deleteBusinessProfile = asyncHandler(async (req, res) => {
         throw new ApiError(404, "Business profile not found");
     }
 
+    // Delete all business-related posts
+    const deletedPosts = await Post.deleteMany({
+        userId,
+        contentType: 'business'
+    });
+
+    // Delete the business profile
     await Business.deleteOne({ userId });
+
+    // Update user profile
     user.isBusinessProfile = false;
     user.businessProfileId = undefined;
     await user.save();
 
     return res.status(200).json(
-        new ApiResponse(200, null, "Business profile deleted successfully")
+        new ApiResponse(200, {
+            deletedPostsCount: deletedPosts.deletedCount
+        }, `Business profile and ${deletedPosts.deletedCount} business posts deleted successfully`)
+    );
+});
+
+// POST /api/v1/business/select-plan
+export const selectBusinessPlan = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+    const { plan } = req.body;
+    const validPlans = ['Free', 'Small Business', 'Corporate'];
+    if (!validPlans.includes(plan)) {
+        throw new ApiError(400, 'Invalid plan selected');
+    }
+
+    const business = await Business.findOne({ userId });
+    if (!business) {
+        throw new ApiError(404, 'Business profile not found');
+    }
+
+    // Only allow plan selection if user is a business profile
+    if (!req.user.isBusinessProfile) {
+        throw new ApiError(403, 'Only business accounts can select a plan');
+    }
+
+    // Set subscriptionStatus: 'active' for Free, 'pending' for paid plans
+    let subscriptionStatus = 'active';
+    if (plan === 'Small Business' || plan === 'Corporate') {
+        subscriptionStatus = 'pending'; // Payment required
+    }
+
+    business.plan = plan;
+    business.subscriptionStatus = subscriptionStatus;
+    await business.save();
+
+    // Remove 'rating' from the business object in the response
+    const businessObj = business.toObject();
+    delete businessObj.rating;
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            business: businessObj,
+            plan: business.plan,
+            subscriptionStatus: business.subscriptionStatus
+        }, 'Plan selected successfully')
     );
 });

@@ -1,11 +1,12 @@
 import Post from '../models/userPost.models.js';
 import { User } from '../models/user.models.js';
-import Story from '../models/story.models.js';
 import { ApiResponse } from '../utlis/ApiResponse.js';
 import { ApiError } from '../utlis/ApiError.js';
 import Comment from '../models/comment.models.js';
+import { asyncHandler } from '../utlis/asyncHandler.js';
+import Like from '../models/like.models.js';
 
-export const getHomeFeed = async (req, res) => {
+export const getHomeFeed = asyncHandler(async (req, res) => {
     try {
         const userId = req.user._id;
         const userLocation = req.user.location && req.user.location.coordinates && Array.isArray(req.user.location.coordinates)
@@ -117,13 +118,21 @@ export const getHomeFeed = async (req, res) => {
                 .map(({ value }) => value);
         }
 
-        rankedFeed = shuffleArray(deduplicated);
+        const rankedFeed = shuffleArray(deduplicated);
 
         // --- Pagination logic ---
         const page = parseInt(req.query.page, 10) || 1;
         const limit = parseInt(req.query.limit, 10) || 20;
         const skip = (page - 1) * limit;
         const paginatedFeed = rankedFeed.slice(skip, skip + limit);
+
+        // Fetch likes for paginated posts by current user
+        const postIds = paginatedFeed.map(post => post._id);
+        const userLikes = await Like.find({
+            userId: userId,
+            postId: { $in: postIds }
+        }).select('postId');
+        const likedPostIds = new Set(userLikes.map(like => like.postId.toString()));
 
         // Fetch comments for each post in the paginated feed
         const feedWithComments = await Promise.all(
@@ -172,25 +181,16 @@ export const getHomeFeed = async (req, res) => {
                 );
                 return {
                     ...post,
-                    comments: commentsWithReplies
+                    comments: commentsWithReplies,
+                    isLikedBy: likedPostIds.has(post._id.toString())
                 };
             })
         );
 
-        // ✅ 7. Get stories from self + following (not followers)
-        const storyUserIds = [userId, ...following];
-        const stories = await Story.find({
-            userId: { $in: storyUserIds },
-            isArchived: false,
-            expiresAt: { $gt: now }
-        })
-            .sort({ createdAt: -1 })
-            .populate('userId', 'username profileImageUrl');
-
-        // ✅ 8. Return both
+   
         return res.status(200).json(
             new ApiResponse(200, {
-                stories,
+                // stories,
                 feed: feedWithComments,
                 pagination: {
                     page,
@@ -198,11 +198,11 @@ export const getHomeFeed = async (req, res) => {
                     total: rankedFeed.length,
                     totalPages: Math.ceil(rankedFeed.length / limit)
                 }
-            }, "Home feed and stories generated successfully")
+            }, "Home feed generated successfully")
         );
 
     } catch (error) {
         console.error(error);
         throw new ApiError(500, 'Failed to generate home feed');
     }
-};
+});

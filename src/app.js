@@ -27,6 +27,8 @@ import storyRouter from './routes/story.routes.js';
 import reelRouter from "./routes/reel.routes.js";
 import exploreRouter from "./routes/explore.routes.js";
 import businessRouter from "./routes/business.routes.js";
+import chatRouter from "./routes/chat.routes.js";
+import mediaRouter from "./routes/media.routes.js";
 
 app.use("/api/v1/users", userRouter);
 app.use("/api/v1/posts", postRouter);
@@ -34,6 +36,8 @@ app.use("/api/v1/stories", storyRouter);
 app.use("/api/v1/reels", reelRouter);
 app.use("/api/v1/explore", exploreRouter);
 app.use("/api/v1/business", businessRouter);
+app.use("/api/v1/chats", chatRouter);
+app.use("/api/v1/media", mediaRouter);
 
 app.use(errorHandler);
 

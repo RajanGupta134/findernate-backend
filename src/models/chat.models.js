@@ -8,36 +8,101 @@ const ChatSchema = new mongoose.Schema({
         required: true
     }],
 
-    // 💬 Message array
-    messages: [{
+    // 🏷 Chat type and metadata
+    chatType: {
+        type: String,
+        enum: ['direct', 'group'],
+        default: 'direct'
+    },
+
+    // 👤 Group chat specific fields
+    groupName: String,
+    groupDescription: String,
+    groupImage: String,
+    admins: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }],
+    createdBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        required: true
+    },
+
+    // 💬 Messages are now stored in separate Message model
+    // Reference to last message for quick access
+    lastMessageId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Message'
+    },
+
+    // 🕒 Last message info for chat list
+    lastMessage: {
         sender: {
             type: mongoose.Schema.Types.ObjectId,
-            ref: 'User',
-            required: true
-        },
-        message: {
-            type: String,
-            required: true
-        },
-        timestamp: {
-            type: Date,
-            default: Date.now
-        },
-        readBy: [{
-            type: mongoose.Schema.Types.ObjectId,
             ref: 'User'
-        }]
-    }],
-
-    // 🕒 Last updated time for sorting recent chats
+        },
+        message: String,
+        timestamp: Date
+    },
     lastMessageAt: {
         type: Date,
         default: Date.now
+    },
+
+    // 🔕 Mute settings
+    mutedBy: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }],
+
+    // 📍 Pinned messages
+    pinnedMessages: [{
+        type: mongoose.Schema.Types.ObjectId
+    }],
+
+    // 🚫 Blocked users (for group chats)
+    blockedUsers: [{
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    }],
+
+    // 📊 Chat statistics
+    stats: {
+        totalMessages: {
+            type: Number,
+            default: 0
+        },
+        totalParticipants: {
+            type: Number,
+            default: 0
+        }
     }
 
-}, { timestamps: true });
+}, {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true }
+});
 
-// 📛 Optional unique index to prevent duplicate chats (for 1-on-1)
+// 📛 Indexes for better performance
 ChatSchema.index({ participants: 1 });
+ChatSchema.index({ chatType: 1 });
+ChatSchema.index({ lastMessageAt: -1 });
+ChatSchema.index({ 'messages.timestamp': -1 });
+
+// 🔄 Virtual for unread count
+ChatSchema.virtual('unreadCount').get(function () {
+    // This would be calculated per user in the controller
+    return 0;
+});
+
+// 🪝 Pre-save middleware to update stats
+ChatSchema.pre('save', function (next) {
+    if (this.isModified('participants')) {
+        this.stats.totalParticipants = this.participants.length;
+    }
+    next();
+});
 
 export default mongoose.model('Chat', ChatSchema);

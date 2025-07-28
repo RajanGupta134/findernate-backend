@@ -11,16 +11,19 @@ export const getSearchSuggestions = asyncHandler(async (req, res) => {
     }
 
     const keyword = q.trim().toLowerCase();
-    
+
     const suggestions = await SearchSuggestion.find({
         keyword: { $regex: `^${keyword}`, $options: 'i' }
     })
-    .sort({ searchCount: -1, lastSearched: -1 })
-    .limit(parseInt(limit))
-    .select('keyword searchCount');
+        .sort({ searchCount: -1, lastSearched: -1 })
+        .limit(parseInt(limit))
+        .select('keyword');
+
+    // Map to array of keyword strings
+    const keywords = suggestions.map(s => s.keyword);
 
     return res.status(200).json(
-        new ApiResponse(200, suggestions, "Search suggestions retrieved successfully")
+        new ApiResponse(200, keywords, "Search suggestions retrieved successfully")
     );
 });
 
@@ -35,8 +38,8 @@ export const trackSearchKeyword = asyncHandler(async (req, res) => {
 
     const normalizedKeyword = keyword.trim().toLowerCase();
 
-    const existingSuggestion = await SearchSuggestion.findOne({ 
-        keyword: normalizedKeyword 
+    const existingSuggestion = await SearchSuggestion.findOne({
+        keyword: normalizedKeyword
     });
 
     if (existingSuggestion) {
@@ -71,7 +74,7 @@ export const getPopularSearches = asyncHandler(async (req, res) => {
 
 export const clearSearchSuggestions = asyncHandler(async (req, res) => {
     await SearchSuggestion.deleteMany({});
-    
+
     return res.status(200).json(
         new ApiResponse(200, null, "All search suggestions cleared successfully")
     );

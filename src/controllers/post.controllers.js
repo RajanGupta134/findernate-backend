@@ -651,6 +651,7 @@ export const getMyPosts = asyncHandler(async (req, res) => {
     }
 
     const posts = await Post.find(filter)
+        .populate('userId', 'username profileImageUrl fullName isVerified location bio')
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
         .limit(limit);
@@ -767,8 +768,8 @@ export const getUserProfilePosts = asyncHandler(async (req, res) => {
 
     try {
         const posts = await Post.find(filter)
-            .populate('userId', 'username profilePicture fullName isVerified')
-            .populate('mentions', 'username fullName profilePicture')
+            .populate('userId', 'username profileImageUrl fullName isVerified location bio')
+            .populate('mentions', 'username fullName profileImageUrl')
             .sort(sortObj)
             .skip(skip)
             .limit(pageLimit)
