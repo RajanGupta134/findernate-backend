@@ -5,7 +5,6 @@ import { ApiResponse } from "../utlis/ApiResponse.js";
 import { v4 as uuidv4 } from "uuid";
 import { sendEmail } from "../utlis/sendEmail.js"
 import { uploadBufferToCloudinary } from "../utlis/cloudinary.js";
-import { TempUser } from "../models/tempUser.models.js";
 import Follower from "../models/follower.models.js";
 import Post from "../models/userPost.models.js";
 import Comment from "../models/comment.models.js";
@@ -59,10 +58,9 @@ const registerUser = asyncHandler(async (req, res) => {
         throw new ApiError(409, "User already exists with this username or email", errors);
     }
 
-    const otp = Math.floor(100000 + Math.random() * 900000).toString();
-    const expiry = new Date(Date.now() + 10 * 60 * 1000);
-
-    const user = await TempUser.create({
+    // Directly create user (no OTP, no TempUser)
+    const user = await User.create({
+        uid: uuidv4(),
         fullName,
         fullNameLower: fullName.toLowerCase(),
         username: username.toLowerCase(),
@@ -71,52 +69,8 @@ const registerUser = asyncHandler(async (req, res) => {
         phoneNumber,
         dateOfBirth,
         gender,
-        emailOTP: otp,
-        emailOTPExpiry: expiry
-    });
-
-    await sendEmail({
-        to: user.email,
-        subject: "verify your email - FinderNate",
-        html: `
-                <h3>Email verification OTP</h3>
-                <h2>Your OTP is: <b>${otp}</b></h2>
-                <p>This OTP is valid for 10 minutes.</p>
-                <p>If you did not request this, please ignore this email.</p>`
-    });
-
-    return res.status(201).json(
-        new ApiResponse(200, null, "OTP sent to your email. Please verify your email to complete registration")
-    );
-});
-
-const verifyAndRegisterUser = asyncHandler(async (req, res) => {
-    const { otp } = req.body;
-
-    const tempUser = await TempUser.findOne({ emailOTP: otp });
-
-    if (!tempUser) {
-        throw new ApiError(404, "No user found.");
-    }
-
-    if (tempUser.emailOTPExpiry < new Date()) {
-        throw new ApiError(400, "OTP has expired");
-    }
-
-    const user = await User.create({
-        uid: uuidv4(),
-        fullName: tempUser.fullName,
-        fullNameLower: tempUser.fullName.toLowerCase(),
-        username: tempUser.username.toLowerCase(),
-        email: tempUser.email,
-        password: tempUser.password,
-        phoneNumber: tempUser.phoneNumber,
-        dateOfBirth: tempUser.dateOfBirth,
-        gender: tempUser.gender,
         isEmailVerified: true,
     });
-
-    await tempUser.deleteOne();
 
     const { accessToken, refreshToken } = await generateAcessAndRefreshToken(user._id);
     await user.save({ validateBeforeSave: false });
@@ -126,12 +80,10 @@ const verifyAndRegisterUser = asyncHandler(async (req, res) => {
         secure: true
     };
 
-
     return res
         .status(201)
         .cookie("accessToken", accessToken, options)
         .cookie("refreshToken", refreshToken, options)
-
         .json(
             new ApiResponse(201,
                 {
@@ -717,7 +669,6 @@ const getOtherUserProfile = asyncHandler(async (req, res) => {
 
 export {
     registerUser,
-    verifyAndRegisterUser,
     loginUser,
     logOutUser,
     getUserProfile,

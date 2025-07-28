@@ -40,8 +40,7 @@ router.route("/myPosts").get(verifyJWT, getMyPosts);
 router.route("/notifications").get(verifyJWT, getNotifications);
 router.route("/:id").get(verifyJWT, getPostById);
 
-// Get single post by ID
-router.route("/:id").get(verifyJWT, getPostById);
+
 
 // Like/unlike post
 router.route("/like").post(verifyJWT, likePost);
@@ -57,6 +56,9 @@ router.route("/comments").get(verifyJWT, getCommentsByPost);
 router.route("/comment/:commentId").get(verifyJWT, getCommentById);
 router.route("/comment/:commentId").put(verifyJWT, updateComment);
 router.route("/comment/:commentId").delete(verifyJWT, deleteComment);
+
+// Get single post by ID
+router.route("/:id").get(verifyJWT, getPostById);
 
 // Notification routes
 router.route("/notification").get(verifyJWT, getNotifications);
