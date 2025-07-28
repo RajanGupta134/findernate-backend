@@ -40,6 +40,9 @@ router.route("/myPosts").get(verifyJWT, getMyPosts);
 router.route("/notifications").get(verifyJWT, getNotifications);
 router.route("/:id").get(verifyJWT, getPostById);
 
+// Get single post by ID
+router.route("/:id").get(verifyJWT, getPostById);
+
 // Like/unlike post
 router.route("/like").post(verifyJWT, likePost);
 router.route("/unlike").post(verifyJWT, unlikePost);
