@@ -56,7 +56,7 @@ export const createCommentNotification = asyncHandler(async ({ recipientId, sour
     sendRealTimeNotification(recipientId, notification);
 });
 
-// 🟣 Follow Notification
+//  Follow Notification
 export const createFollowNotification = asyncHandler(async ({ recipientId, sourceUserId }) => {
     if (!recipientId || !sourceUserId) {
         throw new ApiError(400, "recipientId and sourceUserId are required");
@@ -100,7 +100,7 @@ export const createUnlikeNotification = asyncHandler(async ({ recipientId, sourc
     sendRealTimeNotification(recipientId, notification);
 });
 
-// 📥 Get Logged-in User's Notifications
+//  Get Logged-in User's Notifications
 export const getNotifications = asyncHandler(async (req, res) => {
     const receiverId = req.user._id;
 

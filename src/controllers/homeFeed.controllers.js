@@ -81,7 +81,7 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
             .limit(FEED_LIMIT)
             .populate('userId', 'username profileImageUrl');
 
-        // ✅ 4. Define content-type weight
+        //  4. Define content-type weight
         const getContentTypeWeight = (type) => {
             switch (type) {
                 case 'product': return 0.5;
@@ -187,7 +187,7 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
             })
         );
 
-   
+
         return res.status(200).json(
             new ApiResponse(200, {
                 // stories,

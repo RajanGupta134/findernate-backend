@@ -1,4 +1,4 @@
- import mongoose from 'mongoose';
+import mongoose from 'mongoose';
 
 const MediaSchema = new mongoose.Schema({
     url: {

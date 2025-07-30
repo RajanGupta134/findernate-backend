@@ -5,7 +5,7 @@ import Post from "../models/userPost.models.js";
 import { uploadBufferToCloudinary } from "../utlis/cloudinary.js";
 import { getCoordinates } from "../utlis/getCoordinates.js";
 import Like from "../models/like.models.js";
-import Comment from "../models/comment.models.js";
+// import Comment from "../models/comment.models.mjs";
 
 const extractMediaFiles = (files) => {
     const allFiles = [];

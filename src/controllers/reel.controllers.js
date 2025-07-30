@@ -1,36 +1,144 @@
-import Reel from "../models/reels.models.js";
-import { User } from "../models/user.models.js";
-import { ApiResponse } from "../utlis/ApiResponse.js";
 import { asyncHandler } from "../utlis/asyncHandler.js";
+import { cloudinary } from "../utlis/cloudinary.js";
+import { ApiError } from "../utlis/ApiError.js";
+import { ApiResponse } from "../utlis/ApiResponse.js";
 
-// 1. Get suggested reels (random + following)
-export const getSuggestedReels = asyncHandler(async (req, res) => {
-    const userId = req.user._id;
-    const { page = 1, limit = 10, type = "all" } = req.query;
-
-    // Get following user IDs
-    const user = await User.findById(userId).select("following");
-    const following = user?.following || [];
-
-    let filter = { isPublic: true };
-    if (type === "following") {
-        filter.userId = { $in: following };
-    } else if (type === "random") {
-        filter.userId = { $nin: [userId, ...following] };
+// Simple in-memory cache
+const cache = {
+    suggestedReels: {
+        data: null,
+        timestamp: null,
+        expiry: 5 * 60 * 1000 // 5 minutes
+    },
+    cloudinaryReels: {
+        data: null,
+        timestamp: null,
+        expiry: 5 * 60 * 1000 // 5 minutes
     }
+};
 
-    // Always randomize output
-    const reels = await Reel.aggregate([
-        { $match: filter },
-        { $sample: { size: Number(limit) } }
-    ]);
+// 1. Get suggested reels (from Cloudinary)
+export const getSuggestedReels = asyncHandler(async (req, res) => {
+    try {
+        const { page = 1, limit = 10 } = req.query;
+        const max_results = Number(limit);
+        const next_cursor = req.query.next_cursor || undefined;
 
-    res.status(200).json(new ApiResponse(200, {
-        reels,
-        pagination: {
-            page: Number(page),
-            limit: Number(limit),
-            // total is not accurate with $sample, so you may omit or estimate
+        // Check cache first if no cursor (first page)
+        if (!next_cursor &&
+            cache.suggestedReels.data &&
+            cache.suggestedReels.timestamp &&
+            (Date.now() - cache.suggestedReels.timestamp < cache.suggestedReels.expiry)) {
+
+            return res.status(200).json(
+                new ApiResponse(200, cache.suggestedReels.data, "Reels fetched from cache")
+            );
         }
-    }, "Reels fetched successfully"));
+
+        // Fetch only videos from Cloudinary
+        let search = cloudinary.search
+            .expression('resource_type:video')
+            .sort_by('created_at', 'desc')
+            .max_results(max_results);
+        if (next_cursor) search = search.next_cursor(next_cursor);
+
+        const result = await search.execute();
+
+        const responseData = {
+            reels: result.resources,
+            pagination: {
+                page: Number(page),
+                limit: max_results,
+                next_cursor: result.next_cursor || null
+            }
+        };
+
+        // Save to cache if it's the first page
+        if (!next_cursor) {
+            cache.suggestedReels.data = responseData;
+            cache.suggestedReels.timestamp = Date.now();
+        }
+
+        return res.status(200).json(
+            new ApiResponse(200, responseData, "Reels fetched from Cloudinary successfully")
+        );
+    } catch (error) {
+        // Check for rate limit error
+        if (error.error && error.error.http_code === 420) {
+            const resetTime = error.error.message.match(/Try again on (.*) UTC/);
+            const resetTimeString = resetTime ? resetTime[1] : "unknown time";
+
+            return res.status(429).json(
+                new ApiResponse(429, {}, `Cloudinary rate limit exceeded. Please try again later. Rate limit resets at ${resetTimeString} UTC`)
+            );
+        }
+
+        console.error("Error fetching reels:", error);
+        return res.status(500).json(
+            new ApiResponse(500, {}, "Error fetching reels from Cloudinary")
+        );
+    }
+});
+
+// Fetch reels directly from Cloudinary
+export const getCloudinaryReels = asyncHandler(async (req, res) => {
+    try {
+        const { page = 1, limit = 10 } = req.query;
+        const max_results = Number(limit);
+        const next_cursor = req.query.next_cursor || undefined;
+
+        // Check cache first if no cursor (first page)
+        if (!next_cursor &&
+            cache.cloudinaryReels.data &&
+            cache.cloudinaryReels.timestamp &&
+            (Date.now() - cache.cloudinaryReels.timestamp < cache.cloudinaryReels.expiry)) {
+
+            return res.status(200).json(
+                new ApiResponse(200, cache.cloudinaryReels.data, "Reels fetched from cache")
+            );
+        }
+
+        // Try a broader search: fetch all images and videos
+        let search = cloudinary.search
+            .expression('resource_type:video OR resource_type:image')
+            .sort_by('created_at', 'desc')
+            .max_results(max_results);
+        if (next_cursor) search = search.next_cursor(next_cursor);
+
+        const result = await search.execute();
+
+        const responseData = {
+            reels: result.resources,
+            pagination: {
+                page: Number(page),
+                limit: max_results,
+                next_cursor: result.next_cursor || null
+            }
+        };
+
+        // Save to cache if it's the first page
+        if (!next_cursor) {
+            cache.cloudinaryReels.data = responseData;
+            cache.cloudinaryReels.timestamp = Date.now();
+        }
+
+        return res.status(200).json(
+            new ApiResponse(200, responseData, "Reels fetched from Cloudinary successfully")
+        );
+    } catch (error) {
+        // Check for rate limit error
+        if (error.error && error.error.http_code === 420) {
+            const resetTime = error.error.message.match(/Try again on (.*) UTC/);
+            const resetTimeString = resetTime ? resetTime[1] : "unknown time";
+
+            return res.status(429).json(
+                new ApiResponse(429, {}, `Cloudinary rate limit exceeded. Please try again later. Rate limit resets at ${resetTimeString} UTC`)
+            );
+        }
+
+        console.error("Error fetching reels:", error);
+        return res.status(500).json(
+            new ApiResponse(500, {}, "Error fetching reels from Cloudinary")
+        );
+    }
 });

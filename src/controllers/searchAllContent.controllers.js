@@ -133,7 +133,7 @@ export const searchAllContent = async (req, res) => {
             }));
         }
 
-        // 📥 Fetch Posts
+        //  Fetch Posts
         const rawPosts = await Post.find(basePostFilters)
             .populate('userId', 'username profileImageUrl bio location')
             .lean();
@@ -201,13 +201,13 @@ export const searchAllContent = async (req, res) => {
             });
         }
 
-        // 🧠 Merge + sort
+        //  Merge + sort
         const combinedContent = [...scoredPosts, ...scoredReels]
             .sort((a, b) => b._score - a._score);
 
         const paginatedContent = combinedContent.slice(skip, skip + limit);
 
-        // 👤 Search Users
+        //  Search Users
         const users = await User.find({
             $or: [
                 { username: searchRegex },

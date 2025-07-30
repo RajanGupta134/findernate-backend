@@ -19,8 +19,8 @@ const SearchSuggestionSchema = new mongoose.Schema({
         type: Date,
         default: Date.now
     }
-}, { 
-    timestamps: true 
+}, {
+    timestamps: true
 });
 
 SearchSuggestionSchema.index({ keyword: 1 });

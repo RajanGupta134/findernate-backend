@@ -135,7 +135,7 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
     );
 });
 
-// ✅ DELETE /api/v1/business/delete
+//  DELETE /api/v1/business/delete
 export const deleteBusinessProfile = asyncHandler(async (req, res) => {
     const userId = req.user._id;
     const user = await User.findById(userId);

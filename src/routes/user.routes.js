@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { upload } from "../middlewares/multerConfig.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
-import { loginUser, logOutUser, registerUser, verifyAndRegisterUser, getUserProfile, updateUserProfile, changePassword, deleteAccount, searchUsers, verifyEmailWithOTP, uploadProfileImage, sendVerificationOTPForEmail, sendPasswordResetOTP, resetPasswordWithOTP, getOtherUserProfile } from "../controllers/user.controllers.js";
+import { loginUser, logOutUser, registerUser, getUserProfile, updateUserProfile, changePassword, deleteAccount, searchUsers, verifyEmailWithOTP, uploadProfileImage, sendVerificationOTPForEmail, sendPasswordResetOTP, resetPasswordWithOTP, getOtherUserProfile } from "../controllers/user.controllers.js";
 import { searchAllContent } from "../controllers/searchAllContent.controllers.js";
 import { followUser, unfollowUser, getFollowers, getFollowing } from "../controllers/follower.controllers.js";
 import { getSearchSuggestions, trackSearchKeyword, getPopularSearches, clearSearchSuggestions } from "../controllers/searchSuggestion.controllers.js";
@@ -9,7 +9,6 @@ import { getSearchSuggestions, trackSearchKeyword, getPopularSearches, clearSear
 const router = Router();
 
 router.route("/register").post(registerUser);
-router.route("/register/verify").post(verifyAndRegisterUser);
 router.route("/login").post(loginUser);
 router.route("/logout").post(verifyJWT, logOutUser);
 router.route("/profile").get(verifyJWT, getUserProfile);

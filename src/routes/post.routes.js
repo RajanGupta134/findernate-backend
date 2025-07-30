@@ -16,6 +16,7 @@ import { likePost, unlikePost, likeComment, unlikeComment } from "../controllers
 import { createComment, getCommentsByPost, getCommentById, updateComment, deleteComment } from "../controllers/comment.controllers.js";
 import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, deleteNotification } from "../controllers/notification.controllers.js";
 import { getProfileTabContent } from "../controllers/switch.controllers.js";
+import { savePost, unsavePost, getSavedPosts, checkPostSaved } from "../controllers/savePost.controllers.js";
 
 
 const router = Router();
@@ -38,8 +39,6 @@ router.route("/switch/profile/:userId").get(verifyJWT, getProfileTabContent);
 router.route("/home-feed").get(verifyJWT, getHomeFeed);
 router.route("/myPosts").get(verifyJWT, getMyPosts);
 router.route("/notifications").get(verifyJWT, getNotifications);
-router.route("/:id").get(verifyJWT, getPostById);
-
 
 
 // Like/unlike post
@@ -57,7 +56,12 @@ router.route("/comment/:commentId").get(verifyJWT, getCommentById);
 router.route("/comment/:commentId").put(verifyJWT, updateComment);
 router.route("/comment/:commentId").delete(verifyJWT, deleteComment);
 
-// Get single post by ID
+// Save post routes
+router.route("/save").post(verifyJWT, savePost);
+router.route("/save/:postId").delete(verifyJWT, unsavePost);
+router.route("/saved").get(verifyJWT, getSavedPosts);
+router.route("/saved/check/:postId").get(verifyJWT, checkPostSaved);
+
 router.route("/:id").get(verifyJWT, getPostById);
 
 // Notification routes

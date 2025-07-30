@@ -14,7 +14,7 @@ const GeoJSONPointSchema = new mongoose.Schema({
     }
 }, { _id: false });
 
-// 📏 Media
+//  Media
 const MediaDimensionsSchema = new mongoose.Schema({
     width: Number,
     height: Number
@@ -74,7 +74,7 @@ const ProductDetailsSchema = new mongoose.Schema({
         name: String,
         coordinates: GeoJSONPointSchema
     },
-    link: {type: String, required: true}
+    link: { type: String, required: true }
 }, { _id: false });
 
 // 💼 Service Details
@@ -114,7 +114,7 @@ const ServiceDetailsSchema = new mongoose.Schema({
     requirements: [String],
     deliverables: [String],
     tags: [String],
-    link: {type: String, required: true}
+    link: { type: String, required: true }
 }, { _id: false });
 
 // 🏢 Business Details
@@ -167,7 +167,7 @@ const BusinessDetailsSchema = new mongoose.Schema({
     tags: [String],
     announcement: String,
     promotions: [BusinessPromotionSchema],
-    link: {type: String, required: true}
+    link: { type: String, required: true }
 }, { _id: false });
 
 // 🧍 Normal Post Details (with fixed GeoJSON)
@@ -186,7 +186,7 @@ const NormalDetailsSchema = new mongoose.Schema({
 
 // 🎨 Customization Options
 const CustomizationSchema = new mongoose.Schema({
-    product:ProductDetailsSchema,
+    product: ProductDetailsSchema,
     service: ServiceDetailsSchema,
     business: BusinessDetailsSchema,
     normal: NormalDetailsSchema
@@ -244,11 +244,12 @@ const PostSchema = new mongoose.Schema({
     hashtags: [String],
     mentions: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     media: [MediaSchema],
-    customization:{ product: ProductDetailsSchema,
-                   service: ServiceDetailsSchema,
-                   business: BusinessDetailsSchema,
-                   normal: NormalDetailsSchema 
-                },
+    customization: {
+        product: ProductDetailsSchema,
+        service: ServiceDetailsSchema,
+        business: BusinessDetailsSchema,
+        normal: NormalDetailsSchema
+    },
     engagement: EngagementSchema,
     settings: SettingsSchema,
     createdAt: { type: Date, default: Date.now },

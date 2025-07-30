@@ -306,54 +306,10 @@ const getMediaInfo = asyncHandler(async (req, res) => {
     }
 });
 
-// Transform media (resize, crop, etc.)
-const transformMedia = asyncHandler(async (req, res) => {
-    const { public_id, transformations, resource_type = "auto" } = req.body;
-    const userId = req.user?._id;
-
-    if (!public_id) {
-        throw new ApiError(400, "Public ID is required");
-    }
-
-    if (!transformations || !Array.isArray(transformations)) {
-        throw new ApiError(400, "Transformations array is required");
-    }
-
-    if (!userId) {
-        throw new ApiError(401, "User authentication required");
-    }
-
-    try {
-        // Apply transformations to the media
-        const transformedUrl = cloudinary.url(public_id, {
-            resource_type: resource_type,
-            transformation: transformations
-        });
-
-        return res.status(200).json(
-            new ApiResponse(200, {
-                public_id: public_id,
-                transformed_url: transformedUrl,
-                transformations: transformations,
-                transformed_by: {
-                    _id: req.user._id,
-                    username: req.user.username,
-                    fullName: req.user.fullName,
-                    email: req.user.email
-                },
-                transformed_at: new Date().toISOString()
-            }, "Media transformation URL generated successfully")
-        );
-    } catch (error) {
-        throw new ApiError(500, "Error transforming media", [error.message]);
-    }
-});
-
 export {
     uploadSingleMedia,
     uploadMultipleMedia,
     deleteMedia,
     deleteMultipleMedia,
     getMediaInfo,
-    transformMedia
 };

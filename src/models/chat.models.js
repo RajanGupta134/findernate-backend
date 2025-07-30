@@ -97,7 +97,7 @@ ChatSchema.virtual('unreadCount').get(function () {
     return 0;
 });
 
-// 🪝 Pre-save middleware to update stats
+//  Pre-save middleware to update stats
 ChatSchema.pre('save', function (next) {
     if (this.isModified('participants')) {
         this.stats.totalParticipants = this.participants.length;

@@ -6,8 +6,7 @@ import {
     uploadMultipleMedia,
     deleteMedia,
     deleteMultipleMedia,
-    getMediaInfo,
-    transformMedia
+    getMediaInfo
 } from "../controllers/uploadMedia.controllers.js";
 
 const router = express.Router();
@@ -29,8 +28,5 @@ router.delete("/delete-multiple", deleteMultipleMedia);
 
 // Get media information
 router.get("/info", getMediaInfo);
-
-// Transform media
-router.post("/transform", transformMedia);
 
 export default router; 

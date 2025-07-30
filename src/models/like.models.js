@@ -17,7 +17,7 @@ const LikeSchema = new mongoose.Schema({
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Comment',
         required: function () { return !this.postId; }, // Only required if postId is not present
-        default: null // Optional – supports likes on comments too
+        default: null // Optional  supports likes on comments too
     },
     createdAt: {
         type: Date,

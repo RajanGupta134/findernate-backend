@@ -12,7 +12,7 @@ cloudinary.config({
 });
 
 
-export const uploadBufferToCloudinary = (fileBuffer, folder = "profile_images") => {
+export const uploadBufferToCloudinary = (fileBuffer, folder = "posts") => {
     return new Promise((resolve, reject) => {
         const stream = cloudinary.uploader.upload_stream(
             {
@@ -20,10 +20,12 @@ export const uploadBufferToCloudinary = (fileBuffer, folder = "profile_images") 
                 folder: folder,
             },
             (error, result) => {
-                if(error) return reject(error);
+                if (error) return reject(error);
                 return resolve(result);
             }
         );
         streamifier.createReadStream(fileBuffer).pipe(stream);
     });
 };
+
+export { cloudinary };
