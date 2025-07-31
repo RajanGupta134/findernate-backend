@@ -11,7 +11,9 @@ import {
     startTyping,
     stopTyping,
     getOnlineStatus,
-    searchMessages
+    searchMessages,
+    acceptChatRequest,
+    declineChatRequest
 } from '../controllers/chat.controllers.js';
 
 const router = express.Router();
@@ -24,6 +26,10 @@ router.post('/', createChat);
 
 // Get all chats for a user
 router.get('/', getUserChats);
+
+// Chat request management
+router.patch('/:chatId/accept', acceptChatRequest);
+router.patch('/:chatId/decline', declineChatRequest);
 
 // Get messages for a chat
 router.get('/:chatId/messages', getChatMessages);

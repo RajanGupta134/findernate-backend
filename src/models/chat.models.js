@@ -15,6 +15,13 @@ const ChatSchema = new mongoose.Schema({
         default: 'direct'
     },
 
+    // 📫 Chat status (for message requests)
+    status: {
+        type: String,
+        enum: ['active', 'requested', 'declined'],
+        default: 'active'
+    },
+
     // 👤 Group chat specific fields
     groupName: String,
     groupDescription: String,
@@ -88,6 +95,7 @@ const ChatSchema = new mongoose.Schema({
 // 📛 Indexes for better performance
 ChatSchema.index({ participants: 1 });
 ChatSchema.index({ chatType: 1 });
+ChatSchema.index({ status: 1 });
 ChatSchema.index({ lastMessageAt: -1 });
 ChatSchema.index({ 'messages.timestamp': -1 });
 

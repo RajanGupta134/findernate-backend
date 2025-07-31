@@ -1,5 +1,6 @@
 import Chat from '../models/chat.models.js';
 import Message from '../models/message.models.js';
+import Follower from '../models/follower.models.js';
 import { ApiError } from '../utlis/ApiError.js';
 import { ApiResponse } from '../utlis/ApiResponse.js';
 import { asyncHandler } from '../utlis/asyncHandler.js';
@@ -13,6 +14,16 @@ const safeEmitToChat = (chatId, event, data) => {
     } else {
         console.warn(`Socket not ready, skipping ${event} for chat ${chatId}`);
     }
+};
+
+// Check if user follows another user
+const checkFollowStatus = async (followerId, userId) => {
+    const followRelation = await Follower.findOne({
+        followerId,
+        userId
+    });
+
+    return !!followRelation;
 };
 
 // Create a new chat (1-on-1 or group)
@@ -40,14 +51,53 @@ export const createChat = asyncHandler(async (req, res) => {
 
     // Prevent duplicate 1-on-1 chats
     if (chatType === 'direct' && validParticipants.length === 2) {
-        const existing = await Chat.findOne({
-            participants: validParticipants,
+        const existingChat = await Chat.findOne({
+            participants: validParticipants, 
             chatType: 'direct'
-        }).populate('participants', 'username fullName profileImageUrl');
+        });
 
-        if (existing) {
+        if (existingChat) {
+            // Before returning, make sure we're not showing deleted messages
+            // Get the latest non-deleted message
+            const lastMessage = await Message.findOne({
+                chatId: existingChat._id,
+                isDeleted: { $ne: true }
+            }).sort({ timestamp: -1 });
+
+            if (lastMessage) {
+                existingChat.lastMessage = {
+                    sender: lastMessage.sender,
+                    message: lastMessage.message,
+                    timestamp: lastMessage.timestamp
+                };
+                existingChat.lastMessageId = lastMessage._id;
+                await existingChat.save();
+            } else {
+                // No non-deleted messages exist
+                existingChat.lastMessage = {};
+                existingChat.lastMessageId = null;
+                await existingChat.save();
+            }
+
+            // Now populate and return
+            const populatedChat = await Chat.findById(existingChat._id)
+                .populate('participants', 'username fullName profileImageUrl')
+                .populate('createdBy', 'username fullName profileImageUrl');
+
+            // Get the stats right
+            const messageCount = await Message.countDocuments({
+                chatId: existingChat._id,
+                isDeleted: { $ne: true }
+            });
+
+            if (!populatedChat.stats) {
+                populatedChat.stats = {};
+            }
+            populatedChat.stats.totalMessages = messageCount;
+            populatedChat.stats.totalParticipants = populatedChat.participants.length;
+
             return res.status(200).json(
-                new ApiResponse(200, existing, 'Existing chat found')
+                new ApiResponse(200, populatedChat, 'Existing chat found')
             );
         }
     }
@@ -57,6 +107,19 @@ export const createChat = asyncHandler(async (req, res) => {
         chatType,
         createdBy: currentUserId
     };
+
+    // For direct chats, check if recipient follows sender to determine if chat should be a request
+    if (chatType === 'direct' && validParticipants.length === 2) {
+        const otherUserId = validParticipants.find(id => id.toString() !== currentUserId.toString());
+
+        // Check if the recipient follows the sender
+        const recipientFollowsSender = await checkFollowStatus(otherUserId, currentUserId);
+
+        // If recipient doesn't follow sender, mark as requested chat
+        if (!recipientFollowsSender) {
+            chatData.status = 'requested';
+        }
+    }
 
     if (chatType === 'group') {
         if (!groupName) {
@@ -80,26 +143,61 @@ export const createChat = asyncHandler(async (req, res) => {
 // Get all chats for a user
 export const getUserChats = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;
-    const { page = 1, limit = 20 } = req.query;
+    const { page = 1, limit = 20, chatStatus = 'active' } = req.query;
 
     const pageNum = parseInt(page) || 1;
     const pageLimit = parseInt(limit) || 20;
     const skip = (pageNum - 1) * pageLimit;
 
+    // Filter by chat status (active or requested)
+    const statusFilter = ['active', 'requested'].includes(chatStatus) ? chatStatus : 'active';
+
     const [chats, total] = await Promise.all([
-        Chat.find({ participants: currentUserId })
+        Chat.find({
+            participants: currentUserId,
+            status: statusFilter
+        })
             .sort({ lastMessageAt: -1 })
-            .populate('participants', 'username fullName profileImageUrl')
-            .populate('lastMessage.sender', 'username fullName profileImageUrl')
-            .populate('createdBy', 'username fullName profileImageUrl')
             .skip(skip)
             .limit(pageLimit)
             .lean(),
-        Chat.countDocuments({ participants: currentUserId })
+        Chat.countDocuments({
+            participants: currentUserId,
+            status: statusFilter
+        })
     ]);
 
-    // Get unread counts for all chats efficiently
+    // Get all chat IDs
     const chatIds = chats.map(chat => chat._id);
+
+    // For each chat, find the last non-deleted message
+    const lastMessagesPromises = chatIds.map(chatId =>
+        Message.findOne({
+            chatId,
+            isDeleted: { $ne: true }
+        })
+            .sort({ timestamp: -1 })
+            .populate('sender', 'username fullName profileImageUrl')
+    );
+
+    const lastMessages = await Promise.all(lastMessagesPromises);
+
+    // Create a map for quick lookup
+    const lastMessageMap = lastMessages.reduce((acc, message, index) => {
+        if (message) {
+            acc[chatIds[index].toString()] = {
+                message,
+                lastMessage: {
+                    sender: message.sender,
+                    message: message.message,
+                    timestamp: message.timestamp
+                }
+            };
+        }
+        return acc;
+    }, {});
+
+    // Get unread counts for all chats efficiently
     const unreadCounts = await Message.aggregate([
         {
             $match: {
@@ -122,15 +220,46 @@ export const getUserChats = asyncHandler(async (req, res) => {
         return acc;
     }, {});
 
-    // Add unread count to each chat
-    const chatsWithUnreadCount = chats.map(chat => ({
-        ...chat,
-        unreadCount: unreadCountMap[chat._id.toString()] || 0
+    // Populate the chats with participants
+    const populatedChatsPromise = Promise.all(chats.map(async (chat) => {
+        const chatWithUsers = await Chat.populate(chat, [
+            { path: 'participants', select: 'username fullName profileImageUrl' },
+            { path: 'createdBy', select: 'username fullName profileImageUrl' }
+        ]);
+
+        // Update lastMessage with non-deleted message if available
+        const chatId = chat._id.toString();
+        if (lastMessageMap[chatId]) {
+            chatWithUsers.lastMessage = lastMessageMap[chatId].lastMessage;
+            chatWithUsers.lastMessageId = lastMessageMap[chatId].message._id;
+        } else {
+            chatWithUsers.lastMessage = {};
+            chatWithUsers.lastMessageId = null;
+        }
+
+        // Add message count stats
+        if (!chatWithUsers.stats) {
+            chatWithUsers.stats = {};
+        }
+        const messageCount = await Message.countDocuments({
+            chatId: chat._id,
+            isDeleted: { $ne: true }
+        });
+        chatWithUsers.stats.totalMessages = messageCount;
+        chatWithUsers.stats.totalParticipants = chatWithUsers.participants.length;
+
+        // Add unread count
+        chatWithUsers.unreadCount = unreadCountMap[chatId] || 0;
+
+        return chatWithUsers;
     }));
+
+    const populatedChats = await populatedChatsPromise;
 
     return res.status(200).json(
         new ApiResponse(200, {
-            chats: chatsWithUnreadCount,
+            chats: populatedChats,
+            chatStatus: statusFilter,
             pagination: {
                 currentPage: pageNum,
                 totalPages: Math.ceil(total / pageLimit),
@@ -139,6 +268,96 @@ export const getUserChats = asyncHandler(async (req, res) => {
                 hasPrevPage: pageNum > 1
             }
         }, 'Chats fetched successfully')
+    );
+});
+
+// Accept a chat request
+export const acceptChatRequest = asyncHandler(async (req, res) => {
+    const currentUserId = req.user._id;
+    const { chatId } = req.params;
+
+    // Find the chat and verify it's a request to the current user
+    const chat = await Chat.findOne({
+        _id: chatId,
+        participants: currentUserId,
+        status: 'requested'
+    });
+
+    if (!chat) {
+        throw new ApiError(404, 'Chat request not found or already processed');
+    }
+
+    // Ensure current user is receiving the request, not sending it
+    const otherUserId = chat.participants.find(p => p.toString() !== currentUserId.toString());
+    if (chat.createdBy.toString() === currentUserId.toString()) {
+        throw new ApiError(400, 'You cannot accept your own chat request');
+    }
+
+    // Update chat status to active
+    chat.status = 'active';
+    await chat.save();
+
+    const populatedChat = await Chat.findById(chat._id)
+        .populate('participants', 'username fullName profileImageUrl')
+        .populate('createdBy', 'username fullName profileImageUrl');
+
+    // Notify the other user via socket
+    safeEmitToChat(chatId, 'chat_request_accepted', {
+        chatId,
+        acceptedBy: {
+            _id: currentUserId,
+            username: req.user.username,
+            fullName: req.user.fullName
+        },
+        chat: populatedChat
+    });
+
+    return res.status(200).json(
+        new ApiResponse(200, populatedChat, 'Chat request accepted successfully')
+    );
+});
+
+// Decline a chat request
+export const declineChatRequest = asyncHandler(async (req, res) => {
+    const currentUserId = req.user._id;
+    const { chatId } = req.params;
+
+    // Find the chat and verify it's a request to the current user
+    const chat = await Chat.findOne({
+        _id: chatId,
+        participants: currentUserId,
+        status: 'requested'
+    });
+
+    if (!chat) {
+        throw new ApiError(404, 'Chat request not found or already processed');
+    }
+
+    // Ensure current user is receiving the request, not sending it
+    const otherUserId = chat.participants.find(p => p.toString() !== currentUserId.toString());
+    if (chat.createdBy.toString() === currentUserId.toString()) {
+        throw new ApiError(400, 'You cannot decline your own chat request');
+    }
+
+    // Option 1: Mark chat as declined
+    chat.status = 'declined';
+    await chat.save();
+
+    // Option 2 (alternative): Delete the chat completely
+    // await Chat.deleteOne({ _id: chatId });
+
+    // Notify the other user via socket
+    safeEmitToChat(chatId, 'chat_request_declined', {
+        chatId,
+        declinedBy: {
+            _id: currentUserId,
+            username: req.user.username,
+            fullName: req.user.fullName
+        }
+    });
+
+    return res.status(200).json(
+        new ApiResponse(200, { chatId }, 'Chat request declined successfully')
     );
 });
 
@@ -162,11 +381,34 @@ export const getChatMessages = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Chat not found or access denied');
     }
 
+    // Check if the chat is a request and not yet accepted
+    if (chat.status === 'requested') {
+        // If the current user is the recipient (not the creator), they can only see that there's a request
+        if (chat.createdBy.toString() !== currentUserId.toString()) {
+            return res.status(200).json(
+                new ApiResponse(200, {
+                    messages: [],
+                    chatStatus: 'requested',
+                    requestedBy: chat.createdBy,
+                    pagination: {
+                        currentPage: 1,
+                        totalPages: 0,
+                        totalMessages: 0,
+                        hasNextPage: false,
+                        hasPrevPage: false
+                    }
+                }, 'Chat request pending acceptance')
+            );
+        }
+    } else if (chat.status === 'declined') {
+        throw new ApiError(403, 'This chat request has been declined');
+    }
+
     // Get messages with pagination using Message model
     const [messages, totalMessages] = await Promise.all([
         Message.find({
             chatId,
-            isDeleted: { $ne: true }
+            isDeleted: { $ne: true } // Exclude deleted messages
         })
             .sort({ timestamp: -1 })
             .skip(skip)
@@ -176,9 +418,27 @@ export const getChatMessages = asyncHandler(async (req, res) => {
             .lean(),
         Message.countDocuments({
             chatId,
-            isDeleted: { $ne: true }
+            isDeleted: { $ne: true } // Exclude deleted messages when counting
         })
     ]);
+
+    // If this is the first page, update chat's last message if needed
+    if (pageNum === 1 && messages.length > 0) {
+        const latestMessage = messages[0];
+
+        // Update chat's last message if it's out of sync
+        if (!chat.lastMessageId ||
+            (latestMessage._id.toString() !== chat.lastMessageId.toString())) {
+
+            chat.lastMessage = {
+                sender: latestMessage.sender._id,
+                message: latestMessage.message,
+                timestamp: latestMessage.timestamp
+            };
+            chat.lastMessageId = latestMessage._id;
+            await chat.save();
+        }
+    }
 
     return res.status(200).json(
         new ApiResponse(200, {
@@ -212,6 +472,16 @@ export const addMessage = asyncHandler(async (req, res) => {
 
     if (!chat) {
         throw new ApiError(404, 'Chat not found or access denied');
+    }
+
+    // Check if the chat is a request and not yet accepted
+    if (chat.status === 'requested') {
+        // Only the recipient (non-creator) is blocked from sending messages
+        if (chat.createdBy.toString() !== currentUserId.toString()) {
+            throw new ApiError(403, 'You must accept the chat request before sending messages');
+        }
+    } else if (chat.status === 'declined') {
+        throw new ApiError(403, 'This chat request has been declined');
     }
 
     // Create new message using Message model
@@ -347,6 +617,30 @@ export const deleteMessage = asyncHandler(async (req, res) => {
     message.isDeleted = true;
 
     await message.save();
+
+    // If this was the last message in chat, update the lastMessage
+    if (chat.lastMessageId && chat.lastMessageId.toString() === messageId) {
+        // Find the next most recent non-deleted message
+        const lastMessage = await Message.findOne({
+            chatId,
+            isDeleted: { $ne: true }
+        }).sort({ timestamp: -1 });
+
+        if (lastMessage) {
+            // Update chat with new last message
+            chat.lastMessage = {
+                sender: lastMessage.sender,
+                message: lastMessage.message,
+                timestamp: lastMessage.timestamp
+            };
+            chat.lastMessageId = lastMessage._id;
+        } else {
+            // No messages left, clear last message
+            chat.lastMessage = {};
+            chat.lastMessageId = null;
+        }
+        await chat.save();
+    }
 
     // Emit real-time event for message deletion
     safeEmitToChat(chatId, 'message_deleted', {
@@ -489,12 +783,25 @@ export const stopTyping = asyncHandler(async (req, res) => {
 
 // Get online status of users
 export const getOnlineStatus = asyncHandler(async (req, res) => {
-    const { userIds } = req.query;
+    let userIds = req.query.userIds;
 
-    if (!userIds || !Array.isArray(userIds)) {
-        throw new ApiError(400, 'User IDs array is required');
+    // Handle different formats of userIds in query
+    if (typeof userIds === 'string') {
+        // If it's a comma-separated string
+        if (userIds.includes(',')) {
+            userIds = userIds.split(',');
+        }
+        // If it's a single value
+        else {
+            userIds = [userIds];
+        }
     }
 
+    if (!userIds || !Array.isArray(userIds)) {
+        throw new ApiError(400, "User IDs array is required");
+    }
+
+    // Rest of the function remains the same
     const onlineStatus = {};
     userIds.forEach(userId => {
         onlineStatus[userId] = socketManager.isReady() ? socketManager.isUserOnline(userId) : false;

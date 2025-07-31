@@ -17,8 +17,8 @@ const getTrendingBusinessOwners = asyncHandler(async (req, res) => {
         const trendingBusinesses = await Business.aggregate([
             {
                 $match: {
-                    isVerified: true,
-                    subscriptionStatus: 'active'
+                    // Show businesses that are not inactive (includes 'pending' and 'active')
+                    subscriptionStatus: { $ne: 'inactive' }
                 }
             },
             {
@@ -63,8 +63,8 @@ const getTrendingBusinessOwners = asyncHandler(async (req, res) => {
 
         // Get total count for pagination
         const totalBusinesses = await Business.countDocuments({
-            isVerified: true,
-            subscriptionStatus: 'active'
+            // Show businesses that are not inactive (includes 'pending' and 'active')
+            subscriptionStatus: { $ne: 'inactive' }
         });
 
         return res.status(200).json(

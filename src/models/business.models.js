@@ -38,7 +38,7 @@ const BusinessSchema = new mongoose.Schema({
     tags: [String],
     website: { type: String },
     gstNumber: { type: String, unique: true, sparse: true },
-    aadhaarNumber: { type: String, unique: true, sparse: true },
+    aadhaarNumber: { type: String },
     logoUrl: { type: String },
     isVerified: { type: Boolean, default: false },
     followers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
@@ -58,5 +58,16 @@ const BusinessSchema = new mongoose.Schema({
         default: 'pending'
     }
 }, { timestamps: true });
+
+// 🚀 Auto-verify business when subscription becomes active
+BusinessSchema.pre('save', async function (next) {
+    // Check if subscriptionStatus is being modified and set to 'active'
+    if (this.isModified('subscriptionStatus') && this.subscriptionStatus === 'active') {
+        // Automatically verify the business
+        this.isVerified = true;
+        console.log(`Auto-verifying business ${this.businessName} due to active subscription`);
+    }
+    next();
+});
 
 export default mongoose.model('Business', BusinessSchema);

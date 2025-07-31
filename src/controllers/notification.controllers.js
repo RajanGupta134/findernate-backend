@@ -17,7 +17,7 @@ export const createLikeNotification = asyncHandler(async ({ recipientId, sourceU
     }
 
     const type = "like";
-    const message = commentId ? "Someone liked your comment" : "Someone liked your post";
+    const message = commentId ? "liked your comment" : "liked your post";
 
     if (!postId && !commentId) {
         throw new ApiError(400, "Either postId or commentId is required");
@@ -42,7 +42,7 @@ export const createCommentNotification = asyncHandler(async ({ recipientId, sour
     }
 
     const type = "comment";
-    const message = "Someone commented on your post";
+    const message = "commented on your post";
 
     const notification = await Notification.create({
         receiverId: recipientId,
@@ -63,7 +63,7 @@ export const createFollowNotification = asyncHandler(async ({ recipientId, sourc
     }
 
     const type = "follow";
-    const message = "Someone started following you";
+    const message = "started following you";
 
     const notification = await Notification.create({
         receiverId: recipientId,
@@ -82,7 +82,7 @@ export const createUnlikeNotification = asyncHandler(async ({ recipientId, sourc
     }
 
     const type = "unlike";
-    const message = commentId ? "Someone unliked your comment" : "Someone unliked your post";
+    const message = commentId ? "unliked your comment" : "unliked your post";
 
     if (!postId && !commentId) {
         throw new ApiError(400, "Either postId or commentId is required");

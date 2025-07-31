@@ -31,6 +31,7 @@ import chatRouter from "./routes/chat.routes.js";
 import mediaRouter from "./routes/media.routes.js";
 import suggestedForYouRouter from "./routes/suggestedForYou.routes.js";
 import trendingBusinessOwnersRouter from "./routes/trendingBusinessOwners.routes.js";
+import contactRequestRouter from "./routes/contactRequest.routes.js";
 
 
 app.use("/api/v1/users", userRouter);
@@ -43,6 +44,7 @@ app.use("/api/v1/chats", chatRouter);
 app.use("/api/v1/media", mediaRouter);
 app.use("/api/v1/suggestions", suggestedForYouRouter);
 app.use("/api/v1/business-owners", trendingBusinessOwnersRouter);
+app.use("/api/v1/contact-requests", contactRequestRouter);
 
 app.use(errorHandler);
 

@@ -72,6 +72,8 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
         throw new ApiError(400, "businessName, category, and contact.email are required");
     }
 
+
+
     const trimmedBusinessName = businessName.trim();
     const normalizedCategory = category.trim().toLowerCase();
 
@@ -103,9 +105,27 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
         }
     }
 
-    // Automatically generate tags from businessName, description, and category
-    const autoTags = extractTagsFromText(trimmedBusinessName, description, normalizedCategory);
-    const uniqueTags = [...new Set(autoTags.map(tag => tag.toLowerCase()))];
+    // Handle tags: prioritize manual tags from request body, fallback to auto-generation
+    let finalTags = [];
+
+    if (tags && Array.isArray(tags) && tags.length > 0) {
+        // Validate and use manual tags provided in request body
+        finalTags = tags
+            .filter(tag => typeof tag === 'string' && tag.trim().length > 0)
+            .map(tag => tag.toLowerCase().trim());
+
+        if (finalTags.length === 0) {
+            throw new ApiError(400, "Tags must be non-empty strings");
+        }
+        console.log('Using manual tags:', finalTags);
+    } else {
+        // Fallback to auto-generated tags if no manual tags provided
+        const autoTags = extractTagsFromText(trimmedBusinessName, description, normalizedCategory);
+        finalTags = autoTags.map(tag => tag.toLowerCase());
+        console.log('Using auto-generated tags:', finalTags);
+    }
+
+    const uniqueTags = [...new Set(finalTags)];
 
     // Create the business profile
     const business = await Business.create({
@@ -131,7 +151,11 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
     await user.save();
 
     return res.status(201).json(
-        new ApiResponse(201, { business, tags: uniqueTags, planSelectionRequired: true }, "Business profile created successfully. Please select a subscription plan.")
+        new ApiResponse(201, {
+            business,
+            businessId: business._id,
+            planSelectionRequired: true
+        }, "Business profile created successfully.")
     );
 });
 
@@ -186,6 +210,8 @@ export const selectBusinessPlan = asyncHandler(async (req, res) => {
         throw new ApiError(403, 'Only business accounts can select a plan');
     }
 
+
+
     // Set subscriptionStatus: 'active' for Free, 'pending' for paid plans
     let subscriptionStatus = 'active';
     if (plan === 'Small Business' || plan === 'Corporate') {
@@ -207,4 +233,191 @@ export const selectBusinessPlan = asyncHandler(async (req, res) => {
             subscriptionStatus: business.subscriptionStatus
         }, 'Plan selected successfully')
     );
+});
+
+// GET /api/v1/business/profile
+export const getBusinessProfile = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+
+    const business = await Business.findOne({ userId }).lean();
+    if (!business) {
+        throw new ApiError(404, "Business profile not found");
+    }
+
+    // Remove rating from response
+    const businessObj = { ...business };
+    if (businessObj.rating !== undefined) {
+        delete businessObj.rating;
+    }
+
+    return res.status(200).json(
+        new ApiResponse(200, { business: businessObj }, "Business profile fetched successfully")
+    );
+});
+
+// GET /api/v1/business/:id
+export const getBusinessById = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+
+    const business = await Business.findById(id)
+        .select("-gstNumber -rating")
+        .lean();
+
+    if (!business) {
+        throw new ApiError(404, "Business profile not found");
+    }
+
+    // Get the business owner's username and avatar
+    const owner = await User.findById(business.userId)
+        .select("username avatar fullName")
+        .lean();
+
+    if (!owner) {
+        throw new ApiError(404, "Business owner not found");
+    }
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            business,
+            owner
+        }, "Business profile fetched successfully")
+    );
+});
+
+// PATCH /api/v1/business/update
+export const updateBusinessProfile = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+
+    const business = await Business.findOne({ userId });
+    if (!business) {
+        throw new ApiError(404, "Business profile not found");
+    }
+
+    const {
+        businessName,
+        businessType,
+        description,
+        category,
+        contact,
+        location,
+        website,
+        tags
+    } = req.body;
+
+    // Validate if businessName is provided and it's not already taken by another business
+    if (businessName) {
+        const trimmedBusinessName = businessName.trim();
+        const existingBusinessByName = await Business.findOne({
+            businessName: trimmedBusinessName,
+            userId: { $ne: userId } // Exclude current user
+        });
+
+        if (existingBusinessByName) {
+            throw new ApiError(409, "Business name already in use");
+        }
+
+        business.businessName = trimmedBusinessName;
+    }
+
+    // Update category if provided
+    if (category) {
+        business.category = category.trim().toLowerCase();
+    }
+
+    // Update other fields if provided
+    if (businessType) business.businessType = businessType;
+    if (description) business.description = description;
+    if (location) business.location = location;
+
+    // Validate and update contact information
+    if (contact) {
+        if (contact.email) {
+            // Validate email format
+            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+            if (!emailRegex.test(contact.email)) {
+                throw new ApiError(400, "Invalid contact.email format");
+            }
+        }
+
+        if (contact.website && !/^https?:\/\/.+/.test(contact.website)) {
+            throw new ApiError(400, "Invalid contact.website URL");
+        }
+
+        business.contact = { ...business.contact, ...contact };
+    }
+
+    // Validate website URL
+    if (website) {
+        if (!/^https?:\/\/.+/.test(website)) {
+            throw new ApiError(400, "Invalid website URL");
+        }
+        business.website = website;
+    }
+
+    // Update tags: prioritize manual tags from request body
+    if (tags && Array.isArray(tags)) {
+        if (tags.length > 0) {
+            // Validate and use only manual tags provided in request body
+            const manualTags = tags
+                .filter(tag => typeof tag === 'string' && tag.trim().length > 0)
+                .map(tag => tag.toLowerCase().trim());
+
+            if (manualTags.length === 0) {
+                throw new ApiError(400, "Tags must be non-empty strings");
+            }
+
+            business.tags = [...new Set(manualTags)];
+            console.log('Updated with manual tags:', business.tags);
+        } else {
+            // If empty array provided, clear tags or fallback to auto-generation
+            const autoTags = extractTagsFromText(
+                business.businessName,
+                business.description,
+                business.category
+            );
+            business.tags = [...new Set(autoTags.map(tag => tag.toLowerCase()))];
+            console.log('Updated with auto-generated tags:', business.tags);
+        }
+    }
+
+    await business.save();
+
+    // Remove rating from response
+    const businessObj = business.toObject();
+    delete businessObj.rating;
+
+    return res.status(200).json(
+        new ApiResponse(200, { business: businessObj }, "Business profile updated successfully")
+    );
+});
+
+
+
+
+
+
+
+// 🔧 Helper function to update existing businesses with active subscriptions
+export const updateExistingActiveBusinesses = asyncHandler(async (req, res) => {
+    try {
+        // Find businesses with active subscription but not verified
+        const result = await Business.updateMany(
+            {
+                subscriptionStatus: 'active',
+                isVerified: false
+            },
+            {
+                isVerified: true
+            }
+        );
+
+        return res.status(200).json(
+            new ApiResponse(200, {
+                modifiedCount: result.modifiedCount,
+                matchedCount: result.matchedCount
+            }, `Updated ${result.modifiedCount} businesses with active subscriptions to verified status`)
+        );
+    } catch (error) {
+        throw new ApiError(500, "Error updating existing businesses: " + error.message);
+    }
 });

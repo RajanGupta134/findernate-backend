@@ -360,15 +360,14 @@ const deleteAccount = asyncHandler(async (req, res) => {
         // Remove likes on user's posts
         Like.deleteMany({ postId: { $in: user.posts || [] } }),
         // Remove comments on user's posts
-        Comment.deleteMany({ postId: { $in: user.posts || [] } })
+        Comment.deleteMany({ postId: { $in: user.posts || [] } }),
+        // Delete follower records
+        Follower.deleteMany({ userId }),
+        Follower.deleteMany({ followerId: userId })
     ]);
 
-    // Clear refresh token
-    user.refreshToken = null;
-    await user.save({ validateBeforeSave: false });
-
-    // Delete the user account
-    await user.deleteOne();
+    // Delete the user account directly from the collection
+    await User.findByIdAndDelete(userId);
 
     return res
         .status(200)
@@ -384,7 +383,8 @@ const deleteAccount = asyncHandler(async (req, res) => {
                         operation: [
                             "posts", "comments", "likes", "business", "stories",
                             "followers_cleanup", "following_cleanup", "mentions_cleanup",
-                            "post_likes_cleanup", "post_comments_cleanup"
+                            "post_likes_cleanup", "post_comments_cleanup",
+                            "follower_records_cleanup", "following_records_cleanup"
                         ][index],
                         status: result.status,
                         ...(result.status === 'rejected' && { error: result.reason?.message })

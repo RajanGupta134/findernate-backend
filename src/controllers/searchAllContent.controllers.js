@@ -31,6 +31,7 @@ export const searchAllContent = async (req, res) => {
                     keyword: normalizedKeyword
                 });
 
+
                 if (existingSuggestion) {
                     existingSuggestion.searchCount += 1;
                     existingSuggestion.lastSearched = new Date();
@@ -98,7 +99,7 @@ export const searchAllContent = async (req, res) => {
         let lng, lat;
         let useLocationFilter = false;
         if (coordinates && distance) {
-            [lng, lat] = coordinates.split(',').map(Number);
+            [lng, lat] = coordinates.split('|').map(Number);
             useLocationFilter = true;
         } else if (near && distance) {
             const geo = await getCoordinates(near);
@@ -218,10 +219,31 @@ export const searchAllContent = async (req, res) => {
             .limit(limit)
             .select('username fullName profileImageUrl bio location');
 
+        // Fetch posts for each user found
+        const usersWithPosts = await Promise.all(users.map(async (user) => {
+            const userPosts = await Post.find({ userId: user._id })
+                .sort({ createdAt: -1 })
+                .limit(10) // Limit to 10 recent posts per user
+                .lean();
+
+            const userReels = await Reel.find({ userId: user._id })
+                .sort({ createdAt: -1 })
+                .limit(5) // Limit to 5 recent reels per user
+                .lean();
+
+            return {
+                ...user.toObject(),
+                posts: userPosts,
+                reels: userReels,
+                totalPosts: await Post.countDocuments({ userId: user._id }),
+                totalReels: await Reel.countDocuments({ userId: user._id })
+            };
+        }));
+
         return res.status(200).json(
             new ApiResponse(200, {
                 results: paginatedContent,
-                users,
+                users: usersWithPosts,
                 pagination: {
                     page: parseInt(page),
                     limit: parseInt(limit),
