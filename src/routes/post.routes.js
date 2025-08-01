@@ -1,7 +1,7 @@
 // routes/post.routes.js
 import { Router } from "express";
 import { upload } from "../middlewares/multerConfig.js";
-import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { verifyJWT, optionalVerifyJWT } from "../middlewares/auth.middleware.js";
 import {
     createNormalPost,
     createProductPost,
@@ -10,6 +10,7 @@ import {
     getUserProfilePosts,
     getMyPosts,
     getPostById,
+    deleteContent,
 } from "../controllers/post.controllers.js";
 import { getHomeFeed } from "../controllers/homeFeed.controllers.js";
 import { likePost, unlikePost, likeComment, unlikeComment } from "../controllers/like.controllers.js";
@@ -36,7 +37,7 @@ router.route("/create/product").post(mediaUpload, verifyJWT, createProductPost);
 router.route("/create/business").post(mediaUpload, verifyJWT, createBusinessPost);
 router.route("/user/:userId/profile").get(verifyJWT, getUserProfilePosts);
 router.route("/switch/profile/:userId").get(verifyJWT, getProfileTabContent);
-router.route("/home-feed").get(verifyJWT, getHomeFeed);
+router.route("/home-feed").get(optionalVerifyJWT, getHomeFeed);
 router.route("/myPosts").get(verifyJWT, getMyPosts);
 router.route("/notifications").get(verifyJWT, getNotifications);
 
@@ -62,10 +63,11 @@ router.route("/save/:postId").delete(verifyJWT, unsavePost);
 router.route("/saved").get(verifyJWT, getSavedPosts);
 router.route("/saved/check/:postId").get(verifyJWT, checkPostSaved);
 
-router.route("/:id").get(verifyJWT, getPostById);
+// Common API - handles get and delete for posts, stories, and reels
+router.route("/:postId").get(verifyJWT, getPostById).delete(verifyJWT, deleteContent);
 
 // Notification routes
-router.route("/notification").get(verifyJWT, getNotifications);
+router.route("/notification").get(optionalVerifyJWT, getNotifications);
 router.route("/notification/:noticationId/read").patch(verifyJWT, markNotificationAsRead);
 router.route("/notification/read-all").patch(verifyJWT, markAllNotificationsAsRead);
 router.route("/notification/:noticationId").delete(verifyJWT, deleteNotification);

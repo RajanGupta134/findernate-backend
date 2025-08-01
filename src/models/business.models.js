@@ -65,7 +65,7 @@ BusinessSchema.pre('save', async function (next) {
     if (this.isModified('subscriptionStatus') && this.subscriptionStatus === 'active') {
         // Automatically verify the business
         this.isVerified = true;
-        console.log(`Auto-verifying business ${this.businessName} due to active subscription`);
+
     }
     next();
 });

@@ -74,7 +74,7 @@ const ProductDetailsSchema = new mongoose.Schema({
         name: String,
         coordinates: GeoJSONPointSchema
     },
-    link: { type: String, required: true }
+    link: { type: String }
 }, { _id: false });
 
 // 💼 Service Details
@@ -114,7 +114,7 @@ const ServiceDetailsSchema = new mongoose.Schema({
     requirements: [String],
     deliverables: [String],
     tags: [String],
-    link: { type: String, required: true }
+    link: { type: String}
 }, { _id: false });
 
 // 🏢 Business Details
@@ -167,7 +167,7 @@ const BusinessDetailsSchema = new mongoose.Schema({
     tags: [String],
     announcement: String,
     promotions: [BusinessPromotionSchema],
-    link: { type: String, required: true }
+    link: { type: String }
 }, { _id: false });
 
 // 🧍 Normal Post Details (with fixed GeoJSON)

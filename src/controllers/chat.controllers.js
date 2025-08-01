@@ -4,6 +4,7 @@ import Follower from '../models/follower.models.js';
 import { ApiError } from '../utlis/ApiError.js';
 import { ApiResponse } from '../utlis/ApiResponse.js';
 import { asyncHandler } from '../utlis/asyncHandler.js';
+import { uploadBufferToCloudinary } from '../utlis/cloudinary.js';
 import mongoose from 'mongoose';
 import socketManager from '../config/socket.js';
 
@@ -52,7 +53,7 @@ export const createChat = asyncHandler(async (req, res) => {
     // Prevent duplicate 1-on-1 chats
     if (chatType === 'direct' && validParticipants.length === 2) {
         const existingChat = await Chat.findOne({
-            participants: validParticipants, 
+            participants: validParticipants,
             chatType: 'direct'
         });
 
@@ -294,7 +295,7 @@ export const acceptChatRequest = asyncHandler(async (req, res) => {
     }
 
     // Update chat status to active
-    chat.status = 'active';
+    chat.status = 'active'
     await chat.save();
 
     const populatedChat = await Chat.findById(chat._id)
@@ -458,11 +459,27 @@ export const getChatMessages = asyncHandler(async (req, res) => {
 export const addMessage = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;
     const { chatId } = req.params;
-    const { message, messageType = 'text', replyTo } = req.body;
 
-    if (!message || message.trim().length === 0) {
-        throw new ApiError(400, 'Message content is required');
+    // Handle both FormData and JSON body
+    const body = req.body || {};
+    const message = body.message;
+    const messageType = body.messageType || 'text';
+    const replyTo = body.replyTo;
+    const mediaFile = req.file; // File uploaded via FormData
+
+
+
+    // For media messages, allow empty message if file is present
+    if ((!message || message.trim().length === 0) && !mediaFile) {
+        throw new ApiError(400, 'Message content or media file is required');
     }
+
+    // Set default message for media files if no message provided
+    const finalMessage = message && message.trim().length > 0
+        ? message.trim()
+        : mediaFile
+            ? `📎 ${mediaFile.originalname}`
+            : '';
 
     // Verify user is participant in the chat
     const chat = await Chat.findOne({
@@ -484,38 +501,74 @@ export const addMessage = asyncHandler(async (req, res) => {
         throw new ApiError(403, 'This chat request has been declined');
     }
 
-    // Create new message using Message model
-    const newMessage = await Message.create({
+    // Create message data object
+    const messageData = {
         chatId,
         sender: currentUserId,
-        message: message.trim(),
-        messageType,
+        message: finalMessage,
+        messageType, // ✅ Use the actual messageType from request
         timestamp: new Date(),
         readBy: [currentUserId],
         replyTo: replyTo || null
-    });
+    };
+
+    // ✅ Handle file upload if present
+    if (mediaFile) {
+        try {
+            // Upload file to Cloudinary
+            const uploadResult = await uploadBufferToCloudinary(mediaFile.buffer, 'chat_media');
+
+            // Add media fields to message data
+            messageData.mediaUrl = uploadResult.secure_url;
+            messageData.fileName = mediaFile.originalname;
+            messageData.fileSize = mediaFile.size;
+
+            // For videos, try to get duration from Cloudinary response
+            if (uploadResult.duration) {
+                messageData.duration = uploadResult.duration;
+            }
+
+            // Auto-detect message type if not provided
+            if (messageType === 'text') {
+                if (mediaFile.mimetype.startsWith('image/')) {
+                    messageData.messageType = 'image';
+                } else if (mediaFile.mimetype.startsWith('video/')) {
+                    messageData.messageType = 'video';
+                } else if (mediaFile.mimetype.startsWith('audio/')) {
+                    messageData.messageType = 'audio';
+                } else {
+                    messageData.messageType = 'file';
+                }
+            }
+        } catch (uploadError) {
+            throw new ApiError(500, `Failed to upload media file: ${uploadError.message}`);
+        }
+    }
+
+    // Create new message using Message model
+    const newMessage = await Message.create(messageData);
 
     // Update chat's last message info
     chat.lastMessageAt = new Date();
     chat.lastMessage = {
         sender: currentUserId,
-        message: message.trim(),
+        message: finalMessage,
         timestamp: new Date()
     };
     chat.lastMessageId = newMessage._id;
 
     await chat.save();
 
-    // Populate sender info for response
+    // ✅ Ensure populatedMessage has ALL fields
     const populatedMessage = await Message.findById(newMessage._id)
         .populate('sender', 'username fullName profileImageUrl')
-        .populate('replyTo', 'message sender')
-        .lean();
+        .populate('replyTo', 'message sender');
+    // Don't use .lean() if it strips fields
 
-    // Emit real-time event to chat participants
+    // ✅ Emit complete message
     safeEmitToChat(chatId, 'new_message', {
         chatId,
-        message: populatedMessage
+        message: populatedMessage // This MUST include mediaUrl, fileName, etc.
     });
 
     return res.status(201).json(

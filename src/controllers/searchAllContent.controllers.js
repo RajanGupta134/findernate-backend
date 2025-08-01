@@ -44,7 +44,7 @@ export const searchAllContent = async (req, res) => {
                     });
                 }
             } catch (error) {
-                console.log('Error tracking search keyword:', error);
+
             }
         }
 

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { upload } from "../middlewares/multerConfig.js";
-import { verifyJWT } from "../middlewares/auth.middleware.js";
+import { verifyJWT, optionalVerifyJWT } from "../middlewares/auth.middleware.js";
 import { loginUser, logOutUser, registerUser, getUserProfile, updateUserProfile, changePassword, deleteAccount, searchUsers, verifyEmailWithOTP, uploadProfileImage, sendVerificationOTPForEmail, sendPasswordResetOTP, resetPasswordWithOTP, getOtherUserProfile } from "../controllers/user.controllers.js";
 import { searchAllContent } from "../controllers/searchAllContent.controllers.js";
 import { followUser, unfollowUser, getFollowers, getFollowing } from "../controllers/follower.controllers.js";
@@ -21,7 +21,7 @@ router.route("/send-verification-otp").post(sendVerificationOTPForEmail);
 router.route("/profile/upload-image").post(verifyJWT, upload.single("profileImage"), uploadProfileImage);
 router.route("/send-reset-otp").post(sendPasswordResetOTP);
 router.route("/reset-password").post(resetPasswordWithOTP);
-router.route("/searchAllContent").get(verifyJWT, searchAllContent);
+router.route("/searchAllContent").get(optionalVerifyJWT, searchAllContent);
 router.route("/profile/other").get(verifyJWT, getOtherUserProfile);
 
 // Follower routes

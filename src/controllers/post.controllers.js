@@ -2,7 +2,9 @@ import { asyncHandler } from "../utlis/asyncHandler.js";
 import { ApiError } from "../utlis/ApiError.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import Post from "../models/userPost.models.js";
-import { uploadBufferToCloudinary } from "../utlis/cloudinary.js";
+import Story from "../models/story.models.js";
+import Reel from "../models/reels.models.js";
+import { uploadBufferToCloudinary, deleteMultipleFromCloudinary, deleteFromCloudinary } from "../utlis/cloudinary.js";
 import { getCoordinates } from "../utlis/getCoordinates.js";
 import Like from "../models/like.models.js";
 // import Comment from "../models/comment.models.mjs";
@@ -365,9 +367,6 @@ export const createServicePost = asyncHandler(async (req, res) => {
             throw new ApiError(500, "Cloudinary upload failed");
         }
     }
-    if (!parsedService?.link) {
-        throw new ApiError(400, "Service post must include a service link");
-    }
 
     const post = await Post.create({
         userId,
@@ -540,8 +539,8 @@ export const getAllPosts = asyncHandler(async (req, res) => {
 
 // Get post by ID
 export const getPostById = asyncHandler(async (req, res) => {
-    const { id } = req.params;
-    const post = await Post.findById(id);
+    const { postId } = req.params;
+    const post = await Post.findById(postId);
     if (!post) throw new ApiError(404, "Post not found");
     return res.status(200).json(new ApiResponse(200, post, "Post fetched successfully"));
 });
@@ -561,10 +560,383 @@ export const updatePost = asyncHandler(async (req, res) => {
 // Delete post
 export const deletePost = asyncHandler(async (req, res) => {
     const { id } = req.params;
-    const post = await Post.findByIdAndDelete(id);
+    const userId = req.user?._id;
+
+    if (!userId) throw new ApiError(401, "User authentication required");
+
+    // Find the post first to check ownership and get media URLs
+    const post = await Post.findById(id);
     if (!post) throw new ApiError(404, "Post not found");
 
-    return res.status(200).json(new ApiResponse(200, {}, "Post deleted successfully"));
+    // Check if user owns the post
+    if (post.userId.toString() !== userId.toString()) {
+        throw new ApiError(403, "You can only delete your own posts");
+    }
+
+    let cloudinaryDeletionResult = {
+        totalDeleted: 0,
+        errors: []
+    };
+
+    // Extract all media URLs from the post
+    const mediaUrls = [];
+    if (post.media && post.media.length > 0) {
+        post.media.forEach(media => {
+            if (media.url) mediaUrls.push(media.url);
+            if (media.thumbnailUrl) mediaUrls.push(media.thumbnailUrl);
+            // Handle additional media
+            if (media.additionalMedia && media.additionalMedia.length > 0) {
+                media.additionalMedia.forEach(additionalMedia => {
+                    if (additionalMedia.url) mediaUrls.push(additionalMedia.url);
+                    if (additionalMedia.thumbnailUrl) mediaUrls.push(additionalMedia.thumbnailUrl);
+                });
+            }
+        });
+    }
+
+    // Delete media files from Cloudinary if any exist
+    if (mediaUrls.length > 0) {
+        try {
+            cloudinaryDeletionResult = await deleteMultipleFromCloudinary(mediaUrls);
+        } catch (error) {
+            // Continue with database deletion even if Cloudinary deletion fails
+            console.error("Cloudinary deletion error:", error);
+            cloudinaryDeletionResult.errors.push({
+                error: `Cloudinary deletion failed: ${error.message}`
+            });
+        }
+    }
+
+    // Delete the post from database
+    await Post.findByIdAndDelete(id);
+
+    // Delete related data (likes, comments, saved posts)
+    await Promise.allSettled([
+        Like.deleteMany({ postId: id }),
+        // Comment.deleteMany({ postId: id }), // Uncomment when Comment model is available
+        // SavedPost.deleteMany({ postId: id }) // Uncomment when SavedPost model is available
+    ]);
+
+    const responseData = {
+        postId: id,
+        mediaCleanup: {
+            filesDeleted: cloudinaryDeletionResult.totalDeleted,
+            filesSkipped: cloudinaryDeletionResult.totalSkipped || 0,
+            totalMediaFiles: mediaUrls.length,
+            errors: cloudinaryDeletionResult.errors
+        }
+    };
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            responseData,
+            cloudinaryDeletionResult.errors.length > 0
+                ? "Post deleted successfully, but some media files could not be removed from cloud storage"
+                : "Post and all associated media deleted successfully"
+        )
+    );
+});
+
+// Delete story
+export const deleteStory = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const userId = req.user?._id;
+
+    if (!userId) throw new ApiError(401, "User authentication required");
+
+    // Find the story first to check ownership and get media URL
+    const story = await Story.findById(id);
+    if (!story) throw new ApiError(404, "Story not found");
+
+    // Check if user owns the story
+    if (story.userId.toString() !== userId.toString()) {
+        throw new ApiError(403, "You can only delete your own stories");
+    }
+
+    let cloudinaryDeletionResult = {
+        totalDeleted: 0,
+        errors: []
+    };
+
+    // Delete media from Cloudinary if exists
+    if (story.mediaUrl) {
+        try {
+            await deleteFromCloudinary(story.mediaUrl);
+            cloudinaryDeletionResult.totalDeleted = 1;
+        } catch (error) {
+            console.error("Cloudinary deletion error:", error);
+            cloudinaryDeletionResult.errors.push({
+                error: `Cloudinary deletion failed: ${error.message}`
+            });
+        }
+    }
+
+    // Delete the story from database
+    await Story.findByIdAndDelete(id);
+
+    const responseData = {
+        storyId: id,
+        mediaCleanup: {
+            filesDeleted: cloudinaryDeletionResult.totalDeleted,
+            filesSkipped: 0,
+            totalMediaFiles: story.mediaUrl ? 1 : 0,
+            errors: cloudinaryDeletionResult.errors
+        }
+    };
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            responseData,
+            cloudinaryDeletionResult.errors.length > 0
+                ? "Story deleted successfully, but media file could not be removed from cloud storage"
+                : "Story and associated media deleted successfully"
+        )
+    );
+});
+
+// Delete reel
+export const deleteReel = asyncHandler(async (req, res) => {
+    const { id } = req.params;
+    const userId = req.user?._id;
+
+    if (!userId) throw new ApiError(401, "User authentication required");
+
+    // Find the reel first to check ownership and get media URLs
+    const reel = await Reel.findById(id);
+    if (!reel) throw new ApiError(404, "Reel not found");
+
+    // Check if user owns the reel
+    if (reel.userId.toString() !== userId.toString()) {
+        throw new ApiError(403, "You can only delete your own reels");
+    }
+
+    let cloudinaryDeletionResult = {
+        totalDeleted: 0,
+        errors: []
+    };
+
+    // Extract media URLs for deletion
+    const mediaUrls = [];
+    if (reel.videoUrl) mediaUrls.push(reel.videoUrl);
+    if (reel.thumbnailUrl) mediaUrls.push(reel.thumbnailUrl);
+
+    // Delete media files from Cloudinary if any exist
+    if (mediaUrls.length > 0) {
+        try {
+            const deletionResult = await deleteMultipleFromCloudinary(mediaUrls);
+            cloudinaryDeletionResult = deletionResult;
+        } catch (error) {
+            console.error("Cloudinary deletion error:", error);
+            cloudinaryDeletionResult.errors.push({
+                error: `Cloudinary deletion failed: ${error.message}`
+            });
+        }
+    }
+
+    // Delete the reel from database
+    await Reel.findByIdAndDelete(id);
+
+    // Delete related data (likes, comments)
+    await Promise.allSettled([
+        // Remove reel from likes if using the Like model for reels
+        Like.deleteMany({ postId: id }),
+        // Comment.deleteMany({ reelId: id }), // Uncomment when Comment model supports reels
+    ]);
+
+    const responseData = {
+        reelId: id,
+        mediaCleanup: {
+            filesDeleted: cloudinaryDeletionResult.totalDeleted,
+            filesSkipped: cloudinaryDeletionResult.totalSkipped || 0,
+            totalMediaFiles: mediaUrls.length,
+            errors: cloudinaryDeletionResult.errors
+        }
+    };
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            responseData,
+            cloudinaryDeletionResult.errors.length > 0
+                ? "Reel deleted successfully, but some media files could not be removed from cloud storage"
+                : "Reel and all associated media deleted successfully"
+        )
+    );
+});
+
+// Common delete function - handles posts, stories, and reels using postId
+export const deleteContent = asyncHandler(async (req, res) => {
+    const { postId } = req.params;
+    const userId = req.user?._id;
+
+    if (!userId) throw new ApiError(401, "User authentication required");
+
+    let content = null;
+    let contentType = null;
+    let mediaUrls = [];
+    let cloudinaryDeletionResult = {
+        totalDeleted: 0,
+        totalSkipped: 0,
+        errors: []
+    };
+
+    try {
+        // 1. Try to find in Post collection first
+        content = await Post.findById(postId);
+        if (content) {
+            contentType = 'post';
+
+            // Check ownership
+            if (content.userId.toString() !== userId.toString()) {
+                throw new ApiError(403, "You can only delete your own posts");
+            }
+
+            // Extract media URLs from post
+            if (content.media && content.media.length > 0) {
+                content.media.forEach(media => {
+                    if (media.url) mediaUrls.push(media.url);
+                    if (media.thumbnailUrl) mediaUrls.push(media.thumbnailUrl);
+                    if (media.additionalMedia && media.additionalMedia.length > 0) {
+                        media.additionalMedia.forEach(additionalMedia => {
+                            if (additionalMedia.url) mediaUrls.push(additionalMedia.url);
+                            if (additionalMedia.thumbnailUrl) mediaUrls.push(additionalMedia.thumbnailUrl);
+                        });
+                    }
+                });
+            }
+
+            // Delete media from Cloudinary
+            if (mediaUrls.length > 0) {
+                try {
+                    cloudinaryDeletionResult = await deleteMultipleFromCloudinary(mediaUrls);
+                } catch (error) {
+                    console.error("Cloudinary deletion error:", error);
+                    cloudinaryDeletionResult.errors.push({
+                        error: `Cloudinary deletion failed: ${error.message}`
+                    });
+                }
+            }
+
+            // Delete post from database
+            await Post.findByIdAndDelete(postId);
+
+            // Delete related data
+            await Promise.allSettled([
+                Like.deleteMany({ postId: postId }),
+                // Comment.deleteMany({ postId: postId }), // Uncomment when Comment model is available
+                // SavedPost.deleteMany({ postId: postId }) // Uncomment when SavedPost model is available
+            ]);
+        }
+
+        // 2. If not found in Post, try Story collection
+        if (!content) {
+            content = await Story.findById(postId);
+            if (content) {
+                contentType = 'story';
+
+                // Check ownership
+                if (content.userId.toString() !== userId.toString()) {
+                    throw new ApiError(403, "You can only delete your own stories");
+                }
+
+                // Extract media URL from story
+                if (content.mediaUrl) {
+                    mediaUrls.push(content.mediaUrl);
+                }
+
+                // Delete media from Cloudinary
+                if (mediaUrls.length > 0) {
+                    try {
+                        const result = await deleteFromCloudinary(content.mediaUrl);
+                        cloudinaryDeletionResult.totalDeleted = 1;
+                    } catch (error) {
+                        console.error("Cloudinary deletion error:", error);
+                        cloudinaryDeletionResult.errors.push({
+                            error: `Cloudinary deletion failed: ${error.message}`
+                        });
+                    }
+                }
+
+                // Delete story from database
+                await Story.findByIdAndDelete(postId);
+            }
+        }
+
+        // 3. If not found in Post or Story, try Reel collection
+        if (!content) {
+            content = await Reel.findById(postId);
+            if (content) {
+                contentType = 'reel';
+
+                // Check ownership
+                if (content.userId.toString() !== userId.toString()) {
+                    throw new ApiError(403, "You can only delete your own reels");
+                }
+
+                // Extract media URLs from reel
+                if (content.videoUrl) mediaUrls.push(content.videoUrl);
+                if (content.thumbnailUrl) mediaUrls.push(content.thumbnailUrl);
+
+                // Delete media from Cloudinary
+                if (mediaUrls.length > 0) {
+                    try {
+                        cloudinaryDeletionResult = await deleteMultipleFromCloudinary(mediaUrls);
+                    } catch (error) {
+                        console.error("Cloudinary deletion error:", error);
+                        cloudinaryDeletionResult.errors.push({
+                            error: `Cloudinary deletion failed: ${error.message}`
+                        });
+                    }
+                }
+
+                // Delete reel from database
+                await Reel.findByIdAndDelete(postId);
+
+                // Delete related data
+                await Promise.allSettled([
+                    Like.deleteMany({ postId: postId }),
+                    // Comment.deleteMany({ reelId: postId }), // Uncomment when Comment model supports reels
+                ]);
+            }
+        }
+
+        // 4. If content not found in any collection
+        if (!content) {
+            throw new ApiError(404, "Content not found. The post, story, or reel may have already been deleted.");
+        }
+
+        // 5. Prepare response data
+        const responseData = {
+            postId: postId,
+            contentType: contentType,
+            mediaCleanup: {
+                filesDeleted: cloudinaryDeletionResult.totalDeleted,
+                filesSkipped: cloudinaryDeletionResult.totalSkipped || 0,
+                totalMediaFiles: mediaUrls.length,
+                errors: cloudinaryDeletionResult.errors
+            }
+        };
+
+        return res.status(200).json(
+            new ApiResponse(
+                200,
+                responseData,
+                cloudinaryDeletionResult.errors.length > 0
+                    ? `${contentType.charAt(0).toUpperCase() + contentType.slice(1)} deleted successfully, but some media files could not be removed from cloud storage`
+                    : `${contentType.charAt(0).toUpperCase() + contentType.slice(1)} and all associated media deleted successfully`
+            )
+        );
+
+    } catch (error) {
+        // If it's already an ApiError, re-throw it
+        if (error instanceof ApiError) {
+            throw error;
+        }
+        // Otherwise, wrap it in a generic error
+        throw new ApiError(500, `Error deleting content: ${error.message}`);
+    }
 });
 
 // Get nearby posts using 2dsphere index

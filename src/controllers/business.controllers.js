@@ -5,6 +5,30 @@ import { ApiError } from "../utlis/ApiError.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import { asyncHandler } from "../utlis/asyncHandler.js";
 
+// Predefined business categories
+const BUSINESS_CATEGORIES = [
+    "Technology & Software",
+    "E-commerce & Retail",
+    "Health & Wellness",
+    "Education & Training",
+    "Finance & Accounting",
+    "Marketing & Advertising",
+    "Real Estate",
+    "Travel & Hospitality",
+    "Food & Beverage",
+    "Fashion & Apparel",
+    "Automotive",
+    "Construction & Engineering",
+    "Legal & Consulting",
+    "Entertainment & Media",
+    "Art & Design",
+    "Logistics & Transportation",
+    "Agriculture & Farming",
+    "Manufacturing & Industrial",
+    "Non-profit & NGOs",
+    "Telecommunications"
+];
+
 function extractTagsFromText(...fields) {
     const text = fields.filter(Boolean).join(' ').toLowerCase();
     const words = text.match(/\b\w+\b/g) || [];
@@ -72,10 +96,13 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
         throw new ApiError(400, "businessName, category, and contact.email are required");
     }
 
-
+    // Validate category against predefined list
+    if (!BUSINESS_CATEGORIES.includes(category)) {
+        throw new ApiError(400, `Invalid category. Must be one of: ${BUSINESS_CATEGORIES.join(', ')}`);
+    }
 
     const trimmedBusinessName = businessName.trim();
-    const normalizedCategory = category.trim().toLowerCase();
+    const normalizedCategory = category.trim();
 
     // Validate email format
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -117,12 +144,12 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
         if (finalTags.length === 0) {
             throw new ApiError(400, "Tags must be non-empty strings");
         }
-        console.log('Using manual tags:', finalTags);
+
     } else {
         // Fallback to auto-generated tags if no manual tags provided
         const autoTags = extractTagsFromText(trimmedBusinessName, description, normalizedCategory);
         finalTags = autoTags.map(tag => tag.toLowerCase());
-        console.log('Using auto-generated tags:', finalTags);
+
     }
 
     const uniqueTags = [...new Set(finalTags)];
@@ -321,7 +348,11 @@ export const updateBusinessProfile = asyncHandler(async (req, res) => {
 
     // Update category if provided
     if (category) {
-        business.category = category.trim().toLowerCase();
+        // Validate category against predefined list
+        if (!BUSINESS_CATEGORIES.includes(category)) {
+            throw new ApiError(400, `Invalid category. Must be one of: ${BUSINESS_CATEGORIES.join(', ')}`);
+        }
+        business.category = category.trim();
     }
 
     // Update other fields if provided
@@ -367,7 +398,7 @@ export const updateBusinessProfile = asyncHandler(async (req, res) => {
             }
 
             business.tags = [...new Set(manualTags)];
-            console.log('Updated with manual tags:', business.tags);
+
         } else {
             // If empty array provided, clear tags or fallback to auto-generation
             const autoTags = extractTagsFromText(
@@ -376,7 +407,7 @@ export const updateBusinessProfile = asyncHandler(async (req, res) => {
                 business.category
             );
             business.tags = [...new Set(autoTags.map(tag => tag.toLowerCase()))];
-            console.log('Updated with auto-generated tags:', business.tags);
+
         }
     }
 
@@ -392,10 +423,22 @@ export const updateBusinessProfile = asyncHandler(async (req, res) => {
 });
 
 
+// GET /api/v1/business/my-category
+export const getMyBusinessCategory = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
 
+    const business = await Business.findOne({ userId }).select('category businessName').lean();
+    if (!business) {
+        throw new ApiError(404, "Business profile not found");
+    }
 
-
-
+    return res.status(200).json(
+        new ApiResponse(200, {
+            category: business.category,
+            businessName: business.businessName
+        }, "Business category fetched successfully")
+    );
+});
 
 // 🔧 Helper function to update existing businesses with active subscriptions
 export const updateExistingActiveBusinesses = asyncHandler(async (req, res) => {

@@ -1,5 +1,6 @@
 import express from 'express';
 import { verifyJWT } from '../middlewares/auth.middleware.js';
+import { upload } from '../middlewares/multerConfig.js';
 import {
     createChat,
     getUserChats,
@@ -34,8 +35,11 @@ router.patch('/:chatId/decline', declineChatRequest);
 // Get messages for a chat
 router.get('/:chatId/messages', getChatMessages);
 
-// Add a message to a chat
-router.post('/:chatId/messages', addMessage);
+// Add a message to a chat (with optional file upload)
+router.post('/:chatId/messages', upload.single('mediaFile'), addMessage);
+
+// Alternative route for JSON messages (without file upload)
+router.post('/:chatId/messages/text', addMessage);
 
 // Mark messages as read
 router.patch('/:chatId/read', markMessagesRead);

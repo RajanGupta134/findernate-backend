@@ -44,8 +44,33 @@ export const getSuggestedReels = asyncHandler(async (req, res) => {
 
         const result = await search.execute();
 
+        // Enhanced reels with additional fields
+        const enhancedReels = result.resources.map(reel => ({
+            ...reel,
+            engagement: {
+                likes: 0,
+                comments: 0,
+                shares: 0,
+                saves: 0,
+                views: 0,
+                reach: 0,
+                impressions: 0
+            },
+            settings: {
+                visibility: "public",
+                allowComments: true,
+                allowLikes: true,
+                customAudience: []
+            },
+            status: "published",
+            isPromoted: false,
+            isFeatured: false,
+            isReported: false,
+            reportCount: 0
+        }));
+
         const responseData = {
-            reels: result.resources,
+            reels: enhancedReels,
             pagination: {
                 page: Number(page),
                 limit: max_results,
@@ -107,8 +132,33 @@ export const getCloudinaryReels = asyncHandler(async (req, res) => {
 
         const result = await search.execute();
 
+        // Enhanced reels with additional fields
+        const enhancedReels = result.resources.map(reel => ({
+            ...reel,
+            engagement: {
+                likes: 0,
+                comments: 0,
+                shares: 0,
+                saves: 0,
+                views: 0,
+                reach: 0,
+                impressions: 0
+            },
+            settings: {
+                visibility: "public",
+                allowComments: true,
+                allowLikes: true,
+                customAudience: []
+            },
+            status: "published",
+            isPromoted: false,
+            isFeatured: false,
+            isReported: false,
+            reportCount: 0
+        }));
+
         const responseData = {
-            reels: result.resources,
+            reels: enhancedReels,
             pagination: {
                 page: Number(page),
                 limit: max_results,

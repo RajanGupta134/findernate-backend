@@ -82,9 +82,12 @@ const getSuggestedForYou = asyncHandler(async (req, res) => {
             { $limit: 30 }
         ]);
 
-        // 3. Mutual friends
+        // 3. Get users that current user is already following (to exclude them)
         const currentUserFollowing = await Follower.find({ followerId: currentUserId }).select('userId');
         const followingIds = currentUserFollowing.map(f => f.userId);
+        const followingIdsSet = new Set(followingIds.map(id => id.toString()));
+
+        // 4. Mutual friends
 
         const mutualFriends = await Follower.aggregate([
             {
@@ -106,7 +109,7 @@ const getSuggestedForYou = asyncHandler(async (req, res) => {
         const suggestionMap = new Map();
 
         for (const user of likedUsers) {
-            if (user._id.toString() !== currentUserId.toString()) {
+            if (user._id.toString() !== currentUserId.toString() && !followingIdsSet.has(user._id.toString())) {
                 suggestionMap.set(user._id.toString(), {
                     userId: user._id,
                     score: user.likeCount * LIKE_SCORE,
@@ -116,7 +119,7 @@ const getSuggestedForYou = asyncHandler(async (req, res) => {
         }
 
         for (const user of commentedUsers) {
-            if (user._id.toString() !== currentUserId.toString()) {
+            if (user._id.toString() !== currentUserId.toString() && !followingIdsSet.has(user._id.toString())) {
                 const existing = suggestionMap.get(user._id.toString());
                 if (existing) {
                     existing.score += user.commentCount * COMMENT_SCORE;
@@ -132,7 +135,7 @@ const getSuggestedForYou = asyncHandler(async (req, res) => {
         }
 
         for (const user of mutualFriends) {
-            if (user._id.toString() !== currentUserId.toString()) {
+            if (user._id.toString() !== currentUserId.toString() && !followingIdsSet.has(user._id.toString())) {
                 const existing = suggestionMap.get(user._id.toString());
                 if (existing) {
                     existing.score += user.mutualCount * MUTUAL_SCORE;
@@ -163,7 +166,7 @@ const getSuggestedForYou = asyncHandler(async (req, res) => {
         }).select('username fullName profileImageUrl bio');
 
         // Get follower/following counts
-        const [followersCounts, followingCounts, currentUserFollowings] = await Promise.all([
+        const [followersCounts, followingCounts] = await Promise.all([
             Follower.aggregate([
                 { $match: { userId: { $in: userIds } } },
                 { $group: { _id: "$userId", count: { $sum: 1 } } }
@@ -171,13 +174,11 @@ const getSuggestedForYou = asyncHandler(async (req, res) => {
             Follower.aggregate([
                 { $match: { followerId: { $in: userIds } } },
                 { $group: { _id: "$followerId", count: { $sum: 1 } } }
-            ]),
-            Follower.find({ followerId: currentUserId, userId: { $in: userIds } }).select('userId')
+            ])
         ]);
 
         const followersMap = new Map(followersCounts.map(f => [f._id.toString(), f.count]));
         const followingMap = new Map(followingCounts.map(f => [f._id.toString(), f.count]));
-        const followingSet = new Set(currentUserFollowings.map(f => f.userId.toString()));
 
         // Final mapping
         const suggestionsWithDetails = paginated.map(suggestion => {
@@ -192,7 +193,7 @@ const getSuggestedForYou = asyncHandler(async (req, res) => {
                 bio: user.bio,
                 followersCount: followersMap.get(user._id.toString()) || 0,
                 followingCount: followingMap.get(user._id.toString()) || 0,
-                isFollowing: followingSet.has(user._id.toString())
+                isFollowing: false // All suggested users are not followed by design
             };
         }).filter(Boolean);
 

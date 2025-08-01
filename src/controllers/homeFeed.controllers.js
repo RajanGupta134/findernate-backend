@@ -8,8 +8,8 @@ import Like from '../models/like.models.js';
 
 export const getHomeFeed = asyncHandler(async (req, res) => {
     try {
-        const userId = req.user._id;
-        const userLocation = req.user.location && req.user.location.coordinates && Array.isArray(req.user.location.coordinates)
+        const userId = req.user?._id;
+        const userLocation = req.user?.location && req.user.location.coordinates && Array.isArray(req.user.location.coordinates)
             ? req.user.location
             : null;
 
@@ -18,15 +18,18 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         const now = new Date();
         const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-        // ✅ 1. Get following and followers
-        const user = await User.findById(userId).select('following followers');
-        const following = user?.following || [];
-        const followers = user?.followers || [];
+        // ✅ 1. Get following and followers (only if user is authenticated)
+        let feedUserIds = [];
+        if (userId) {
+            const user = await User.findById(userId).select('following followers');
+            const following = user?.following || [];
+            const followers = user?.followers || [];
 
-        const feedUserIds = [...new Set([
-            ...following.map(id => id.toString()),
-            ...followers.map(id => id.toString())
-        ])];
+            feedUserIds = [...new Set([
+                ...following.map(id => id.toString()),
+                ...followers.map(id => id.toString())
+            ])];
+        }
 
         // ✅ 2. Base post filter
         const allowedTypes = ['normal', 'service', 'product', 'business'];
@@ -73,9 +76,10 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         }
 
         //  3d. Non-followed users' posts
+        const excludeUserIds = userId ? [...feedUserIds, userId] : feedUserIds;
         const nonFollowedPosts = await Post.find({
             ...baseQuery,
-            userId: { $nin: [...feedUserIds, userId] }
+            userId: { $nin: excludeUserIds }
         })
             .sort({ createdAt: -1 })
             .limit(FEED_LIMIT)
@@ -126,13 +130,16 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         const skip = (page - 1) * limit;
         const paginatedFeed = rankedFeed.slice(skip, skip + limit);
 
-        // Fetch likes for paginated posts by current user
+        // Fetch likes for paginated posts by current user (only if authenticated)
         const postIds = paginatedFeed.map(post => post._id);
-        const userLikes = await Like.find({
-            userId: userId,
-            postId: { $in: postIds }
-        }).select('postId');
-        const likedPostIds = new Set(userLikes.map(like => like.postId.toString()));
+        let likedPostIds = new Set();
+        if (userId) {
+            const userLikes = await Like.find({
+                userId: userId,
+                postId: { $in: postIds }
+            }).select('postId');
+            likedPostIds = new Set(userLikes.map(like => like.postId.toString()));
+        }
 
         // Fetch comments for each post in the paginated feed
         const feedWithComments = await Promise.all(
