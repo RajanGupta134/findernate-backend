@@ -18,6 +18,7 @@ import { createComment, getCommentsByPost, getCommentById, updateComment, delete
 import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, deleteNotification } from "../controllers/notification.controllers.js";
 import { getProfileTabContent } from "../controllers/switch.controllers.js";
 import { savePost, unsavePost, getSavedPosts, checkPostSaved } from "../controllers/savePost.controllers.js";
+import { reportContent, getReports, updateReportStatus } from "../controllers/report.controllers.js";
 
 
 const router = Router();
@@ -62,6 +63,11 @@ router.route("/save").post(verifyJWT, savePost);
 router.route("/save/:postId").delete(verifyJWT, unsavePost);
 router.route("/saved").get(verifyJWT, getSavedPosts);
 router.route("/saved/check/:postId").get(verifyJWT, checkPostSaved);
+
+// Report routes
+router.route("/report").post(verifyJWT, reportContent);
+router.route("/reports").get(verifyJWT, getReports);
+router.route("/report/:reportId/status").put(verifyJWT, updateReportStatus);
 
 // Common API - handles get and delete for posts, stories, and reels
 router.route("/:postId").get(verifyJWT, getPostById).delete(verifyJWT, deleteContent);
