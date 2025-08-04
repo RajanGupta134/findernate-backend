@@ -4,6 +4,7 @@ import Post from "../models/userPost.models.js";
 import { ApiError } from "../utlis/ApiError.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import { asyncHandler } from "../utlis/asyncHandler.js";
+import { getCoordinates } from "../utlis/getCoordinates.js";
 
 // Predefined business categories
 const BUSINESS_CATEGORIES = [
@@ -154,6 +155,31 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
 
     const uniqueTags = [...new Set(finalTags)];
 
+    // Handle location coordinates resolution
+    let resolvedLocation = location || {};
+    if (location && (location.address || location.city)) {
+        const locationString = [location.address, location.city, location.state, location.country]
+            .filter(Boolean)
+            .join(', ');
+
+        if (locationString) {
+            try {
+                const coords = await getCoordinates(locationString);
+                if (coords?.latitude && coords?.longitude) {
+                    resolvedLocation.coordinates = {
+                        type: "Point",
+                        coordinates: [coords.longitude, coords.latitude]
+                    };
+                    resolvedLocation.isLiveLocationEnabled = true;
+                    resolvedLocation.lastLocationUpdate = new Date();
+                }
+            } catch (error) {
+                console.log('Could not resolve coordinates for business location:', error);
+                // Continue without coordinates if resolution fails
+            }
+        }
+    }
+
     // Create the business profile
     const business = await Business.create({
         userId,
@@ -162,7 +188,7 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
         description,
         category: normalizedCategory,
         contact,
-        location,
+        location: resolvedLocation,
         rating,
         tags: uniqueTags,
         website,
@@ -358,7 +384,40 @@ export const updateBusinessProfile = asyncHandler(async (req, res) => {
     // Update other fields if provided
     if (businessType) business.businessType = businessType;
     if (description) business.description = description;
-    if (location) business.location = location;
+
+    // Handle location updates with coordinate resolution
+    if (location) {
+        let resolvedLocation = { ...business.location, ...location };
+
+        // If address or city is updated, try to resolve coordinates
+        if (location.address || location.city || location.state || location.country) {
+            const locationString = [
+                resolvedLocation.address,
+                resolvedLocation.city,
+                resolvedLocation.state,
+                resolvedLocation.country
+            ].filter(Boolean).join(', ');
+
+            if (locationString) {
+                try {
+                    const coords = await getCoordinates(locationString);
+                    if (coords?.latitude && coords?.longitude) {
+                        resolvedLocation.coordinates = {
+                            type: "Point",
+                            coordinates: [coords.longitude, coords.latitude]
+                        };
+                        resolvedLocation.isLiveLocationEnabled = true;
+                        resolvedLocation.lastLocationUpdate = new Date();
+                    }
+                } catch (error) {
+                    console.log('Could not resolve coordinates for updated location:', error);
+                    // Continue without updating coordinates if resolution fails
+                }
+            }
+        }
+
+        business.location = resolvedLocation;
+    }
 
     // Validate and update contact information
     if (contact) {
@@ -464,3 +523,157 @@ export const updateExistingActiveBusinesses = asyncHandler(async (req, res) => {
         throw new ApiError(500, "Error updating existing businesses: " + error.message);
     }
 });
+
+// 📍 PATCH /api/v1/business/live-location
+export const updateLiveLocation = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+    const { latitude, longitude, address } = req.body;
+
+    if (!latitude || !longitude) {
+        throw new ApiError(400, "Latitude and longitude are required for live location");
+    }
+
+    // Validate coordinate ranges
+    if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) {
+        throw new ApiError(400, "Invalid coordinates provided");
+    }
+
+    const business = await Business.findOne({ userId });
+    if (!business) {
+        throw new ApiError(404, "Business profile not found");
+    }
+
+    // Update live location
+    business.location = {
+        ...business.location,
+        coordinates: {
+            type: "Point",
+            coordinates: [longitude, latitude]
+        },
+        isLiveLocationEnabled: true,
+        lastLocationUpdate: new Date()
+    };
+
+    // If address is provided, update it too
+    if (address) {
+        business.location.address = address;
+    }
+
+    await business.save();
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            location: business.location,
+            message: "Live location updated successfully"
+        }, "Live location updated successfully")
+    );
+});
+
+// 📍 POST /api/v1/business/toggle-live-location
+export const toggleLiveLocation = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+    const { enabled } = req.body;
+
+    if (typeof enabled !== 'boolean') {
+        throw new ApiError(400, "enabled field must be a boolean value");
+    }
+
+    const business = await Business.findOne({ userId });
+    if (!business) {
+        throw new ApiError(404, "Business profile not found");
+    }
+
+    // Initialize location if it doesn't exist
+    if (!business.location) {
+        business.location = {};
+    }
+
+    business.location.isLiveLocationEnabled = enabled;
+    await business.save();
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            isLiveLocationEnabled: business.location.isLiveLocationEnabled
+        }, `Live location ${enabled ? 'enabled' : 'disabled'} successfully`)
+    );
+});
+
+// 🔍 GET /api/v1/business/nearby?latitude=X&longitude=Y&radius=Z
+export const getNearbyBusinesses = asyncHandler(async (req, res) => {
+    const { latitude, longitude, radius = 5000, category, limit = 20 } = req.query;
+
+    if (!latitude || !longitude) {
+        throw new ApiError(400, "Latitude and longitude are required");
+    }
+
+    const lat = parseFloat(latitude);
+    const lng = parseFloat(longitude);
+    const radiusInMeters = parseFloat(radius);
+
+    // Validate coordinates
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        throw new ApiError(400, "Invalid coordinates provided");
+    }
+
+    // Build query
+    let query = {
+        'location.coordinates': {
+            $near: {
+                $geometry: {
+                    type: 'Point',
+                    coordinates: [lng, lat]
+                },
+                $maxDistance: radiusInMeters
+            }
+        },
+        'location.isLiveLocationEnabled': true,
+        subscriptionStatus: 'active'
+    };
+
+    // Filter by category if provided
+    if (category && BUSINESS_CATEGORIES.includes(category)) {
+        query.category = category;
+    }
+
+    const nearbyBusinesses = await Business.find(query)
+        .select('-gstNumber -aadhaarNumber -rating')
+        .populate('userId', 'username fullName profileImageUrl')
+        .limit(parseInt(limit))
+        .lean();
+
+    // Calculate distance for each business
+    const businessesWithDistance = nearbyBusinesses.map(business => {
+        if (business.location?.coordinates?.coordinates) {
+            const [businessLng, businessLat] = business.location.coordinates.coordinates;
+            const distance = calculateDistance(lat, lng, businessLat, businessLng);
+            return {
+                ...business,
+                distance: Math.round(distance * 100) / 100 // Round to 2 decimal places
+            };
+        }
+        return business;
+    });
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            businesses: businessesWithDistance,
+            count: businessesWithDistance.length,
+            searchCenter: { latitude: lat, longitude: lng },
+            radiusInMeters
+        }, "Nearby businesses fetched successfully")
+    );
+});
+
+// 🧮 Helper function to calculate distance between two points (Haversine formula)
+function calculateDistance(lat1, lon1, lat2, lon2) {
+    const R = 6371; // Radius of the Earth in kilometers
+    const dLat = (lat2 - lat1) * Math.PI / 180;
+    const dLon = (lon2 - lon1) * Math.PI / 180;
+    const a =
+        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+        Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+        Math.sin(dLon / 2) * Math.sin(dLon / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    const distance = R * c; // Distance in kilometers
+    return distance;
+}

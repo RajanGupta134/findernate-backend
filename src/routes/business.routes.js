@@ -9,7 +9,10 @@ import {
     updateBusinessProfile,
     getBusinessById,
     getMyBusinessCategory,
-    updateExistingActiveBusinesses
+    updateExistingActiveBusinesses,
+    updateLiveLocation,
+    toggleLiveLocation,
+    getNearbyBusinesses
 } from "../controllers/business.controllers.js";
 
 const router = Router();
@@ -35,6 +38,11 @@ router.route("/update").patch(optionalVerifyJWT, updateBusinessProfile);
 
 // Get my business category (auth required) - Must be before /:id route
 router.route("/my-category").get(optionalVerifyJWT, getMyBusinessCategory);
+
+// 📍 Live location endpoints
+router.route("/live-location").patch(verifyJWT, updateLiveLocation);
+router.route("/toggle-live-location").post(verifyJWT, toggleLiveLocation);
+router.route("/nearby").get(getNearbyBusinesses);
 
 // Get business by ID (public access)
 router.route("/:id").get(getBusinessById);

@@ -12,12 +12,29 @@ const ContactSchema = new mongoose.Schema({
     socialMedia: [SocialMediaSchema]
 }, { _id: false });
 
+// 🌐 GeoJSON Point Schema for business location
+const GeoJSONPointSchema = new mongoose.Schema({
+    type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point'
+    },
+    coordinates: {
+        type: [Number], // [longitude, latitude]
+        required: true,
+        index: '2dsphere'
+    }
+}, { _id: false });
+
 const LocationSchema = new mongoose.Schema({
     address: String,
     city: String,
     state: String,
     country: String,
-    postalCode: String
+    postalCode: String,
+    coordinates: GeoJSONPointSchema, // Add coordinates for live location
+    isLiveLocationEnabled: { type: Boolean, default: false }, // Toggle for live location feature
+    lastLocationUpdate: { type: Date } // Track when location was last updated
 }, { _id: false });
 
 const BusinessSchema = new mongoose.Schema({

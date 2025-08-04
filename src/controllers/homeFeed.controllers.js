@@ -1,5 +1,6 @@
 import Post from '../models/userPost.models.js';
 import { User } from '../models/user.models.js';
+import Business from '../models/business.models.js';
 import { ApiResponse } from '../utlis/ApiResponse.js';
 import { ApiError } from '../utlis/ApiError.js';
 import Comment from '../models/comment.models.js';
@@ -59,10 +60,11 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
             .limit(FEED_LIMIT)
             .populate('userId', 'username profileImageUrl');
 
-        // ✅ 3c. Nearby posts
+        // ✅ 3c. Nearby posts (enhanced with business profile locations)
         let nearbyPosts = [];
         if (userLocation && userLocation.coordinates) {
-            nearbyPosts = await Post.find({
+            // Get posts with location data
+            const locationBasedPosts = await Post.find({
                 ...baseQuery,
                 $or: [
                     { 'customization.normal.location.coordinates': { $near: { $geometry: { type: 'Point', coordinates: userLocation.coordinates }, $maxDistance: NEARBY_DISTANCE_KM * 1000 } } },
@@ -71,8 +73,42 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
                     { 'customization.business.location.coordinates': { $near: { $geometry: { type: 'Point', coordinates: userLocation.coordinates }, $maxDistance: NEARBY_DISTANCE_KM * 1000 } } }
                 ]
             })
-                .limit(FEED_LIMIT)
                 .populate('userId', 'username profileImageUrl');
+
+            // Get nearby businesses with live location enabled
+            const nearbyBusinesses = await Business.find({
+                'location.coordinates': {
+                    $near: {
+                        $geometry: {
+                            type: 'Point',
+                            coordinates: userLocation.coordinates
+                        },
+                        $maxDistance: NEARBY_DISTANCE_KM * 1000
+                    }
+                },
+                'location.isLiveLocationEnabled': true,
+                subscriptionStatus: 'active'
+            }).select('userId');
+
+            // Get posts from nearby business owners
+            const nearbyBusinessUserIds = nearbyBusinesses.map(business => business.userId);
+            const businessOwnerPosts = nearbyBusinessUserIds.length > 0 ? await Post.find({
+                ...baseQuery,
+                userId: { $in: nearbyBusinessUserIds }
+            })
+                .populate('userId', 'username profileImageUrl') : [];
+
+            // Combine location-based posts and business posts, avoiding duplicates
+            const allNearbyPosts = [...locationBasedPosts, ...businessOwnerPosts];
+            const seenPostIds = new Set();
+            nearbyPosts = allNearbyPosts
+                .filter(post => {
+                    const id = post._id.toString();
+                    if (seenPostIds.has(id)) return false;
+                    seenPostIds.add(id);
+                    return true;
+                })
+                .slice(0, FEED_LIMIT); // Limit to FEED_LIMIT posts
         }
 
         //  3d. Non-followed users' posts
