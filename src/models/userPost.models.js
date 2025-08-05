@@ -114,7 +114,7 @@ const ServiceDetailsSchema = new mongoose.Schema({
     requirements: [String],
     deliverables: [String],
     tags: [String],
-    link: { type: String}
+    link: { type: String }
 }, { _id: false });
 
 // 🏢 Business Details

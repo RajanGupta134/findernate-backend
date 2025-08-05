@@ -4,8 +4,7 @@ import { verifyJWT } from "../middlewares/auth.middleware.js";
 
 const router = express.Router();
 
-
-// Get suggested reels (random, following, or all)
-router.get("/suggested", verifyJWT, getSuggestedReels);
+// Get suggested reels with comprehensive data and filtering options
+router.get("/suggested", getSuggestedReels);
 
 export default router;

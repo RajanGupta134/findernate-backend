@@ -47,13 +47,23 @@ export const createChat = asyncHandler(async (req, res) => {
         throw new ApiError(400, 'Invalid participant IDs');
     }
 
+    // Validate chat type constraints
+    if (chatType === 'direct' && validParticipants.length !== 2) {
+        throw new ApiError(400, 'Direct chats must have exactly 2 participants');
+    }
+
+    if (chatType === 'group' && validParticipants.length < 3) {
+        throw new ApiError(400, 'Group chats must have at least 3 participants');
+    }
+
     // Sort participants for consistent ordering (fixes duplication check)
     validParticipants.sort();
 
     // Prevent duplicate 1-on-1 chats
-    if (chatType === 'direct' && validParticipants.length === 2) {
+    if (chatType === 'direct') {
+        // More robust duplicate detection for direct chats
         const existingChat = await Chat.findOne({
-            participants: validParticipants,
+            participants: { $all: validParticipants, $size: 2 },
             chatType: 'direct'
         });
 
@@ -65,6 +75,12 @@ export const createChat = asyncHandler(async (req, res) => {
                 isDeleted: { $ne: true }
             }).sort({ timestamp: -1 });
 
+            // Get the correct message count first
+            const messageCount = await Message.countDocuments({
+                chatId: existingChat._id,
+                isDeleted: { $ne: true }
+            });
+
             if (lastMessage) {
                 existingChat.lastMessage = {
                     sender: lastMessage.sender,
@@ -72,30 +88,36 @@ export const createChat = asyncHandler(async (req, res) => {
                     timestamp: lastMessage.timestamp
                 };
                 existingChat.lastMessageId = lastMessage._id;
-                await existingChat.save();
+                existingChat.lastMessageAt = lastMessage.timestamp;
             } else {
-                // No non-deleted messages exist
+                // No non-deleted messages exist - clear all message-related fields
                 existingChat.lastMessage = {};
                 existingChat.lastMessageId = null;
-                await existingChat.save();
+                existingChat.lastMessageAt = existingChat.createdAt; // Reset to chat creation time
             }
+
+            // Update stats in the same save operation
+            if (!existingChat.stats) {
+                existingChat.stats = {};
+            }
+            existingChat.stats.totalMessages = messageCount;
+            existingChat.stats.totalParticipants = existingChat.participants.length;
+
+            // Single save operation
+            await existingChat.save();
 
             // Now populate and return
             const populatedChat = await Chat.findById(existingChat._id)
                 .populate('participants', 'username fullName profileImageUrl')
                 .populate('createdBy', 'username fullName profileImageUrl');
 
-            // Get the stats right
-            const messageCount = await Message.countDocuments({
+            // Add unread count for the current user
+            const unreadCount = await Message.countDocuments({
                 chatId: existingChat._id,
-                isDeleted: { $ne: true }
+                isDeleted: { $ne: true },
+                readBy: { $ne: currentUserId }
             });
-
-            if (!populatedChat.stats) {
-                populatedChat.stats = {};
-            }
-            populatedChat.stats.totalMessages = messageCount;
-            populatedChat.stats.totalParticipants = populatedChat.participants.length;
+            populatedChat.unreadCount = unreadCount;
 
             return res.status(200).json(
                 new ApiResponse(200, populatedChat, 'Existing chat found')
@@ -146,6 +168,9 @@ export const getUserChats = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;
     const { page = 1, limit = 20, chatStatus = 'active' } = req.query;
 
+    // Ensure currentUserId is properly formatted as ObjectId
+    const userObjectId = new mongoose.Types.ObjectId(currentUserId);
+
     const pageNum = parseInt(page) || 1;
     const pageLimit = parseInt(limit) || 20;
     const skip = (pageNum - 1) * pageLimit;
@@ -153,23 +178,37 @@ export const getUserChats = asyncHandler(async (req, res) => {
     // Filter by chat status (active or requested)
     const statusFilter = ['active', 'requested'].includes(chatStatus) ? chatStatus : 'active';
 
+    // More explicit filtering to ensure security
+    const chatFilter = {
+        participants: { $in: [userObjectId] }, // Use $in operator for explicit array matching
+        status: statusFilter
+    };
+
     const [chats, total] = await Promise.all([
-        Chat.find({
-            participants: currentUserId,
-            status: statusFilter
-        })
+        Chat.find(chatFilter)
             .sort({ lastMessageAt: -1 })
             .skip(skip)
             .limit(pageLimit)
             .lean(),
-        Chat.countDocuments({
-            participants: currentUserId,
-            status: statusFilter
-        })
+        Chat.countDocuments(chatFilter)
     ]);
 
-    // Get all chat IDs
-    const chatIds = chats.map(chat => chat._id);
+    // Additional security check: Double-verify each chat contains the current user
+    const secureChats = chats.filter(chat =>
+        chat.participants.some(participantId =>
+            participantId.toString() === currentUserId.toString()
+        )
+    );
+
+    // Debug logging to help identify the issue
+    if (chats.length !== secureChats.length) {
+        console.warn(`Security filter removed ${chats.length - secureChats.length} unauthorized chats for user ${currentUserId}`);
+        console.warn('Original chats:', chats.map(c => ({ id: c._id, participants: c.participants })));
+        console.warn('Secure chats:', secureChats.map(c => ({ id: c._id, participants: c.participants })));
+    }
+
+    // Get all chat IDs from securely filtered chats
+    const chatIds = secureChats.map(chat => chat._id);
 
     // For each chat, find the last non-deleted message
     const lastMessagesPromises = chatIds.map(chatId =>
@@ -222,7 +261,7 @@ export const getUserChats = asyncHandler(async (req, res) => {
     }, {});
 
     // Populate the chats with participants
-    const populatedChatsPromise = Promise.all(chats.map(async (chat) => {
+    const populatedChatsPromise = Promise.all(secureChats.map(async (chat) => {
         const chatWithUsers = await Chat.populate(chat, [
             { path: 'participants', select: 'username fullName profileImageUrl' },
             { path: 'createdBy', select: 'username fullName profileImageUrl' }
@@ -230,12 +269,47 @@ export const getUserChats = asyncHandler(async (req, res) => {
 
         // Update lastMessage with non-deleted message if available
         const chatId = chat._id.toString();
+        let needsDbUpdate = false;
+
         if (lastMessageMap[chatId]) {
+            const latestMessage = lastMessageMap[chatId].message;
             chatWithUsers.lastMessage = lastMessageMap[chatId].lastMessage;
-            chatWithUsers.lastMessageId = lastMessageMap[chatId].message._id;
+            chatWithUsers.lastMessageId = latestMessage._id;
+
+            // Check if database needs updating
+            if (!chat.lastMessageId ||
+                chat.lastMessageId.toString() !== latestMessage._id.toString() ||
+                !chat.lastMessage?.message) {
+                needsDbUpdate = true;
+            }
         } else {
             chatWithUsers.lastMessage = {};
             chatWithUsers.lastMessageId = null;
+            chatWithUsers.lastMessageAt = chat.createdAt;
+
+            // Check if database needs clearing
+            if (chat.lastMessageId ||
+                (chat.lastMessage && Object.keys(chat.lastMessage).length > 0)) {
+                needsDbUpdate = true;
+            }
+        }
+
+        // Update database if needed to maintain consistency
+        if (needsDbUpdate) {
+            const updateData = lastMessageMap[chatId] ? {
+                lastMessage: lastMessageMap[chatId].lastMessage,
+                lastMessageId: lastMessageMap[chatId].message._id,
+                lastMessageAt: lastMessageMap[chatId].message.timestamp
+            } : {
+                lastMessage: {},
+                lastMessageId: null,
+                lastMessageAt: chat.createdAt
+            };
+
+            // Update without waiting to avoid slowing down the response
+            Chat.findByIdAndUpdate(chat._id, updateData).catch(err =>
+                console.error('Failed to update chat metadata:', err)
+            );
         }
 
         // Add message count stats
@@ -257,15 +331,20 @@ export const getUserChats = asyncHandler(async (req, res) => {
 
     const populatedChats = await populatedChatsPromise;
 
+    // Update total count to reflect secure filtering
+    const secureTotal = secureChats.length;
+    const actualTotal = total; // Keep original total for pagination logic
+
     return res.status(200).json(
         new ApiResponse(200, {
             chats: populatedChats,
             chatStatus: statusFilter,
             pagination: {
                 currentPage: pageNum,
-                totalPages: Math.ceil(total / pageLimit),
-                totalChats: total,
-                hasNextPage: pageNum < Math.ceil(total / pageLimit),
+                totalPages: Math.ceil(actualTotal / pageLimit),
+                totalChats: actualTotal,
+                secureChatsReturned: secureTotal, // Add this for debugging
+                hasNextPage: pageNum < Math.ceil(actualTotal / pageLimit),
                 hasPrevPage: pageNum > 1
             }
         }, 'Chats fetched successfully')
@@ -671,29 +750,41 @@ export const deleteMessage = asyncHandler(async (req, res) => {
 
     await message.save();
 
-    // If this was the last message in chat, update the lastMessage
-    if (chat.lastMessageId && chat.lastMessageId.toString() === messageId) {
-        // Find the next most recent non-deleted message
-        const lastMessage = await Message.findOne({
-            chatId,
-            isDeleted: { $ne: true }
-        }).sort({ timestamp: -1 });
+    // Update chat metadata after any message deletion
+    // Find the most recent non-deleted message
+    const remainingLastMessage = await Message.findOne({
+        chatId,
+        isDeleted: { $ne: true }
+    }).sort({ timestamp: -1 });
 
-        if (lastMessage) {
-            // Update chat with new last message
-            chat.lastMessage = {
-                sender: lastMessage.sender,
-                message: lastMessage.message,
-                timestamp: lastMessage.timestamp
-            };
-            chat.lastMessageId = lastMessage._id;
-        } else {
-            // No messages left, clear last message
-            chat.lastMessage = {};
-            chat.lastMessageId = null;
-        }
-        await chat.save();
+    if (remainingLastMessage) {
+        // Update chat with new last message
+        chat.lastMessage = {
+            sender: remainingLastMessage.sender,
+            message: remainingLastMessage.message,
+            timestamp: remainingLastMessage.timestamp
+        };
+        chat.lastMessageId = remainingLastMessage._id;
+        chat.lastMessageAt = remainingLastMessage.timestamp;
+    } else {
+        // No messages left, clear last message completely
+        chat.lastMessage = {};
+        chat.lastMessageId = null;
+        chat.lastMessageAt = chat.createdAt; // Reset to chat creation time
     }
+
+    // Update message count in stats
+    const messageCount = await Message.countDocuments({
+        chatId,
+        isDeleted: { $ne: true }
+    });
+
+    if (!chat.stats) {
+        chat.stats = {};
+    }
+    chat.stats.totalMessages = messageCount;
+
+    await chat.save();
 
     // Emit real-time event for message deletion
     safeEmitToChat(chatId, 'message_deleted', {
@@ -922,4 +1013,173 @@ export const searchMessages = asyncHandler(async (req, res) => {
             }
         }, 'Search completed successfully')
     );
+});
+
+// Debug endpoint to help diagnose chat visibility issues
+export const debugUserChats = asyncHandler(async (req, res) => {
+    const currentUserId = req.user._id;
+
+    // Get all chats without any filtering first
+    const allChats = await Chat.find({}).lean();
+
+    // Check which chats the user appears in
+    const userChats = allChats.filter(chat =>
+        chat.participants.some(p => p.toString() === currentUserId.toString())
+    );
+
+    // Find problematic chats
+    const invalidDirectChats = allChats.filter(chat =>
+        chat.chatType === 'direct' && chat.participants.length !== 2
+    );
+
+    const duplicateDirectChats = [];
+    const directChatGroups = {};
+
+    allChats.filter(chat => chat.chatType === 'direct').forEach(chat => {
+        const sortedParticipants = chat.participants.map(p => p.toString()).sort().join(',');
+        if (directChatGroups[sortedParticipants]) {
+            directChatGroups[sortedParticipants].push(chat);
+        } else {
+            directChatGroups[sortedParticipants] = [chat];
+        }
+    });
+
+    Object.values(directChatGroups).forEach(group => {
+        if (group.length > 1) {
+            duplicateDirectChats.push(...group);
+        }
+    });
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            currentUserId: currentUserId.toString(),
+            totalChatsInSystem: allChats.length,
+            userChatsCount: userChats.length,
+            // Problem analysis
+            invalidDirectChatsCount: invalidDirectChats.length,
+            duplicateDirectChatsCount: duplicateDirectChats.length,
+            // Detailed problem data
+            invalidDirectChats: invalidDirectChats.map(c => ({
+                id: c._id,
+                participants: c.participants.map(p => p.toString()),
+                participantCount: c.participants.length,
+                chatType: c.chatType,
+                createdAt: c.createdAt
+            })),
+            duplicateDirectChats: duplicateDirectChats.map(c => ({
+                id: c._id,
+                participants: c.participants.map(p => p.toString()),
+                chatType: c.chatType,
+                createdAt: c.createdAt
+            })),
+            // User's chats
+            userChats: userChats.map(c => ({
+                id: c._id,
+                participants: c.participants.map(p => p.toString()),
+                chatType: c.chatType,
+                status: c.status,
+                isProblematic: (c.chatType === 'direct' && c.participants.length !== 2)
+            }))
+        }, 'Debug information retrieved')
+    );
+});
+
+// Cleanup endpoint to fix problematic chats (ADMIN ONLY - be careful!)
+export const cleanupProblematicChats = asyncHandler(async (req, res) => {
+    const { action = 'analyze' } = req.body; // 'analyze' or 'fix'
+
+    // Find invalid direct chats (more than 2 participants)
+    const invalidDirectChats = await Chat.find({
+        chatType: 'direct',
+        $expr: { $gt: [{ $size: '$participants' }, 2] }
+    });
+
+    // Find duplicate direct chats
+    const allDirectChats = await Chat.find({ chatType: 'direct' });
+    const duplicateGroups = {};
+
+    allDirectChats.forEach(chat => {
+        const sortedParticipants = chat.participants.map(p => p.toString()).sort().join(',');
+        if (duplicateGroups[sortedParticipants]) {
+            duplicateGroups[sortedParticipants].push(chat);
+        } else {
+            duplicateGroups[sortedParticipants] = [chat];
+        }
+    });
+
+    const duplicateChatGroups = Object.values(duplicateGroups).filter(group => group.length > 1);
+    const duplicateChats = duplicateChatGroups.flat();
+
+    if (action === 'analyze') {
+        return res.status(200).json(
+            new ApiResponse(200, {
+                analysis: {
+                    invalidDirectChatsCount: invalidDirectChats.length,
+                    duplicateChatGroupsCount: duplicateChatGroups.length,
+                    totalDuplicateChats: duplicateChats.length
+                },
+                invalidDirectChats: invalidDirectChats.map(c => ({
+                    id: c._id,
+                    participants: c.participants,
+                    participantCount: c.participants.length,
+                    createdAt: c.createdAt
+                })),
+                duplicateChatGroups: duplicateChatGroups.map(group => ({
+                    participants: group[0].participants,
+                    chats: group.map(c => ({
+                        id: c._id,
+                        createdAt: c.createdAt,
+                        lastMessageAt: c.lastMessageAt
+                    }))
+                }))
+            }, 'Problematic chats analyzed')
+        );
+    }
+
+    if (action === 'fix') {
+        const results = {
+            invalidChatsConverted: 0,
+            duplicateChatsRemoved: 0,
+            errors: []
+        };
+
+        try {
+            // Convert invalid direct chats to group chats
+            for (const chat of invalidDirectChats) {
+                await Chat.findByIdAndUpdate(chat._id, {
+                    chatType: 'group',
+                    groupName: `Group Chat ${chat.participants.length} members`
+                });
+                results.invalidChatsConverted++;
+            }
+
+            // Remove duplicate chats (keep the oldest one in each group)
+            for (const group of duplicateChatGroups) {
+                const sortedGroup = group.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+                const chatToKeep = sortedGroup[0];
+                const chatsToRemove = sortedGroup.slice(1);
+
+                for (const chatToRemove of chatsToRemove) {
+                    // Move messages to the chat we're keeping
+                    await Message.updateMany(
+                        { chatId: chatToRemove._id },
+                        { chatId: chatToKeep._id }
+                    );
+
+                    // Delete the duplicate chat
+                    await Chat.findByIdAndDelete(chatToRemove._id);
+                    results.duplicateChatsRemoved++;
+                }
+            }
+
+        } catch (error) {
+            results.errors.push(error.message);
+        }
+
+        return res.status(200).json(
+            new ApiResponse(200, results, 'Cleanup completed')
+        );
+    }
+
+    throw new ApiError(400, 'Invalid action. Use "analyze" or "fix"');
 }); 
