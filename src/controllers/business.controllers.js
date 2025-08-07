@@ -194,7 +194,7 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
         website,
         gstNumber,
         aadhaarNumber,
-        plan: 'Free',
+        plan: 'plan1',
         subscriptionStatus: 'pending'
     });
 
@@ -248,7 +248,11 @@ export const deleteBusinessProfile = asyncHandler(async (req, res) => {
 export const selectBusinessPlan = asyncHandler(async (req, res) => {
     const userId = req.user._id;
     const { plan } = req.body;
-    const validPlans = ['Free', 'Small Business', 'Corporate'];
+
+    // Define all available plans with simple naming convention
+    const allPlans = ['plan1', 'plan2', 'plan3', 'plan4'];
+    const validPlans = ['plan1', 'plan2', 'plan3', 'plan4'];
+
     if (!validPlans.includes(plan)) {
         throw new ApiError(400, 'Invalid plan selected');
     }
@@ -263,13 +267,54 @@ export const selectBusinessPlan = asyncHandler(async (req, res) => {
         throw new ApiError(403, 'Only business accounts can select a plan');
     }
 
+    // Get current plan and validate upgrade restrictions
+    // Handle legacy plan names (Free, Small Business, Corporate, Enterprise)
+    let currentPlan = business.plan || 'plan1';
 
+    // Map legacy plan names to new plan names
+    const planMapping = {
+        'Free': 'plan1',
+        'Small Business': 'plan2',
+        'Corporate': 'plan3',
+        'Enterprise': 'plan4'
+    };
 
-    // Set subscriptionStatus: 'active' for Free, 'pending' for paid plans
-    let subscriptionStatus = 'active';
-    if (plan === 'Small Business' || plan === 'Corporate') {
-        subscriptionStatus = 'pending'; // Payment required
+    // Convert legacy plan name to new format if needed
+    if (planMapping[currentPlan]) {
+        currentPlan = planMapping[currentPlan];
     }
+
+    const currentPlanIndex = allPlans.indexOf(currentPlan);
+    const selectedPlanIndex = allPlans.indexOf(plan);
+
+    // Define upgrade restrictions based on current plan
+    let allowedUpgrades = [];
+
+    if (currentPlan === 'plan1') {
+        // plan1 users can upgrade to plan2, plan3, or plan4
+        allowedUpgrades = ['plan2', 'plan3', 'plan4'];
+    } else if (currentPlan === 'plan2') {
+        // plan2 users can upgrade to plan3 or plan4
+        allowedUpgrades = ['plan3', 'plan4'];
+    } else if (currentPlan === 'plan3') {
+        // plan3 users can upgrade to plan4
+        allowedUpgrades = ['plan4'];
+    } else if (currentPlan === 'plan4') {
+        // plan4 users cannot upgrade further (highest tier)
+        allowedUpgrades = [];
+    }
+
+    // Check if the selected plan is allowed for upgrade
+    if (!allowedUpgrades.includes(plan)) {
+        const errorMessage = currentPlan === 'plan4'
+            ? 'plan4 is the highest tier plan. No further upgrades available.'
+            : `Cannot upgrade from ${currentPlan} to ${plan}. Allowed upgrades: ${allowedUpgrades.join(', ')}`;
+
+        throw new ApiError(400, errorMessage);
+    }
+
+    // Set subscriptionStatus: 'active' for all plans
+    let subscriptionStatus = 'active';
 
     business.plan = plan;
     business.subscriptionStatus = subscriptionStatus;
@@ -283,7 +328,9 @@ export const selectBusinessPlan = asyncHandler(async (req, res) => {
         new ApiResponse(200, {
             business: businessObj,
             plan: business.plan,
-            subscriptionStatus: business.subscriptionStatus
+            subscriptionStatus: business.subscriptionStatus,
+            allowedUpgrades: allowedUpgrades,
+            currentPlan: currentPlan
         }, 'Plan selected successfully')
     );
 });

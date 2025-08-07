@@ -66,8 +66,8 @@ const BusinessSchema = new mongoose.Schema({
     },
     plan: {
         type: String,
-        enum: ['Free', 'Small Business', 'Corporate'],
-        default: 'Free'
+        enum: ['plan1', 'plan2', 'plan3', 'plan4'],
+        default: 'plan1'
     },
     subscriptionStatus: {
         type: String,
