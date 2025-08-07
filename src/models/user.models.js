@@ -15,6 +15,10 @@ const UserSchema = new mongoose.Schema({
     bio: String,
     profileImageUrl: String,
     location: String,
+    address: String,
+    // Privacy settings
+    isPhoneNumberHidden: { type: Boolean, default: false },
+    isAddressHidden: { type: Boolean, default: false },
     link: String,
     followers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     following: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],

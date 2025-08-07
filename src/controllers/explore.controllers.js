@@ -1,5 +1,6 @@
 import Post from "../models/userPost.models.js";
 import Reel from "../models/reels.models.js";
+import { User } from "../models/user.models.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import { asyncHandler } from "../utlis/asyncHandler.js";
 import mongoose from "mongoose";
@@ -25,53 +26,7 @@ export const getExploreFeed = asyncHandler(async (req, res) => {
         { $match: { isPublic: true } },
         { $sample: { size: reelsPerPage } },
         {
-            $addFields: {
-                userIdObjectId: {
-                    $cond: {
-                        if: { $not: ['$userId'] },
-                        then: null,
-                        else: {
-                            $cond: {
-                                if: { $eq: [{ $type: '$userId' }, 'objectId'] },
-                                then: '$userId',
-                                else: {
-                                    $cond: {
-                                        if: { $eq: [{ $type: '$userId' }, 'string'] },
-                                        then: { $toObjectId: '$userId' },
-                                        else: '$userId'
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        {
-            $lookup: {
-                from: 'users',
-                localField: 'userIdObjectId',
-                foreignField: '_id',
-                as: 'userInfo'
-            }
-        },
-        {
-            $addFields: {
-                profileImageUrl: {
-                    $ifNull: [{ $arrayElemAt: ['$userInfo.profileImageUrl', 0] }, null]
-                },
-                username: {
-                    $ifNull: [{ $arrayElemAt: ['$userInfo.username', 0] }, null]
-                },
-                fullName: {
-                    $ifNull: [{ $arrayElemAt: ['$userInfo.fullName', 0] }, null]
-                }
-            }
-        },
-        {
             $project: {
-                userInfo: 0, // Remove the temporary userInfo array
-                userIdObjectId: 0, // Remove the temporary userIdObjectId field
                 analytics: 0, // Remove analytics object
                 __v: 0, // Remove version key
                 "settings.customAudience": 0, // Remove customAudience from settings
@@ -88,53 +43,7 @@ export const getExploreFeed = asyncHandler(async (req, res) => {
         { $match: postMatch },
         { $sample: { size: postsSampleSize * 5 } }, // sample more for sorting
         {
-            $addFields: {
-                userIdObjectId: {
-                    $cond: {
-                        if: { $not: ['$userId'] },
-                        then: null,
-                        else: {
-                            $cond: {
-                                if: { $eq: [{ $type: '$userId' }, 'objectId'] },
-                                then: '$userId',
-                                else: {
-                                    $cond: {
-                                        if: { $eq: [{ $type: '$userId' }, 'string'] },
-                                        then: { $toObjectId: '$userId' },
-                                        else: '$userId'
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        {
-            $lookup: {
-                from: 'users',
-                localField: 'userIdObjectId',
-                foreignField: '_id',
-                as: 'userInfo'
-            }
-        },
-        {
-            $addFields: {
-                profileImageUrl: {
-                    $ifNull: [{ $arrayElemAt: ['$userInfo.profileImageUrl', 0] }, null]
-                },
-                username: {
-                    $ifNull: [{ $arrayElemAt: ['$userInfo.username', 0] }, null]
-                },
-                fullName: {
-                    $ifNull: [{ $arrayElemAt: ['$userInfo.fullName', 0] }, null]
-                }
-            }
-        },
-        {
             $project: {
-                userInfo: 0, // Remove the temporary userInfo array
-                userIdObjectId: 0, // Remove the temporary userIdObjectId field
                 analytics: 0, // Remove analytics object
                 __v: 0, // Remove version key
                 "settings.customAudience": 0, // Remove customAudience from settings
@@ -166,6 +75,70 @@ export const getExploreFeed = asyncHandler(async (req, res) => {
 
     // Paginate posts
     posts = posts.slice(0, postsPerPage);
+
+    // Fetch user details using User model for both reels and posts
+    const allContent = [...reels, ...posts];
+    if (allContent.length > 0) {
+        // Get unique user IDs from both reels and posts
+        const userIds = [...new Set(allContent.map(item => item.userId))];
+
+        // Filter out null/undefined userIds
+        const validUserIds = userIds.filter(id => id != null);
+
+        // Fetch user details for all unique user IDs
+        const users = await User.find(
+            { _id: { $in: validUserIds } },
+            { _id: 1, username: 1, fullName: 1, profileImageUrl: 1 }
+        );
+
+        // Create a map for quick user lookup
+        const userMap = {};
+        users.forEach(user => {
+            userMap[user._id.toString()] = user;
+        });
+
+        // Add user details to each reel
+        reels.forEach(reel => {
+            const user = userMap[reel.userId?.toString()];
+            if (user) {
+                reel.userId = {
+                    _id: user._id,
+                    username: user.username,
+                    fullName: user.fullName
+                };
+                reel.profileImageUrl = user.profileImageUrl;
+            } else {
+                // If user not found, set default structure
+                reel.userId = {
+                    _id: reel.userId,
+                    username: null,
+                    fullName: null
+                };
+                reel.profileImageUrl = null;
+            }
+        });
+
+        // Add user details to each post
+        posts.forEach(post => {
+            const user = userMap[post.userId?.toString()];
+            if (user) {
+                post.userId = {
+                    _id: user._id,
+                    username: user.username,
+                    fullName: user.fullName
+                };
+                post.profileImageUrl = user.profileImageUrl;
+            } else {
+                // If user not found, set default structure
+                post.userId = {
+                    _id: post.userId,
+                    username: null,
+                    fullName: null
+                };
+                post.profileImageUrl = null;
+            }
+        });
+    }
 
     // Combine and shuffle
     const feed = [

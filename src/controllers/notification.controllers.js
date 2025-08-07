@@ -1,4 +1,6 @@
 import Notification from "../models/notification.models.js";
+import Message from "../models/message.models.js";
+import Chat from "../models/chat.models.js";
 import { asyncHandler } from "../utlis/asyncHandler.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import { ApiError } from "../utlis/ApiError.js";
@@ -143,4 +145,46 @@ export const deleteNotification = asyncHandler(async (req, res) => {
     await notification.deleteOne();
 
     res.status(200).json(new ApiResponse(200, {}, "Notification deleted successfully"));
+});
+
+// 📊 Get Unread Counts (Notifications & Messages)
+export const getUnreadCounts = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+    const userToken = req.headers.authorization?.split(" ")[1] || req.cookies?.accessToken;
+
+    try {
+        // Get unread notifications count
+        const unreadNotificationsCount = await Notification.countDocuments({
+            receiverId: userId,
+            isRead: false
+        });
+
+        // Get user's chats
+        const userChats = await Chat.find({
+            participants: userId,
+            status: 'active'
+        }).select('_id');
+
+        const chatIds = userChats.map(chat => chat._id);
+
+        // Get unread messages count
+        // A message is unread if the user is not in the readBy array
+        const unreadMessagesCount = await Message.countDocuments({
+            chatId: { $in: chatIds },
+            sender: { $ne: userId }, // Exclude messages sent by the user
+            readBy: { $ne: userId }, // User hasn't read the message
+            isDeleted: false
+        });
+
+        const response = {
+            unreadNotifications: unreadNotificationsCount,
+            unreadMessages: unreadMessagesCount,
+            userToken: userToken,
+            timestamp: new Date().toISOString()
+        };
+
+        res.status(200).json(new ApiResponse(200, response, "Unread counts fetched successfully"));
+    } catch (error) {
+        throw new ApiError(500, "Error fetching unread counts: " + error.message);
+    }
 });

@@ -677,3 +677,55 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
     const distance = R * c; // Distance in kilometers
     return distance;
 }
+
+// PATCH /api/v1/business/update-category
+export const updateBusinessCategory = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+    const { category } = req.body;
+
+    // Validate required field
+    if (!category) {
+        throw new ApiError(400, "Category is required");
+    }
+
+    // Validate category against predefined list
+    if (!BUSINESS_CATEGORIES.includes(category)) {
+        throw new ApiError(400, `Invalid category. Must be one of: ${BUSINESS_CATEGORIES.join(', ')}`);
+    }
+
+    // Find the business profile
+    const business = await Business.findOne({ userId });
+    if (!business) {
+        throw new ApiError(404, "Business profile not found");
+    }
+
+    // Check if user has business profile enabled
+    if (!req.user.isBusinessProfile) {
+        throw new ApiError(403, "Only business accounts can update category");
+    }
+
+    // Update the category
+    business.category = category.trim();
+    await business.save();
+
+    // Remove rating from response
+    const businessObj = business.toObject();
+    delete businessObj.rating;
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            business: businessObj,
+            updatedCategory: business.category
+        }, "Business category updated successfully")
+    );
+});
+
+// GET /api/v1/business/categories - Get all available business categories
+export const getBusinessCategories = asyncHandler(async (req, res) => {
+    return res.status(200).json(
+        new ApiResponse(200, {
+            categories: BUSINESS_CATEGORIES,
+            totalCategories: BUSINESS_CATEGORIES.length
+        }, "Business categories fetched successfully")
+    );
+});

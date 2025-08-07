@@ -15,6 +15,7 @@ import mongoose from "mongoose";
 import SearchSuggestion from "../models/searchSuggestion.models.js";
 import Media from "../models/mediaUser.models.js";
 import { v2 as cloudinary } from "cloudinary";
+import jwt from "jsonwebtoken";
 
 
 const generateAcessAndRefreshToken = async (userId) => {
@@ -170,7 +171,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
     const userId = req.user._id;
 
     const user = await User.findById(userId).select(
-        "username fullName email phoneNumber gender dateOfBirth bio profileImageUrl location link followers following posts isBusinessProfile isEmailVerified isPhoneVerified createdAt"
+        "username fullName email phoneNumber address gender dateOfBirth bio profileImageUrl location link followers following posts isBusinessProfile isEmailVerified isPhoneVerified isPhoneNumberHidden isAddressHidden createdAt"
     );
 
     if (!user) {
@@ -188,12 +189,15 @@ const getUserProfile = asyncHandler(async (req, res) => {
             username: user.username,
             email: user.email,
             fullName: user.fullName,
-            phoneNumber: user.phoneNumber,
+            phoneNumber: user.isPhoneNumberHidden ? null : user.phoneNumber,
+            address: user.isAddressHidden ? null : user.address,
             dateOfBirth: user.dateOfBirth,
             gender: user.gender,
             isBusinessProfile: user.isBusinessProfile,
             isEmailVerified: user.isEmailVerified,
             isPhoneVerified: user.isPhoneVerified,
+            isPhoneNumberHidden: user.isPhoneNumberHidden,
+            isAddressHidden: user.isAddressHidden,
             createdAt: user.createdAt,
             bio: user.bio,
             link: user.link,
@@ -633,18 +637,21 @@ const getOtherUserProfile = asyncHandler(async (req, res) => {
     const followingCount = await Follower.countDocuments({ followerId: targetUser._id });
     const postsCount = targetUser.posts ? targetUser.posts.length : 0;
 
-    // Prepare user data with counts
+    // Prepare user data with counts (respecting privacy settings)
     const userWithCounts = {
         _id: targetUser._id,
         username: targetUser.username,
         email: targetUser.email,
         fullName: targetUser.fullName,
-        phoneNumber: targetUser.phoneNumber || "",
+        phoneNumber: targetUser.isPhoneNumberHidden ? null : (targetUser.phoneNumber || ""),
+        address: targetUser.isAddressHidden ? null : (targetUser.address || ""),
         dateOfBirth: targetUser.dateOfBirth || "",
         gender: targetUser.gender || "",
         isBusinessProfile: targetUser.isBusinessProfile,
         isEmailVerified: targetUser.isEmailVerified,
         isPhoneVerified: targetUser.isPhoneVerified,
+        isPhoneNumberHidden: targetUser.isPhoneNumberHidden,
+        isAddressHidden: targetUser.isAddressHidden,
         bio: targetUser.bio || "",
         link: targetUser.link || "",
         location: targetUser.location || "",
@@ -652,17 +659,160 @@ const getOtherUserProfile = asyncHandler(async (req, res) => {
         followersCount,
         followingCount,
         postsCount,
-        createdAt: targetUser.createdAt // Add this line
+        createdAt: targetUser.createdAt
     };
 
     const responseData = {
         _id: targetUser._id,
-        isFollowedBy: isFollowing ? "True" : "False",
+        isFollowedBy: !!isFollowing,
         userId: userWithCounts
     };
 
     return res.status(200).json(
         new ApiResponse(200, responseData, "User profile retrieved successfully")
+    );
+});
+
+// Check if token is expired
+const checkTokenExpiry = asyncHandler(async (req, res) => {
+    try {
+        let token;
+
+        // Extract token from cookies or Authorization header
+        if (req.cookies?.accessToken) {
+            token = req.cookies.accessToken;
+        } else if (req.headers?.authorization && req.headers.authorization.startsWith("Bearer ")) {
+            token = req.headers.authorization.split(" ")[1];
+        }
+
+        // If no token is provided
+        if (!token) {
+            return res.status(200).json(
+                new ApiResponse(200, {
+                    isValid: false,
+                    isExpired: true,
+                    message: "No token provided"
+                }, "Token status checked")
+            );
+        }
+
+        try {
+            // Verify token with JWT
+            const decodedToken = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
+
+            // Check if user still exists
+            const user = await User.findById(decodedToken?._id).select("-password -refreshToken");
+
+            if (!user) {
+                return res.status(200).json(
+                    new ApiResponse(200, {
+                        isValid: false,
+                        isExpired: false,
+                        message: "User no longer exists"
+                    }, "Token status checked")
+                );
+            }
+
+            // Token is valid and not expired
+            return res.status(200).json(
+                new ApiResponse(200, {
+                    isValid: true,
+                    isExpired: false,
+                    user: {
+                        _id: user._id,
+                        username: user.username,
+                        fullName: user.fullName
+                    },
+                    expiresAt: new Date(decodedToken.exp * 1000),
+                    message: "Token is valid"
+                }, "Token status checked")
+            );
+
+        } catch (jwtError) {
+            // Check if error is due to token expiration
+            if (jwtError.name === 'TokenExpiredError') {
+                return res.status(200).json(
+                    new ApiResponse(200, {
+                        isValid: false,
+                        isExpired: true,
+                        expiredAt: new Date(jwtError.expiredAt),
+                        message: "Token has expired"
+                    }, "Token status checked")
+                );
+            }
+
+            // Other JWT errors (invalid signature, malformed token, etc.)
+            return res.status(200).json(
+                new ApiResponse(200, {
+                    isValid: false,
+                    isExpired: false,
+                    message: "Invalid token"
+                }, "Token status checked")
+            );
+        }
+
+    } catch (error) {
+        throw new ApiError(500, "Error checking token status: " + error.message);
+    }
+});
+
+// 📱 Toggle Phone Number Visibility
+const togglePhoneNumberVisibility = asyncHandler(async (req, res) => {
+    const { isHidden } = req.body;
+
+    if (typeof isHidden !== 'boolean') {
+        throw new ApiError(400, "isHidden must be a boolean value");
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+        req.user._id,
+        { isPhoneNumberHidden: isHidden },
+        { new: true, runValidators: true }
+    ).select("-password -refreshToken -emailVerificationToken");
+
+    if (!updatedUser) {
+        throw new ApiError(404, "User not found");
+    }
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            {
+                isPhoneNumberHidden: updatedUser.isPhoneNumberHidden,
+                phoneNumber: updatedUser.isPhoneNumberHidden ? null : updatedUser.phoneNumber
+            },
+            `Phone number ${isHidden ? 'hidden' : 'visible'} successfully`
+        )
+    );
+});
+
+// 🏠 Toggle Address Visibility
+const toggleAddressVisibility = asyncHandler(async (req, res) => {
+    const { isHidden } = req.body;
+
+    if (typeof isHidden !== 'boolean') {
+        throw new ApiError(400, "isHidden must be a boolean value");
+    }
+
+    const updatedUser = await User.findByIdAndUpdate(
+        req.user._id,
+        { isAddressHidden: isHidden },
+        { new: true, runValidators: true }
+    ).select("-password -refreshToken -emailVerificationToken");
+
+    if (!updatedUser) {
+        throw new ApiError(404, "User not found");
+    }
+
+    return res.status(200).json(
+        new ApiResponse(
+            200,
+            {
+                isAddressHidden: updatedUser.isAddressHidden,
+                address: updatedUser.isAddressHidden ? null : updatedUser.address
+            },
+            `Address ${isHidden ? 'hidden' : 'visible'} successfully`
+        )
     );
 });
 
@@ -680,5 +830,8 @@ export {
     uploadProfileImage,
     sendPasswordResetOTP,
     resetPasswordWithOTP,
-    getOtherUserProfile
+    getOtherUserProfile,
+    checkTokenExpiry,
+    togglePhoneNumberVisibility,
+    toggleAddressVisibility
 };

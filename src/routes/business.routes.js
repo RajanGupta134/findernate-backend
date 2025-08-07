@@ -12,7 +12,9 @@ import {
     updateExistingActiveBusinesses,
     updateLiveLocation,
     toggleLiveLocation,
-    getNearbyBusinesses
+    getNearbyBusinesses,
+    updateBusinessCategory,
+    getBusinessCategories
 } from "../controllers/business.controllers.js";
 
 const router = Router();
@@ -35,6 +37,11 @@ router.route("/profile").get(optionalVerifyJWT, getBusinessProfile);
 // Update business profile
 router.route("/update").patch(optionalVerifyJWT, updateBusinessProfile);
 
+// Update business category specifically
+router.route("/update-category").patch(optionalVerifyJWT, updateBusinessCategory);
+
+// Get all available business categories (public access)
+router.route("/categories").get(getBusinessCategories);
 
 // Get my business category (auth required) - Must be before /:id route
 router.route("/my-category").get(optionalVerifyJWT, getMyBusinessCategory);

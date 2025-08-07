@@ -1,5 +1,6 @@
 import { asyncHandler } from "../utlis/asyncHandler.js";
 import Post from "../models/userPost.models.js";
+import { User } from "../models/user.models.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 
 
@@ -43,7 +44,7 @@ export const getSuggestedReels = asyncHandler(async (req, res) => {
             matchCriteria.postType = postType;
         } else {
             // Default to reels and videos for better reel experience
-            matchCriteria.postType = { $in: ["reel", "video", "photo"] };
+            matchCriteria.postType = { $in: ["reel", "video"] };
         }
 
         // Filter by contentType if specified (normal, product, business)
@@ -114,45 +115,7 @@ export const getSuggestedReels = asyncHandler(async (req, res) => {
             { $skip: skip },
             { $limit: limitNum },
 
-            // Populate user data (excluding sensitive fields)
-            {
-                $lookup: {
-                    from: "users",
-                    localField: "userId",
-                    foreignField: "_id",
-                    as: "userDetails",
-                    pipeline: [
-                        {
-                            $project: {
-                                password: 0,
-                                email: 0,
-                                followers: 0,
-                                following: 0,
-                                phoneNumber: 0,
-                                createdAt: 0,
-                                updatedAt: 0,
-                                isAccountVerified: 0,
-                                isPhoneVerified: 0,
-                                refreshToken: 0,
-                                bio: 0,
-                                link: 0,
-                                emailVerificationToken: 0,
-                                emailOTP: 0,
-                                emailOTPExpiry: 0,
-                                passwordResetOTP: 0,
-                                passwordResetOTPExpiry: 0,
-                                phoneVerificationCode: 0,
-                                phoneVerificationExpiry: 0,
-                                posts: 0,
-                                dateOfBirth: 0,
-                                gender: 0,
-                                uid: 0,
-                                __v: 0
-                            }
-                        }
-                    ]
-                }
-            },
+
 
             // Add computed fields and enhance with Cloudinary details
             {
@@ -302,6 +265,45 @@ export const getSuggestedReels = asyncHandler(async (req, res) => {
 
         // Execute aggregation
         const reels = await Post.aggregate(pipeline);
+
+        // Fetch user details using User model
+        if (reels.length > 0) {
+            // Get unique user IDs from reels
+            const userIds = [...new Set(reels.map(reel => reel.userId))];
+
+            // Fetch user details for all unique user IDs
+            const users = await User.find(
+                { _id: { $in: userIds } },
+                { _id: 1, username: 1, fullName: 1, profileImageUrl: 1 }
+            );
+
+            // Create a map for quick user lookup
+            const userMap = {};
+            users.forEach(user => {
+                userMap[user._id.toString()] = user;
+            });
+
+            // Add user details to each reel
+            reels.forEach(reel => {
+                const user = userMap[reel.userId?.toString()];
+                if (user) {
+                    reel.userId = {
+                        _id: user._id,
+                        username: user.username,
+                        fullName: user.fullName
+                    };
+                    reel.profileImageUrl = user.profileImageUrl;
+                } else {
+                    // If user not found, set default structure
+                    reel.userId = {
+                        _id: reel.userId,
+                        username: null,
+                        fullName: null
+                    };
+                    reel.profileImageUrl = null;
+                }
+            });
+        }
 
         // Get total count for pagination
         const totalReels = await Post.countDocuments(matchCriteria);

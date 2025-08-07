@@ -1,6 +1,7 @@
 import Post from '../models/userPost.models.js';
 import Reel from '../models/reels.models.js';
 import { User } from '../models/user.models.js';
+import Business from '../models/business.models.js';
 import SearchSuggestion from '../models/searchSuggestion.models.js';
 import { ApiResponse } from '../utlis/ApiResponse.js';
 import { ApiError } from '../utlis/ApiError.js';
@@ -63,9 +64,17 @@ export const searchAllContent = async (req, res) => {
                 { caption: searchRegex },
                 { description: searchRegex },
                 { 'hashtags.text': searchRegex },
-                { 'customization.business.name': searchRegex },
+                { 'customization.business.businessName': searchRegex },
+                { 'customization.business.category': searchRegex },
+                { 'customization.business.subcategory': searchRegex },
+                { 'customization.business.businessType': searchRegex },
+                { 'customization.business.tags': searchRegex },
                 { 'customization.product.name': searchRegex },
+                { 'customization.product.category': searchRegex },
+                { 'customization.product.subcategory': searchRegex },
                 { 'customization.service.name': searchRegex },
+                { 'customization.service.category': searchRegex },
+                { 'customization.service.subcategory': searchRegex },
                 { 'customization.normal.location.name': searchRegex },
                 { 'customization.product.location.name': searchRegex },
                 { 'customization.service.location.city': searchRegex },
@@ -134,6 +143,38 @@ export const searchAllContent = async (req, res) => {
             }));
         }
 
+        // First, find users that match the search query
+        const matchingUsers = await User.find({
+            $or: [
+                { username: searchRegex },
+                { fullName: searchRegex }
+            ]
+        }).select('_id');
+
+        const matchingUserIds = matchingUsers.map(user => user._id);
+
+        // Find businesses that match the search query by category
+        const matchingBusinesses = await Business.find({
+            $or: [
+                { category: searchRegex },
+                { businessName: searchRegex },
+                { businessType: searchRegex },
+                { tags: searchRegex }
+            ]
+        }).select('userId');
+
+        const businessUserIds = matchingBusinesses.map(business => business.userId);
+
+        // Add username search to post filters
+        if (matchingUserIds.length > 0) {
+            basePostFilters.$or.push({ userId: { $in: matchingUserIds } });
+        }
+
+        // Add business category search to post filters
+        if (businessUserIds.length > 0) {
+            basePostFilters.$or.push({ userId: { $in: businessUserIds } });
+        }
+
         //  Fetch Posts
         const rawPosts = await Post.find(basePostFilters)
             .populate('userId', 'username profileImageUrl bio location')
@@ -171,6 +212,16 @@ export const searchAllContent = async (req, res) => {
                     { hashtags: searchRegex }
                 ]
             };
+
+            // Add username search to reel filters
+            if (matchingUserIds.length > 0) {
+                reelFilters.$or.push({ userId: { $in: matchingUserIds } });
+            }
+
+            // Add business category search to reel filters
+            if (businessUserIds.length > 0) {
+                reelFilters.$or.push({ userId: { $in: businessUserIds } });
+            }
 
             if (postTypeArray.length > 0) {
                 reelFilters.postType = { $in: postTypeArray };
@@ -219,7 +270,7 @@ export const searchAllContent = async (req, res) => {
             .limit(limit)
             .select('username fullName profileImageUrl bio location');
 
-        // Fetch posts for each user found
+        // Fetch posts for each user found and include business information
         const usersWithPosts = await Promise.all(users.map(async (user) => {
             const userPosts = await Post.find({ userId: user._id })
                 .sort({ createdAt: -1 })
@@ -231,8 +282,14 @@ export const searchAllContent = async (req, res) => {
                 .limit(5) // Limit to 5 recent reels per user
                 .lean();
 
+            // Check if user has a business profile
+            const businessProfile = await Business.findOne({ userId: user._id })
+                .select('businessName category businessType tags isVerified rating')
+                .lean();
+
             return {
                 ...user.toObject(),
+                business: businessProfile,
                 posts: userPosts,
                 reels: userReels,
                 totalPosts: await Post.countDocuments({ userId: user._id }),
