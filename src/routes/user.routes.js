@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { upload } from "../middlewares/multerConfig.js";
 import { verifyJWT, optionalVerifyJWT } from "../middlewares/auth.middleware.js";
-import { loginUser, logOutUser, registerUser, getUserProfile, updateUserProfile, changePassword, deleteAccount, searchUsers, verifyEmailWithOTP, uploadProfileImage, sendVerificationOTPForEmail, sendPasswordResetOTP, resetPasswordWithOTP, getOtherUserProfile, checkTokenExpiry, togglePhoneNumberVisibility, toggleAddressVisibility } from "../controllers/user.controllers.js";
+import { loginUser, logOutUser, registerUser, getUserProfile, updateUserProfile, changePassword, deleteAccount, searchUsers, verifyEmailWithOTP, uploadProfileImage, sendVerificationOTPForEmail, sendPasswordResetOTP, resetPasswordWithOTP, getOtherUserProfile, checkTokenExpiry, togglePhoneNumberVisibility, toggleAddressVisibility, trackSearch, getPopularSearches } from "../controllers/user.controllers.js";
 import { searchAllContent } from "../controllers/searchAllContent.controllers.js";
 import { followUser, unfollowUser, getFollowers, getFollowing } from "../controllers/follower.controllers.js";
 import { getSearchSuggestions } from "../controllers/searchSuggestion.controllers.js";
@@ -33,6 +33,10 @@ router.get("/following/:userId", verifyJWT, getFollowing);
 
 // Search suggestion routes
 router.get("/search-suggestions", verifyJWT, getSearchSuggestions);
+
+// Search tracking routes
+router.post("/track-search", verifyJWT, trackSearch);
+router.get("/popular-searches", verifyJWT, getPopularSearches);
 
 
 // Get other user profile by userId or username
