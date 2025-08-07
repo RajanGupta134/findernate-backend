@@ -39,18 +39,38 @@ export const getExploreFeed = asyncHandler(async (req, res) => {
     let postsSampleSize = postsPerPage;
     if (postsSampleSize < 1) postsSampleSize = 1; // always try to get at least 1 post if limit > 0
 
-    let posts = await Post.aggregate([
-        { $match: postMatch },
-        { $sample: { size: postsSampleSize * 5 } }, // sample more for sorting
-        {
-            $project: {
-                analytics: 0, // Remove analytics object
-                __v: 0, // Remove version key
-                "settings.customAudience": 0, // Remove customAudience from settings
-                "customization.normal": 0 // Remove normal object from customization
+    let posts;
+    if (types !== "all") {
+        // For specific content types (like service, product, business), don't use random sampling
+        // as it might miss posts if there are few posts of that type
+        posts = await Post.aggregate([
+            { $match: postMatch },
+            { $sort: { createdAt: -1 } }, // Sort by creation time to get recent posts
+            { $limit: postsSampleSize * 2 }, // Get more posts for better variety
+            {
+                $project: {
+                    analytics: 0, // Remove analytics object
+                    __v: 0, // Remove version key
+                    "settings.customAudience": 0, // Remove customAudience from settings
+                    "customization.normal": 0 // Remove normal object from customization
+                }
             }
-        }
-    ]);
+        ]);
+    } else {
+        // For "all" types, use random sampling for variety
+        posts = await Post.aggregate([
+            { $match: postMatch },
+            { $sample: { size: postsSampleSize * 5 } }, // sample more for sorting
+            {
+                $project: {
+                    analytics: 0, // Remove analytics object
+                    __v: 0, // Remove version key
+                    "settings.customAudience": 0, // Remove customAudience from settings
+                    "customization.normal": 0 // Remove normal object from customization
+                }
+            }
+        ]);
+    }
 
     // Sorting logic
     posts = posts.sort((a, b) => {
