@@ -13,6 +13,7 @@ import Business from "../models/business.models.js";
 import Story from "../models/story.models.js";
 import mongoose from "mongoose";
 import SearchSuggestion from "../models/searchSuggestion.models.js";
+import SearchHistory from "../models/searchHistory.models.js";
 import Media from "../models/mediaUser.models.js";
 import { v2 as cloudinary } from "cloudinary";
 import jwt from "jsonwebtoken";
@@ -816,6 +817,69 @@ const toggleAddressVisibility = asyncHandler(async (req, res) => {
     );
 });
 
+// Track search - increment search count or create new entry
+const trackSearch = asyncHandler(async (req, res) => {
+    const { keyword } = req.body;
+
+    if (!keyword || !keyword.trim()) {
+        throw new ApiError(400, "Keyword is required");
+    }
+
+    const normalizedKeyword = keyword.trim().toLowerCase();
+
+    try {
+        // Check if the keyword already exists in SearchSuggestion
+        const existingSuggestion = await SearchSuggestion.findOne({
+            keyword: normalizedKeyword
+        });
+
+        if (existingSuggestion) {
+            // Increment search count and update last searched
+            existingSuggestion.searchCount += 1;
+            existingSuggestion.lastSearched = new Date();
+            await existingSuggestion.save();
+        } else {
+            // Create new entry
+            await SearchSuggestion.create({
+                keyword: normalizedKeyword,
+                searchCount: 1,
+                lastSearched: new Date()
+            });
+        }
+
+        return res.status(200).json(
+            new ApiResponse(200, null, "Search tracked successfully")
+        );
+    } catch (error) {
+        console.error("Error tracking search:", error);
+        throw new ApiError(500, "Failed to track search");
+    }
+});
+
+// Get popular searches sorted by search count
+const getPopularSearches = asyncHandler(async (req, res) => {
+    const limit = parseInt(req.query.limit) || 10;
+
+    try {
+        const popularSearches = await SearchSuggestion.find({})
+            .sort({ searchCount: -1, lastSearched: -1 })
+            .limit(limit)
+            .select('keyword searchCount');
+
+        const formattedResults = popularSearches.map(search => ({
+            keyword: search.keyword,
+            searchCount: search.searchCount
+        }));
+
+        return res.status(200).json(
+            new ApiResponse(200, formattedResults, "Popular searches retrieved successfully")
+        );
+    } catch (error) {
+        console.error("Error fetching popular searches:", error);
+        throw new ApiError(500, "Failed to fetch popular searches");
+    }
+});
+
 export {
     registerUser,
     loginUser,
@@ -833,5 +897,7 @@ export {
     getOtherUserProfile,
     checkTokenExpiry,
     togglePhoneNumberVisibility,
-    toggleAddressVisibility
+    toggleAddressVisibility,
+    trackSearch,
+    getPopularSearches
 };
