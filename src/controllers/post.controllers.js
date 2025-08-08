@@ -141,6 +141,12 @@ export const createNormalPost = asyncHandler(async (req, res) => {
         analytics: {},
     });
 
+    // Add post ID to user's posts array
+    await Post.db.model('User').findByIdAndUpdate(
+        userId,
+        { $push: { posts: post._id } }
+    );
+
     return res.status(201).json(new ApiResponse(201, post, "Normal post created successfully"));
 });
 
@@ -272,6 +278,12 @@ export const createProductPost = asyncHandler(async (req, res) => {
         analytics: {},
     });
 
+    // Add post ID to user's posts array
+    await Post.db.model('User').findByIdAndUpdate(
+        userId,
+        { $push: { posts: post._id } }
+    );
+
     return res.status(201).json(new ApiResponse(201, post, "Product post created successfully"));
 });
 
@@ -396,6 +408,12 @@ export const createServicePost = asyncHandler(async (req, res) => {
         engagement: {},
         analytics: {},
     });
+
+    // Add post ID to user's posts array
+    await Post.db.model('User').findByIdAndUpdate(
+        userId,
+        { $push: { posts: post._id } }
+    );
 
     return res.status(201).json(new ApiResponse(201, post, "Service post created successfully"));
 });
@@ -526,6 +544,12 @@ export const createBusinessPost = asyncHandler(async (req, res) => {
         analytics: {},
     });
 
+    // Add post ID to user's posts array
+    await Post.db.model('User').findByIdAndUpdate(
+        userId,
+        { $push: { posts: post._id } }
+    );
+
     return res.status(201).json(new ApiResponse(201, post, "Business post created successfully"));
 });
 
@@ -609,6 +633,12 @@ export const deletePost = asyncHandler(async (req, res) => {
 
     // Delete the post from database
     await Post.findByIdAndDelete(id);
+
+    // Remove post ID from user's posts array
+    await Post.db.model('User').findByIdAndUpdate(
+        userId,
+        { $pull: { posts: id } }
+    );
 
     // Delete related data (likes, comments, saved posts)
     await Promise.allSettled([
@@ -821,6 +851,12 @@ export const deleteContent = asyncHandler(async (req, res) => {
 
             // Delete post from database
             await Post.findByIdAndDelete(postId);
+
+            // Remove post ID from user's posts array
+            await Post.db.model('User').findByIdAndUpdate(
+                userId,
+                { $pull: { posts: postId } }
+            );
 
             // Delete related data
             await Promise.allSettled([

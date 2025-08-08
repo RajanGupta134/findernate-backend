@@ -181,7 +181,8 @@ const getUserProfile = asyncHandler(async (req, res) => {
 
     const followersCount = user.followers?.length || 0;
     const followingCount = user.following?.length || 0;
-    const postsCount = user.posts?.length || 0;
+    // Count posts directly from Post collection
+    const postsCount = await Post.countDocuments({ userId });
 
     const userProfile = {
         _id: user._id,
@@ -636,7 +637,8 @@ const getOtherUserProfile = asyncHandler(async (req, res) => {
     // Calculate counts
     const followersCount = await Follower.countDocuments({ userId: targetUser._id });
     const followingCount = await Follower.countDocuments({ followerId: targetUser._id });
-    const postsCount = targetUser.posts ? targetUser.posts.length : 0;
+    // Count posts directly from Post collection
+    const postsCount = await Post.countDocuments({ userId: targetUser._id });
 
     // Prepare user data with counts (respecting privacy settings)
     const userWithCounts = {

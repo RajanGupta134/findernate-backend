@@ -35,8 +35,8 @@ router.get("/following/:userId", verifyJWT, getFollowing);
 router.get("/search-suggestions", verifyJWT, getSearchSuggestions);
 
 // Search tracking routes
-router.post("/track-search", verifyJWT, trackSearch);
-router.get("/popular-searches", verifyJWT, getPopularSearches);
+router.post("/track-search", trackSearch);
+router.get("/popular-searches", getPopularSearches);
 
 
 // Get other user profile by userId or username
