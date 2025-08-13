@@ -93,40 +93,47 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
         aadhaarNumber
     } = req.body;
 
-    if (!businessName || !category || !contact || !contact.email) {
-        throw new ApiError(400, "businessName, category, and contact.email are required");
-    }
+    // All fields are now optional - no required field validation
 
-    // Validate category against predefined list
-    if (!BUSINESS_CATEGORIES.includes(category)) {
+    // Validate category against predefined list (only if category is provided)
+    if (category && !BUSINESS_CATEGORIES.includes(category)) {
         throw new ApiError(400, `Invalid category. Must be one of: ${BUSINESS_CATEGORIES.join(', ')}`);
     }
 
-    const trimmedBusinessName = businessName.trim();
-    const normalizedCategory = category.trim();
+    const trimmedBusinessName = businessName ? businessName.trim() : '';
+    const normalizedCategory = category ? category.trim() : '';
 
-    // Validate email format
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (!emailRegex.test(contact.email)) {
-        throw new ApiError(400, "Invalid contact.email format");
+    // Validate email format (only if contact.email is provided)
+    if (contact && contact.email) {
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(contact.email)) {
+            throw new ApiError(400, "Invalid contact.email format");
+        }
     }
 
     // Validate website (if provided)
     if (website && !/^https?:\/\/.+/.test(website)) {
         throw new ApiError(400, "Invalid website URL");
     }
-    if (contact.website && !/^https?:\/\/.+/.test(contact.website)) {
+    if (contact && contact.website && !/^https?:\/\/.+/.test(contact.website)) {
         throw new ApiError(400, "Invalid contact.website URL");
     }
 
-    // Check for duplicate business name
-    const existingBusinessByName = await Business.findOne({ businessName: trimmedBusinessName });
-    if (existingBusinessByName) {
-        throw new ApiError(409, "Business name already in use");
+    // Check for duplicate business name (only if business name is provided)
+    if (trimmedBusinessName) {
+        const existingBusinessByName = await Business.findOne({ businessName: trimmedBusinessName });
+        if (existingBusinessByName) {
+            throw new ApiError(409, "Business name already in use");
+        }
     }
 
-    // Check for duplicate GST number
+    // Validate GST number format and check for duplicates
     if (gstNumber) {
+        // Check GST number length (must be at least 15 characters)
+        if (gstNumber.length < 15) {
+            throw new ApiError(400, "GST number must be at least 15 characters long");
+        }
+
         const existingGST = await Business.findOne({ gstNumber });
         if (existingGST) {
             throw new ApiError(409, "GST number already registered");
@@ -401,7 +408,8 @@ export const updateBusinessProfile = asyncHandler(async (req, res) => {
         contact,
         location,
         website,
-        tags
+        tags,
+        gstNumber
     } = req.body;
 
     // Validate if businessName is provided and it's not already taken by another business
@@ -417,6 +425,26 @@ export const updateBusinessProfile = asyncHandler(async (req, res) => {
         }
 
         business.businessName = trimmedBusinessName;
+    }
+
+    // Validate GST number format and check for duplicates if provided
+    if (gstNumber !== undefined) {
+        if (gstNumber) {
+            // Check GST number length (must be at least 15 characters)
+            if (gstNumber.length < 15) {
+                throw new ApiError(400, "GST number must be at least 15 characters long");
+            }
+
+            // Check for duplicate GST number (excluding current business)
+            const existingGST = await Business.findOne({
+                gstNumber,
+                userId: { $ne: userId }
+            });
+            if (existingGST) {
+                throw new ApiError(409, "GST number already registered");
+            }
+        }
+        business.gstNumber = gstNumber;
     }
 
     // Update category if provided

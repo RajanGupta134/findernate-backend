@@ -21,7 +21,6 @@ const GeoJSONPointSchema = new mongoose.Schema({
     },
     coordinates: {
         type: [Number], // [longitude, latitude]
-        required: true,
         index: '2dsphere'
     }
 }, { _id: false });
@@ -41,20 +40,19 @@ const BusinessSchema = new mongoose.Schema({
     userId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User',
-        required: true,
         unique: true, // Ensure one business profile per user
         index: true
     },
-    businessName: { type: String, required: true, trim: true },
+    businessName: { type: String, trim: true },
     businessType: { type: String },
     description: { type: String },
-    category: { type: String, required: true },
+    category: { type: String },
     contact: ContactSchema,
     location: LocationSchema,
     rating: { type: Number },
     tags: [String],
     website: { type: String },
-    gstNumber: { type: String, unique: true, sparse: true },
+    gstNumber: { type: String, sparse: true, unique: true },
     aadhaarNumber: { type: String },
     logoUrl: { type: String },
     isVerified: { type: Boolean, default: false },
