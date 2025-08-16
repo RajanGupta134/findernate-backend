@@ -42,10 +42,23 @@ const ReportSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
-// Optional: Prevent duplicate reports from same user for the same post/comment/user
-ReportSchema.index({ reporterId: 1, reportedPostId: 1 }, { unique: true, sparse: true });
-ReportSchema.index({ reporterId: 1, reportedUserId: 1 }, { unique: true, sparse: true });
-ReportSchema.index({ reporterId: 1, reportedCommentId: 1 }, { unique: true, sparse: true });
-ReportSchema.index({ reporterId: 1, reportedStoryId: 1 }, { unique: true, sparse: true });
+// Prevent duplicate reports from same user for the same target.
+// Use partialFilterExpression so the unique constraint only applies when the target field exists and is not null.
+ReportSchema.index(
+    { reporterId: 1, reportedPostId: 1 },
+    { unique: true, partialFilterExpression: { reportedPostId: { $exists: true, $ne: null } } }
+);
+ReportSchema.index(
+    { reporterId: 1, reportedUserId: 1 },
+    { unique: true, partialFilterExpression: { reportedUserId: { $exists: true, $ne: null } } }
+);
+ReportSchema.index(
+    { reporterId: 1, reportedCommentId: 1 },
+    { unique: true, partialFilterExpression: { reportedCommentId: { $exists: true, $ne: null } } }
+);
+ReportSchema.index(
+    { reporterId: 1, reportedStoryId: 1 },
+    { unique: true, partialFilterExpression: { reportedStoryId: { $exists: true, $ne: null } } }
+);
 
 export default mongoose.model('Report', ReportSchema);
