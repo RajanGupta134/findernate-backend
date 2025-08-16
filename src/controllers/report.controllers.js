@@ -81,11 +81,19 @@ export const reportContent = asyncHandler(async (req, res) => {
         throw new ApiError(409, `You have already reported this ${type}`);
     }
 
-    const report = await Report.create(reportData);
+    try {
+        const report = await Report.create(reportData);
 
-    return res
-        .status(201)
-        .json(new ApiResponse(201, report, `${type.charAt(0).toUpperCase() + type.slice(1)} reported successfully`));
+        return res
+            .status(201)
+            .json(new ApiResponse(201, report, `${type.charAt(0).toUpperCase() + type.slice(1)} reported successfully`));
+    } catch (error) {
+        // Handle MongoDB duplicate key error (E11000)
+        if (error.code === 11000) {
+            throw new ApiError(409, `You have already reported this ${type}`);
+        }
+        throw error;
+    }
 });
 
 // Keep the old function name for backward compatibility
