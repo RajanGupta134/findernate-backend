@@ -19,6 +19,7 @@ import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, d
 import { getProfileTabContent } from "../controllers/switch.controllers.js";
 import { savePost, unsavePost, getSavedPosts, checkPostSaved } from "../controllers/savePost.controllers.js";
 import { reportContent, getReports, updateReportStatus } from "../controllers/report.controllers.js";
+import { trackPostInteraction, hidePost, batchTrackInteractions, getUserInteractionHistory } from "../controllers/postInteraction.controllers.js";
 
 
 const router = Router();
@@ -68,6 +69,12 @@ router.route("/saved/check/:postId").get(verifyJWT, checkPostSaved);
 router.route("/report").post(verifyJWT, reportContent);
 router.route("/reports").get(verifyJWT, getReports);
 router.route("/report/:reportId/status").put(verifyJWT, updateReportStatus);
+
+// Interaction tracking routes
+router.route("/interaction/track").post(verifyJWT, trackPostInteraction);
+router.route("/interaction/batch").post(verifyJWT, batchTrackInteractions);
+router.route("/interaction/hide").post(verifyJWT, hidePost);
+router.route("/interaction/history").get(verifyJWT, getUserInteractionHistory);
 
 // Common API - handles get and delete for posts, stories, and reels
 router.route("/:postId").get(verifyJWT, getPostById).delete(verifyJWT, deleteContent);
