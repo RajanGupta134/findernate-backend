@@ -42,23 +42,55 @@ const ReportSchema = new mongoose.Schema({
     }
 }, { timestamps: true });
 
-// Prevent duplicate reports from same user for the same target.
-// Use partialFilterExpression so the unique constraint only applies when the target field exists and is not null.
+// Prevent duplicate reports from same user for the same specific target.
+// Each index ensures a user can only report the same specific content once.
 ReportSchema.index(
     { reporterId: 1, reportedPostId: 1 },
-    { unique: true, partialFilterExpression: { reportedPostId: { $exists: true, $ne: null } } }
+    { 
+        unique: true, 
+        partialFilterExpression: { 
+            reportedPostId: { $exists: true, $ne: null },
+            reportedUserId: null,
+            reportedCommentId: null,
+            reportedStoryId: null
+        } 
+    }
 );
 ReportSchema.index(
     { reporterId: 1, reportedUserId: 1 },
-    { unique: true, partialFilterExpression: { reportedUserId: { $exists: true, $ne: null } } }
+    { 
+        unique: true, 
+        partialFilterExpression: { 
+            reportedUserId: { $exists: true, $ne: null },
+            reportedPostId: null,
+            reportedCommentId: null,
+            reportedStoryId: null
+        } 
+    }
 );
 ReportSchema.index(
     { reporterId: 1, reportedCommentId: 1 },
-    { unique: true, partialFilterExpression: { reportedCommentId: { $exists: true, $ne: null } } }
+    { 
+        unique: true, 
+        partialFilterExpression: { 
+            reportedCommentId: { $exists: true, $ne: null },
+            reportedPostId: null,
+            reportedUserId: null,
+            reportedStoryId: null
+        } 
+    }
 );
 ReportSchema.index(
     { reporterId: 1, reportedStoryId: 1 },
-    { unique: true, partialFilterExpression: { reportedStoryId: { $exists: true, $ne: null } } }
+    { 
+        unique: true, 
+        partialFilterExpression: { 
+            reportedStoryId: { $exists: true, $ne: null },
+            reportedPostId: null,
+            reportedUserId: null,
+            reportedCommentId: null
+        } 
+    }
 );
 
 export default mongoose.model('Report', ReportSchema);
