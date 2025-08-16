@@ -68,18 +68,24 @@ export const reportContent = asyncHandler(async (req, res) => {
         reportData.reportedUserId = contentId;
     }
 
-    try {
-        const report = await Report.create(reportData);
+    // Ensure the same user can't report the same target twice
+    const duplicateFilter = { reporterId: userId };
+    if (reportData.reportedPostId) duplicateFilter.reportedPostId = reportData.reportedPostId;
+    if (reportData.reportedCommentId) duplicateFilter.reportedCommentId = reportData.reportedCommentId;
+    if (reportData.reportedStoryId) duplicateFilter.reportedStoryId = reportData.reportedStoryId;
+    if (reportData.reportedUserId) duplicateFilter.reportedUserId = reportData.reportedUserId;
 
-        return res
-            .status(201)
-            .json(new ApiResponse(201, report, `${type.charAt(0).toUpperCase() + type.slice(1)} reported successfully`));
-    } catch (error) {
-        if (error.code === 11000) {
-            throw new ApiError(409, `You have already reported this ${type}`);
-        }
-        throw error;
+    const existing = await Report.findOne(duplicateFilter).lean();
+    if (existing) {
+        // Return 200 with existing report or 409 depending on preference; keep 409 but clearer message
+        throw new ApiError(409, `You have already reported this ${type}`);
     }
+
+    const report = await Report.create(reportData);
+
+    return res
+        .status(201)
+        .json(new ApiResponse(201, report, `${type.charAt(0).toUpperCase() + type.slice(1)} reported successfully`));
 });
 
 // Keep the old function name for backward compatibility
