@@ -53,7 +53,6 @@ class SocketManager {
 
     setupEventHandlers() {
         this.io.on('connection', (socket) => {
-            console.log(`User connected: ${socket.userId}`);
 
             // Store user connection
             this.connectedUsers.set(socket.userId, socket.id);
@@ -71,7 +70,6 @@ class SocketManager {
             // Handle leaving chat rooms
             socket.on('leave_chat', (chatId) => {
                 socket.leave(`chat_${chatId}`);
-                console.log(`User ${socket.userId} left chat ${chatId}`);
             });
 
             // Handle typing events
@@ -173,7 +171,6 @@ class SocketManager {
 
             // Handle disconnect
             socket.on('disconnect', () => {
-                console.log(`User disconnected: ${socket.userId}`);
                 this.connectedUsers.delete(socket.userId);
                 this.userSockets.delete(socket.id);
 

@@ -7,6 +7,8 @@ import { asyncHandler } from '../utlis/asyncHandler.js';
 import { uploadBufferToCloudinary } from '../utlis/cloudinary.js';
 import mongoose from 'mongoose';
 import socketManager from '../config/socket.js';
+import { sendPushNotification } from './pushNotification.controllers.js';
+import { User } from '../models/user.models.js';
 
 // Helper function to safely emit socket events
 const safeEmitToChat = (chatId, event, data) => {
@@ -649,6 +651,40 @@ export const addMessage = asyncHandler(async (req, res) => {
         chatId,
         message: populatedMessage // This MUST include mediaUrl, fileName, etc.
     });
+
+    // Send push notifications to other participants
+    try {
+        const otherParticipants = chat.participants.filter(
+            participantId => participantId.toString() !== currentUserId.toString()
+        );
+
+
+        if (otherParticipants.length > 0) {
+            // Get sender info for notification
+            const sender = await User.findById(currentUserId).select('username fullName');
+            const senderName = sender?.fullName || sender?.username || 'Unknown User';
+            
+            // Create notification data
+            const notificationData = {
+                title: `New message from ${senderName}`,
+                body: messageType === 'text' 
+                    ? finalMessage.length > 50 ? finalMessage.substring(0, 50) + '...' : finalMessage
+                    : `Sent ${messageType === 'image' ? 'an image' : messageType === 'video' ? 'a video' : messageType === 'audio' ? 'an audio' : 'a file'}`,
+                chatId: chatId,
+                messageId: newMessage._id.toString(),
+                senderId: currentUserId.toString(),
+                url: `/chats?chatId=${chatId}`
+            };
+
+            // Send push notifications asynchronously (don't block response)
+            sendPushNotification(otherParticipants, notificationData).catch(error => {
+                console.error('Failed to send push notification for message:', error);
+            });
+        }
+    } catch (pushError) {
+        console.error('Error preparing push notification:', pushError);
+        // Don't block the response if push notification fails
+    }
 
     return res.status(201).json(
         new ApiResponse(201, populatedMessage, 'Message sent successfully')
