@@ -15,6 +15,7 @@ import mongoose from "mongoose";
 import SearchSuggestion from "../models/searchSuggestion.models.js";
 import SearchHistory from "../models/searchHistory.models.js";
 import Media from "../models/mediaUser.models.js";
+import Block from "../models/block.models.js";
 import { v2 as cloudinary } from "cloudinary";
 import jwt from "jsonwebtoken";
 
@@ -882,6 +883,130 @@ const getPopularSearches = asyncHandler(async (req, res) => {
     }
 });
 
+// Block user functionality
+const blockUser = asyncHandler(async (req, res) => {
+    const { blockedUserId, reason } = req.body;
+    const blockerId = req.user._id;
+
+    if (!blockedUserId) {
+        throw new ApiError(400, "User ID to block is required");
+    }
+
+    if (blockerId.toString() === blockedUserId) {
+        throw new ApiError(400, "You cannot block yourself");
+    }
+
+    // Check if user to block exists
+    const userToBlock = await User.findById(blockedUserId);
+    if (!userToBlock) {
+        throw new ApiError(404, "User to block not found");
+    }
+
+    // Check if already blocked
+    const existingBlock = await Block.findOne({
+        blockerId,
+        blockedId: blockedUserId
+    });
+
+    if (existingBlock) {
+        throw new ApiError(409, "User is already blocked");
+    }
+
+    // Create block record
+    const block = await Block.create({
+        blockerId,
+        blockedId: blockedUserId,
+        reason: reason || null
+    });
+
+    // Remove follow relationships if they exist
+    await Follower.findOneAndDelete({
+        followerId: blockerId,
+        followingId: blockedUserId
+    });
+
+    await Follower.findOneAndDelete({
+        followerId: blockedUserId,
+        followingId: blockerId
+    });
+
+    return res.status(200).json(
+        new ApiResponse(200, { block }, "User blocked successfully")
+    );
+});
+
+// Unblock user functionality
+const unblockUser = asyncHandler(async (req, res) => {
+    const { blockedUserId } = req.body;
+    const blockerId = req.user._id;
+
+    if (!blockedUserId) {
+        throw new ApiError(400, "User ID to unblock is required");
+    }
+
+    // Check if block exists
+    const existingBlock = await Block.findOne({
+        blockerId,
+        blockedId: blockedUserId
+    });
+
+    if (!existingBlock) {
+        throw new ApiError(404, "User is not blocked");
+    }
+
+    // Remove block record
+    await Block.findByIdAndDelete(existingBlock._id);
+
+    return res.status(200).json(
+        new ApiResponse(200, null, "User unblocked successfully")
+    );
+});
+
+// Get blocked users list
+const getBlockedUsers = asyncHandler(async (req, res) => {
+    const blockerId = req.user._id;
+
+    const blockedUsers = await Block.find({ blockerId })
+        .populate('blockedId', 'fullName username profileImage')
+        .sort({ createdAt: -1 });
+
+    const formattedBlockedUsers = blockedUsers.map(block => ({
+        blockedUserId: block.blockedId._id,
+        fullName: block.blockedId.fullName,
+        username: block.blockedId.username,
+        profileImage: block.blockedId.profileImage,
+        blockedAt: block.createdAt,
+        reason: block.reason
+    }));
+
+    return res.status(200).json(
+        new ApiResponse(200, { blockedUsers: formattedBlockedUsers }, "Blocked users retrieved successfully")
+    );
+});
+
+// Check if user is blocked
+const checkIfUserBlocked = asyncHandler(async (req, res) => {
+    const { userId } = req.params;
+    const currentUserId = req.user._id;
+
+    if (!userId) {
+        throw new ApiError(400, "User ID is required");
+    }
+
+    const block = await Block.findOne({
+        $or: [
+            { blockerId: currentUserId, blockedId: userId },
+            { blockerId: userId, blockedId: currentUserId }
+        ]
+    });
+
+    const isBlocked = !!block;
+
+    return res.status(200).json(
+        new ApiResponse(200, { isBlocked }, "Block status checked successfully")
+    );
+});
+
 export {
     registerUser,
     loginUser,
@@ -901,5 +1026,9 @@ export {
     togglePhoneNumberVisibility,
     toggleAddressVisibility,
     trackSearch,
-    getPopularSearches
+    getPopularSearches,
+    blockUser,
+    unblockUser,
+    getBlockedUsers,
+    checkIfUserBlocked
 };

@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { upload } from "../middlewares/multerConfig.js";
 import { verifyJWT, optionalVerifyJWT } from "../middlewares/auth.middleware.js";
-import { loginUser, logOutUser, registerUser, getUserProfile, updateUserProfile, changePassword, deleteAccount, searchUsers, verifyEmailWithOTP, uploadProfileImage, sendVerificationOTPForEmail, sendPasswordResetOTP, resetPasswordWithOTP, getOtherUserProfile, checkTokenExpiry, togglePhoneNumberVisibility, toggleAddressVisibility, trackSearch, getPopularSearches } from "../controllers/user.controllers.js";
+import { loginUser, logOutUser, registerUser, getUserProfile, updateUserProfile, changePassword, deleteAccount, searchUsers, verifyEmailWithOTP, uploadProfileImage, sendVerificationOTPForEmail, sendPasswordResetOTP, resetPasswordWithOTP, getOtherUserProfile, checkTokenExpiry, togglePhoneNumberVisibility, toggleAddressVisibility, trackSearch, getPopularSearches, blockUser, unblockUser, getBlockedUsers, checkIfUserBlocked } from "../controllers/user.controllers.js";
 import { searchAllContent } from "../controllers/searchAllContent.controllers.js";
 import { followUser, unfollowUser, getFollowers, getFollowing } from "../controllers/follower.controllers.js";
 import { getSearchSuggestions } from "../controllers/searchSuggestion.controllers.js";
@@ -45,5 +45,11 @@ router.get("/profile/other", verifyJWT, getOtherUserProfile);
 // Privacy settings routes
 router.put("/privacy/phone-number", verifyJWT, togglePhoneNumberVisibility);
 router.put("/privacy/address", verifyJWT, toggleAddressVisibility);
+
+// Block user routes
+router.post("/block", verifyJWT, blockUser);
+router.post("/unblock", verifyJWT, unblockUser);
+router.get("/blocked-users", verifyJWT, getBlockedUsers);
+router.get("/check-block/:userId", verifyJWT, checkIfUserBlocked);
 
 export default router;
