@@ -95,29 +95,57 @@ export const batchTrackInteractions = asyncHandler(async (req, res) => {
         const bulkOps = [];
 
         for (const interaction of interactions) {
-            const { postId, interactionType, viewDuration = 0 } = interaction;
-            
+            const { postId, interactionType, viewDuration } = interaction;
+
             if (!postId || !interactionType) continue;
 
-            bulkOps.push({
-                updateOne: {
-                    filter: { userId, postId, interactionType },
-                    update: {
-                        $set: {
-                            lastInteracted: new Date(),
-                            ...(viewDuration > 0 && { viewDuration: { $max: viewDuration } })
+            // Reject viewDuration for non-view interactions
+            if (interactionType !== 'view' && viewDuration !== undefined) {
+                throw new ApiError(400, `viewDuration is not allowed for ${interactionType} interactions`);
+            }
+
+            // Use different approach to avoid $max and $setOnInsert conflict
+            if (interactionType === 'view' && viewDuration > 0) {
+                // For view interactions with viewDuration, use a more complex update
+                bulkOps.push({
+                    updateOne: {
+                        filter: { userId, postId, interactionType },
+                        update: [
+                            {
+                                $set: {
+                                    userId: userId,
+                                    postId: postId,
+                                    interactionType: interactionType,
+                                    lastInteracted: new Date(),
+                                    interactionCount: { $add: [{ $ifNull: ["$interactionCount", 0] }, 1] },
+                                    viewDuration: { $max: [{ $ifNull: ["$viewDuration", 0] }, viewDuration] }
+                                }
+                            }
+                        ],
+                        upsert: true
+                    }
+                });
+            } else {
+                // For non-view interactions or view without duration, simple update
+                bulkOps.push({
+                    updateOne: {
+                        filter: { userId, postId, interactionType },
+                        update: {
+                            $set: {
+                                lastInteracted: new Date()
+                            },
+                            $inc: { interactionCount: 1 },
+                            $setOnInsert: {
+                                userId,
+                                postId,
+                                interactionType,
+                                ...(interactionType === 'view' && { viewDuration: 0 })
+                            }
                         },
-                        $inc: { interactionCount: 1 },
-                        $setOnInsert: {
-                            userId,
-                            postId,
-                            interactionType,
-                            viewDuration
-                        }
-                    },
-                    upsert: true
-                }
-            });
+                        upsert: true
+                    }
+                });
+            }
         }
 
         if (bulkOps.length > 0) {
@@ -138,7 +166,7 @@ export const getUserInteractionHistory = asyncHandler(async (req, res) => {
 
     try {
         const dateFilter = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-        
+
         const filter = {
             userId,
             lastInteracted: { $gte: dateFilter }
