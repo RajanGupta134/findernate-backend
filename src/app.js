@@ -10,14 +10,15 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 app.use(cors({
-    origin: [
-        "*",
-        "https://findernate.netlify.app/",
-        "https://findernate1.vercel.app",
-        "https://findernate-test.vercel.app",
-        "http://localhost:3000"
-    ],
-    credentials: true
+        origin: [
+                "*",
+                "https://findernate.netlify.app/",
+                "https://findernate1.vercel.app",
+                "https://findernate-test.vercel.app",
+                "https://findernate.vercel.app",
+                "http://localhost:3000"
+        ],
+        credentials: true
 }));
 
 app.use(cookieParser());
