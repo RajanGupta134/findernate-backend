@@ -1,0 +1,88 @@
+import mongoose from 'mongoose';
+
+const SocialMediaSchema = new mongoose.Schema({
+    platform: String,
+    url: String
+}, { _id: false });
+
+const ContactSchema = new mongoose.Schema({
+    phone: String,
+    email: { type: String, lowercase: true },
+    website: String,
+    socialMedia: [SocialMediaSchema]
+}, { _id: false });
+
+// 🌐 GeoJSON Point Schema for business location
+const GeoJSONPointSchema = new mongoose.Schema({
+    type: {
+        type: String,
+        enum: ['Point'],
+        default: 'Point'
+    },
+    coordinates: {
+        type: [Number], // [longitude, latitude]
+        index: '2dsphere'
+    }
+}, { _id: false });
+
+const LocationSchema = new mongoose.Schema({
+    address: String,
+    city: String,
+    state: String,
+    country: String,
+    postalCode: String,
+    coordinates: GeoJSONPointSchema, // Add coordinates for live location
+    isLiveLocationEnabled: { type: Boolean, default: false }, // Toggle for live location feature
+    lastLocationUpdate: { type: Date } // Track when location was last updated
+}, { _id: false });
+
+const BusinessSchema = new mongoose.Schema({
+    userId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        unique: true, // Ensure one business profile per user
+        index: true
+    },
+    businessName: { type: String, trim: true },
+    businessType: { type: String },
+    description: { type: String },
+    category: { type: String },
+    contact: ContactSchema,
+    location: LocationSchema,
+    rating: { type: Number },
+    tags: [String],
+    website: { type: String },
+    gstNumber: { type: String, sparse: true, unique: true },
+    aadhaarNumber: { type: String },
+    logoUrl: { type: String },
+    isVerified: { type: Boolean, default: false },
+    followers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
+    insights: {
+        views: { type: Number, default: 0 },
+        clicks: { type: Number, default: 0 },
+        conversions: { type: Number, default: 0 }
+    },
+    plan: {
+        type: String,
+        enum: ['plan1', 'plan2', 'plan3', 'plan4'],
+        default: 'plan1'
+    },
+    subscriptionStatus: {
+        type: String,
+        enum: ['active', 'inactive', 'pending'],
+        default: 'pending'
+    }
+}, { timestamps: true });
+
+// 🚀 Auto-verify business when subscription becomes active
+BusinessSchema.pre('save', async function (next) {
+    // Check if subscriptionStatus is being modified and set to 'active'
+    if (this.isModified('subscriptionStatus') && this.subscriptionStatus === 'active') {
+        // Automatically verify the business
+        this.isVerified = true;
+
+    }
+    next();
+});
+
+export default mongoose.model('Business', BusinessSchema);
