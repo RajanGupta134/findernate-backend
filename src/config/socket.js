@@ -64,7 +64,7 @@ class SocketManager {
             // Handle joining chat rooms
             socket.on('join_chat', (chatId) => {
                 socket.join(`chat_${chatId}`);
-                console.log(`User ${socket.userId} joined chat ${chatId}`);
+                // console.log(`User ${socket.userId} joined chat ${chatId}`);
             });
 
             // Handle leaving chat rooms

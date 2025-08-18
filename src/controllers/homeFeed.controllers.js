@@ -6,6 +6,7 @@ import { ApiError } from '../utlis/ApiError.js';
 import Comment from '../models/comment.models.js';
 import { asyncHandler } from '../utlis/asyncHandler.js';
 import Like from '../models/like.models.js';
+import PostInteraction from '../models/postInteraction.models.js';
 
 export const getHomeFeed = asyncHandler(async (req, res) => {
     try {
@@ -121,26 +122,98 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
             .limit(FEED_LIMIT)
             .populate('userId', 'username profileImageUrl');
 
-        //  4. Define content-type weight
-        const getContentTypeWeight = (type) => {
-            switch (type) {
-                case 'product': return 0.5;
-                case 'service': return 0.4;
-                case 'business': return 0.3;
-                case 'normal': return 0.1;
-                default: return 0;
+        // ✅ 4. Get user's interaction history
+        let userInteractions = new Map();
+        if (userId) {
+            const interactions = await PostInteraction.find({ 
+                userId,
+                lastInteracted: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } // Last 30 days
+            }).select('postId interactionType interactionCount lastInteracted isHidden');
+            
+            interactions.forEach(interaction => {
+                const postId = interaction.postId.toString();
+                if (!userInteractions.has(postId)) {
+                    userInteractions.set(postId, []);
+                }
+                userInteractions.get(postId).push(interaction);
+            });
+        }
+
+        // ✅ 5. Intelligent scoring algorithm
+        const calculatePostScore = (post, source) => {
+            const postAge = (now - new Date(post.createdAt)) / (1000 * 60 * 60); // hours
+            const postId = post._id.toString();
+            const interactions = userInteractions.get(postId) || [];
+            
+            // Base scores by source
+            let baseScore = 0;
+            switch (source) {
+                case 'followed': baseScore = 100; break;
+                case 'nearby': baseScore = 75; break;
+                case 'trending': baseScore = 50; break;
+                case 'non-followed': baseScore = 25; break;
             }
+            
+            // Relationship weight (higher for followed users)
+            const relationshipWeight = source === 'followed' ? 2.0 : 1.0;
+            
+            // Recency boost (newer posts get higher scores)
+            const recencyBoost = Math.max(0, 20 - (postAge / 24) * 10); // Decreases over days
+            
+            // Content type weight
+            const contentTypeWeight = {
+                'product': 15,
+                'service': 12,
+                'business': 10,
+                'normal': 8
+            }[post.contentType] || 5;
+            
+            // Engagement score
+            const engagement = post.engagement || {};
+            const engagementScore = (
+                (engagement.likes || 0) * 1.0 +
+                (engagement.comments || 0) * 2.0 +
+                (engagement.shares || 0) * 3.0 +
+                (engagement.views || 0) * 0.1
+            );
+            
+            // Interaction penalty (reduce score for seen/interacted posts)
+            let interactionPenalty = 0;
+            if (interactions.length > 0) {
+                const hasRecentView = interactions.some(i => 
+                    i.interactionType === 'view' && 
+                    (now - new Date(i.lastInteracted)) < 24 * 60 * 60 * 1000 // Last 24 hours
+                );
+                const totalInteractions = interactions.reduce((sum, i) => sum + i.interactionCount, 0);
+                const isHidden = interactions.some(i => i.isHidden);
+                
+                if (isHidden) interactionPenalty = 90; // Almost eliminate hidden posts
+                else if (hasRecentView) interactionPenalty = 60; // Heavy penalty for recent views
+                else if (totalInteractions > 3) interactionPenalty = 40; // Penalty for multiple interactions
+                else if (totalInteractions > 1) interactionPenalty = 20; // Light penalty for few interactions
+            }
+            
+            // Calculate final score
+            const finalScore = Math.max(0, 
+                (baseScore * relationshipWeight) + 
+                recencyBoost + 
+                contentTypeWeight + 
+                Math.min(engagementScore, 30) - // Cap engagement boost
+                interactionPenalty
+            );
+            
+            return finalScore;
         };
 
-        // ✅ 5. Score & tag posts
+        // ✅ 6. Score all posts
         const scoredPosts = [
-            ...followedPosts.map(p => ({ ...p.toObject(), _score: 4 + getContentTypeWeight(p.contentType) })),
-            ...nearbyPosts.map(p => ({ ...p.toObject(), _score: 3 + getContentTypeWeight(p.contentType) })),
-            ...trendingPosts.map(p => ({ ...p.toObject(), _score: 2 + getContentTypeWeight(p.contentType) })),
-            ...nonFollowedPosts.map(p => ({ ...p.toObject(), _score: 1 + getContentTypeWeight(p.contentType) })),
+            ...followedPosts.map(p => ({ ...p.toObject(), _score: calculatePostScore(p, 'followed') })),
+            ...nearbyPosts.map(p => ({ ...p.toObject(), _score: calculatePostScore(p, 'nearby') })),
+            ...trendingPosts.map(p => ({ ...p.toObject(), _score: calculatePostScore(p, 'trending') })),
+            ...nonFollowedPosts.map(p => ({ ...p.toObject(), _score: calculatePostScore(p, 'non-followed') })),
         ];
 
-        // ✅ 6. Deduplicate and sort
+        // ✅ 7. Deduplicate and rank by score
         const seen = new Set();
         const deduplicated = scoredPosts
             .filter(post => {
@@ -150,15 +223,17 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
                 return true;
             });
 
-        // Shuffle all posts together
-        function shuffleArray(arr) {
-            return arr
-                .map(value => ({ value, sort: Math.random() }))
-                .sort((a, b) => a.sort - b.sort)
-                .map(({ value }) => value);
-        }
-
-        const rankedFeed = shuffleArray(deduplicated);
+        // Sort by score (highest first) with slight randomization for posts with similar scores
+        const rankedFeed = deduplicated
+            .sort((a, b) => {
+                const scoreDiff = b._score - a._score;
+                // If scores are very close (within 5 points), add slight randomization
+                if (Math.abs(scoreDiff) <= 5) {
+                    return Math.random() - 0.5;
+                }
+                return scoreDiff;
+            })
+            .filter(post => post._score > 0); // Filter out posts with 0 or negative scores
 
         // --- Pagination logic ---
         const page = parseInt(req.query.page, 10) || 1;
