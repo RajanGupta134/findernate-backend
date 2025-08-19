@@ -1,10 +1,12 @@
 import { User } from "../models/user.models.js";
 import Business from "../models/business.models.js";
 import Post from "../models/userPost.models.js";
+import BusinessRating from "../models/businessRating.models.js";
 import { ApiError } from "../utlis/ApiError.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import { asyncHandler } from "../utlis/asyncHandler.js";
 import { getCoordinates } from "../utlis/getCoordinates.js";
+import mongoose from "mongoose";
 
 // Predefined business categories
 const BUSINESS_CATEGORIES = [
@@ -367,7 +369,7 @@ export const getBusinessById = asyncHandler(async (req, res) => {
     const { id } = req.params;
 
     const business = await Business.findById(id)
-        .select("-gstNumber -rating")
+        .select("-gstNumber")
         .lean();
 
     if (!business) {
@@ -383,9 +385,33 @@ export const getBusinessById = asyncHandler(async (req, res) => {
         throw new ApiError(404, "Business owner not found");
     }
 
+    // Get rating summary
+    const ratingStats = await BusinessRating.aggregate([
+        { $match: { businessId: new mongoose.Types.ObjectId(id) } },
+        {
+            $group: {
+                _id: null,
+                totalRatings: { $sum: 1 },
+                averageRating: { $avg: '$rating' }
+            }
+        }
+    ]);
+
+    const ratingInfo = ratingStats.length > 0 ? {
+        averageRating: Math.round(ratingStats[0].averageRating * 10) / 10,
+        totalRatings: ratingStats[0].totalRatings
+    } : {
+        averageRating: 0,
+        totalRatings: 0
+    };
+
     return res.status(200).json(
         new ApiResponse(200, {
-            business,
+            business: {
+                ...business,
+                rating: ratingInfo.averageRating,
+                totalRatings: ratingInfo.totalRatings
+            },
             owner
         }, "Business profile fetched successfully")
     );
@@ -711,23 +737,42 @@ export const getNearbyBusinesses = asyncHandler(async (req, res) => {
     }
 
     const nearbyBusinesses = await Business.find(query)
-        .select('-gstNumber -aadhaarNumber -rating')
+        .select('-gstNumber -aadhaarNumber')
         .populate('userId', 'username fullName profileImageUrl')
         .limit(parseInt(limit))
         .lean();
 
-    // Calculate distance for each business
-    const businessesWithDistance = nearbyBusinesses.map(business => {
+    // Calculate distance for each business and add rating info
+    const businessesWithDistance = await Promise.all(nearbyBusinesses.map(async (business) => {
+        let businessWithDistance = { ...business };
+
         if (business.location?.coordinates?.coordinates) {
             const [businessLng, businessLat] = business.location.coordinates.coordinates;
             const distance = calculateDistance(lat, lng, businessLat, businessLng);
-            return {
-                ...business,
-                distance: Math.round(distance * 100) / 100 // Round to 2 decimal places
-            };
+            businessWithDistance.distance = Math.round(distance * 100) / 100; // Round to 2 decimal places
         }
-        return business;
-    });
+
+        // Get rating info for each business
+        const ratingStats = await BusinessRating.aggregate([
+            { $match: { businessId: new mongoose.Types.ObjectId(business._id) } },
+            {
+                $group: {
+                    _id: null,
+                    totalRatings: { $sum: 1 },
+                    averageRating: { $avg: '$rating' }
+                }
+            }
+        ]);
+
+        businessWithDistance.rating = ratingStats.length > 0
+            ? Math.round(ratingStats[0].averageRating * 10) / 10
+            : 0;
+        businessWithDistance.totalRatings = ratingStats.length > 0
+            ? ratingStats[0].totalRatings
+            : 0;
+
+        return businessWithDistance;
+    }));
 
     return res.status(200).json(
         new ApiResponse(200, {
@@ -804,3 +849,113 @@ export const getBusinessCategories = asyncHandler(async (req, res) => {
         }, "Business categories fetched successfully")
     );
 });
+
+
+
+// ✅ POST /api/v1/business/:businessId/rate
+export const rateBusiness = asyncHandler(async (req, res) => {
+    const { businessId } = req.params;
+    const userId = req.user._id;
+    const { rating } = req.body;
+
+    // Validate required fields
+    if (!rating || !Number.isInteger(rating) || rating < 1 || rating > 5) {
+        throw new ApiError(400, "Rating must be a number between 1 and 5");
+    }
+
+    // Check if business exists
+    const business = await Business.findById(businessId);
+    if (!business) {
+        throw new ApiError(404, "Business not found");
+    }
+
+    // Prevent users from rating their own business
+    if (business.userId.toString() === userId.toString()) {
+        throw new ApiError(403, "Cannot rate your own business");
+    }
+
+    // Check if user has already rated this business
+    const existingRating = await BusinessRating.findOne({ businessId, userId });
+
+    if (existingRating) {
+        // Update existing rating
+        existingRating.rating = rating;
+        await existingRating.save();
+    } else {
+        // Create new rating
+        await BusinessRating.create({
+            businessId,
+            userId,
+            rating
+        });
+    }
+
+    // Calculate and update business average rating
+    const allRatings = await BusinessRating.find({ businessId });
+    const totalRating = allRatings.reduce((sum, r) => sum + r.rating, 0);
+    const averageRating = totalRating / allRatings.length;
+
+    // Update business rating
+    business.rating = Math.round(averageRating * 10) / 10; // Round to 1 decimal place
+    await business.save();
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            rating: existingRating ? "updated" : "created",
+            businessRating: business.rating,
+            totalRatings: allRatings.length
+        }, `Business rating ${existingRating ? 'updated' : 'created'} successfully`)
+    );
+});
+
+
+
+// ✅ GET /api/v1/business/:businessId/rating-summary
+export const getBusinessRatingSummary = asyncHandler(async (req, res) => {
+    const { businessId } = req.params;
+
+    // Check if business exists
+    const business = await Business.findById(businessId).select('businessName rating');
+    if (!business) {
+        throw new ApiError(404, "Business not found");
+    }
+
+    // Get rating statistics
+    const stats = await BusinessRating.aggregate([
+        { $match: { businessId: new mongoose.Types.ObjectId(businessId) } },
+        {
+            $group: {
+                _id: null,
+                totalRatings: { $sum: 1 },
+                averageRating: { $avg: '$rating' }
+            }
+        }
+    ]);
+
+    if (stats.length === 0) {
+        return res.status(200).json(
+            new ApiResponse(200, {
+                business: {
+                    businessName: business.businessName,
+                    averageRating: 0,
+                    totalRatings: 0
+                },
+                message: "No ratings yet"
+            }, "Business rating summary fetched successfully")
+        );
+    }
+
+    const stat = stats[0];
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            business: {
+                businessName: business.businessName,
+                averageRating: Math.round(stat.averageRating * 10) / 10,
+                totalRatings: stat.totalRatings
+            }
+        }, "Business rating summary fetched successfully")
+    );
+});
+
+

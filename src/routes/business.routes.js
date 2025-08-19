@@ -14,7 +14,10 @@ import {
     toggleLiveLocation,
     getNearbyBusinesses,
     updateBusinessCategory,
-    getBusinessCategories
+    getBusinessCategories,
+    // Rating-related controllers
+    rateBusiness,
+    getBusinessRatingSummary
 } from "../controllers/business.controllers.js";
 
 const router = Router();
@@ -53,6 +56,10 @@ router.route("/nearby").get(getNearbyBusinesses);
 
 // Get business by ID (public access)
 router.route("/:id").get(getBusinessById);
+
+// 📊 Business Rating Routes
+router.route("/:businessId/rate").post(verifyJWT, rateBusiness);
+router.route("/:businessId/rating-summary").get(getBusinessRatingSummary);
 
 // Helper route to update existing businesses with active subscriptions (admin only)
 router.route("/admin/update-active-businesses").post(optionalVerifyJWT, updateExistingActiveBusinesses);
