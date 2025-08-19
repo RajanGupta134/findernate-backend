@@ -9,16 +9,21 @@ const getTrendingBusinessOwners = asyncHandler(async (req, res) => {
     const currentUserId = req.user ? req.user._id : null;
     const { page = 1, limit = 10 } = req.query;
 
+    // Get blocked users from middleware
+    const blockedUsers = req.blockedUsers || [];
+
     // Skip value for pagination
     const skip = (page - 1) * limit;
 
     try {
-        // Get trending business owners (businesses with most followers)
+        // Get trending business owners (businesses with most followers) - excluding blocked users
         const trendingBusinesses = await Business.aggregate([
             {
                 $match: {
                     // Show businesses that are not inactive (includes 'pending' and 'active')
-                    subscriptionStatus: { $ne: 'inactive' }
+                    subscriptionStatus: { $ne: 'inactive' },
+                    // Exclude businesses owned by blocked users
+                    userId: { $nin: blockedUsers }
                 }
             },
             {
@@ -61,10 +66,12 @@ const getTrendingBusinessOwners = asyncHandler(async (req, res) => {
             isFollowing: currentUserId ? businessFollowingSet.has(business.userId.toString()) : false
         }));
 
-        // Get total count for pagination
+        // Get total count for pagination (excluding blocked users)
         const totalBusinesses = await Business.countDocuments({
             // Show businesses that are not inactive (includes 'pending' and 'active')
-            subscriptionStatus: { $ne: 'inactive' }
+            subscriptionStatus: { $ne: 'inactive' },
+            // Exclude businesses owned by blocked users
+            userId: { $nin: blockedUsers }
         });
 
         return res.status(200).json(

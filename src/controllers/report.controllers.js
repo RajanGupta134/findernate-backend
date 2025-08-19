@@ -42,7 +42,7 @@ export const reportContent = asyncHandler(async (req, res) => {
             throw new ApiError(400, `You cannot report your own ${type}`);
         }
         reportData.reportedPostId = contentId;
-    } 
+    }
     else if (type === 'story') {
         content = await Story.findById(contentId);
         if (!content) throw new ApiError(404, "Story not found");
@@ -84,6 +84,49 @@ export const reportContent = asyncHandler(async (req, res) => {
     try {
         const report = await Report.create(reportData);
 
+        // Check if content should be automatically deleted (after 3 reports)
+        let reportCount = 0;
+        let deleteFilter = {};
+
+        if (type === 'post' || type === 'reel') {
+            deleteFilter = { reportedPostId: contentId };
+        } else if (type === 'story') {
+            deleteFilter = { reportedStoryId: contentId };
+        } else if (type === 'comment') {
+            deleteFilter = { reportedCommentId: contentId };
+        } else if (type === 'user') {
+            deleteFilter = { reportedUserId: contentId };
+        }
+
+        // Count total reports for this content
+        reportCount = await Report.countDocuments(deleteFilter);
+
+        // If content reaches 3 reports, automatically delete it
+        if (reportCount >= 3) {
+            try {
+                if (type === 'post' || type === 'reel') {
+                    await Post.findByIdAndDelete(contentId);
+                    console.log(`Post ${contentId} automatically deleted after ${reportCount} reports`);
+                } else if (type === 'story') {
+                    await Story.findByIdAndDelete(contentId);
+                    console.log(`Story ${contentId} automatically deleted after ${reportCount} reports`);
+                } else if (type === 'comment') {
+                    await Comment.findByIdAndDelete(contentId);
+                    console.log(`Comment ${contentId} automatically deleted after ${reportCount} reports`);
+                } else if (type === 'user') {
+                    // For users, you might want to suspend/ban instead of delete
+                    // await User.findByIdAndUpdate(contentId, { status: 'suspended' });
+                    console.log(`User ${contentId} has ${reportCount} reports - consider suspension`);
+                }
+
+                // Update all reports for this content to 'resolved' status
+                await Report.updateMany(deleteFilter, { status: 'resolved' });
+            } catch (deleteError) {
+                console.error(`Error deleting content ${contentId}:`, deleteError);
+                // Continue with report creation even if deletion fails
+            }
+        }
+
         return res
             .status(201)
             .json(new ApiResponse(201, report, `${type.charAt(0).toUpperCase() + type.slice(1)} reported successfully`));
@@ -101,7 +144,7 @@ export const reportPost = reportContent;
 
 export const getReports = asyncHandler(async (req, res) => {
     const { reportId, status, page = 1, limit = 10 } = req.query;
-    
+
     // If reportId is provided, return single report
     if (reportId) {
         const report = await Report.findById(reportId)

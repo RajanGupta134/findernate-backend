@@ -2,6 +2,7 @@
 import { Router } from "express";
 import { upload } from "../middlewares/multerConfig.js";
 import { verifyJWT, optionalVerifyJWT } from "../middlewares/auth.middleware.js";
+import { getBlockedUsers as getBlockedUsersMiddleware } from "../middlewares/blocking.middleware.js";
 import {
     createNormalPost,
     createProductPost,
@@ -39,7 +40,7 @@ router.route("/create/product").post(mediaUpload, verifyJWT, createProductPost);
 router.route("/create/business").post(mediaUpload, verifyJWT, createBusinessPost);
 router.route("/user/:userId/profile").get(verifyJWT, getUserProfilePosts);
 router.route("/switch/profile/:userId").get(verifyJWT, getProfileTabContent);
-router.route("/home-feed").get(optionalVerifyJWT, getHomeFeed);
+router.route("/home-feed").get(optionalVerifyJWT, getBlockedUsersMiddleware, getHomeFeed);
 router.route("/myPosts").get(verifyJWT, getMyPosts);
 router.route("/notifications").get(verifyJWT, getNotifications);
 

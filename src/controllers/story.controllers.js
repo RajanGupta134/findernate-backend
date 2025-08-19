@@ -30,12 +30,13 @@ export const uploadStory = asyncHandler(async (req, res) => {
     res.status(201).json(new ApiResponse(201, storyObj, "Story uploaded successfully"));
 });
 
-// 2. Fetch Stories from followed users (and self)
+// 2. Fetch Stories from followed users (and self) - excluding blocked users
 export const fetchStoriesFeed = asyncHandler(async (req, res) => {
     const userId = req.user._id;
+    const blockedUsers = req.blockedUsers || [];
     const user = await User.findById(userId).select("following");
     const following = user?.following || [];
-    const storyUserIds = [userId, ...following];
+    const storyUserIds = [userId, ...following].filter(id => !blockedUsers.includes(id.toString()));
 
     const now = new Date();
     const stories = await Story.find({

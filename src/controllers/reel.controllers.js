@@ -30,13 +30,15 @@ export const getSuggestedReels = asyncHandler(async (req, res) => {
         } = req.query;
 
         const currentUserId = req.user?._id || userId;
+        const blockedUsers = req.blockedUsers || [];
         const pageNum = Number(page);
         const limitNum = Number(limit);
         const skip = (pageNum - 1) * limitNum;
 
-        // Build match criteria
+        // Build match criteria (excluding blocked users)
         const matchCriteria = {
-            status: { $in: ["published", "scheduled"] }
+            status: { $in: ["published", "scheduled"] },
+            userId: { $nin: blockedUsers }
         };
 
         // Filter by postType if specified (reel, photo, video, story)

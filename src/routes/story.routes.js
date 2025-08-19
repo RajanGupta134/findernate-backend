@@ -2,6 +2,7 @@ import express from "express";
 import { uploadStory, fetchStoriesFeed, fetchStoriesByUser, markStorySeen, fetchStoryViewers, fetchArchivedStoriesByUser } from "../controllers/story.controllers.js";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/multerConfig.js";
+import { getBlockedUsers as getBlockedUsersMiddleware } from "../middlewares/blocking.middleware.js";
 
 const router = express.Router();
 
@@ -9,7 +10,7 @@ const router = express.Router();
 router.post("/upload", verifyJWT, upload.single("media"), uploadStory);
 
 // Fetch stories feed (from followed + self)
-router.get("/feed", verifyJWT, fetchStoriesFeed);
+router.get("/feed", verifyJWT, getBlockedUsersMiddleware, fetchStoriesFeed);
 
 // Fetch stories by user id
 router.get("/user/:userId", verifyJWT, fetchStoriesByUser);

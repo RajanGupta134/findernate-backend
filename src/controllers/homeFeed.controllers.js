@@ -11,6 +11,7 @@ import PostInteraction from '../models/postInteraction.models.js';
 export const getHomeFeed = asyncHandler(async (req, res) => {
     try {
         const userId = req.user?._id;
+        const blockedUsers = req.blockedUsers || [];
         const userLocation = req.user?.location && req.user.location.coordinates && Array.isArray(req.user.location.coordinates)
             ? req.user.location
             : null;
@@ -37,19 +38,23 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         const allowedTypes = ['normal', 'service', 'product', 'business'];
         const baseQuery = { contentType: { $in: allowedTypes } };
 
-        // ✅ 3a. Posts from followed/follower users
+        // ✅ 3a. Posts from followed/follower users (excluding blocked users)
         const followedPosts = await Post.find({
             ...baseQuery,
-            userId: { $in: feedUserIds }
+            userId: {
+                $in: feedUserIds,
+                $nin: blockedUsers
+            }
         })
             .sort({ createdAt: -1 })
             .limit(FEED_LIMIT)
             .populate('userId', 'username profileImageUrl');
 
-        // ✅ 3b. Trending posts
+        // ✅ 3b. Trending posts (excluding blocked users)
         const trendingPosts = await Post.find({
             ...baseQuery,
-            createdAt: { $gte: yesterday }
+            createdAt: { $gte: yesterday },
+            userId: { $nin: blockedUsers }
         })
             .sort({
                 'engagement.likes': -1,
@@ -64,9 +69,10 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         // ✅ 3c. Nearby posts (enhanced with business profile locations)
         let nearbyPosts = [];
         if (userLocation && userLocation.coordinates) {
-            // Get posts with location data
+            // Get posts with location data (excluding blocked users)
             const locationBasedPosts = await Post.find({
                 ...baseQuery,
+                userId: { $nin: blockedUsers },
                 $or: [
                     { 'customization.normal.location.coordinates': { $near: { $geometry: { type: 'Point', coordinates: userLocation.coordinates }, $maxDistance: NEARBY_DISTANCE_KM * 1000 } } },
                     { 'customization.service.location.coordinates': { $near: { $geometry: { type: 'Point', coordinates: userLocation.coordinates }, $maxDistance: NEARBY_DISTANCE_KM * 1000 } } },
@@ -91,11 +97,14 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
                 subscriptionStatus: 'active'
             }).select('userId');
 
-            // Get posts from nearby business owners
+            // Get posts from nearby business owners (excluding blocked users)
             const nearbyBusinessUserIds = nearbyBusinesses.map(business => business.userId);
             const businessOwnerPosts = nearbyBusinessUserIds.length > 0 ? await Post.find({
                 ...baseQuery,
-                userId: { $in: nearbyBusinessUserIds }
+                userId: {
+                    $in: nearbyBusinessUserIds,
+                    $nin: blockedUsers
+                }
             })
                 .populate('userId', 'username profileImageUrl') : [];
 
@@ -112,8 +121,8 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
                 .slice(0, FEED_LIMIT); // Limit to FEED_LIMIT posts
         }
 
-        //  3d. Non-followed users' posts
-        const excludeUserIds = userId ? [...feedUserIds, userId] : feedUserIds;
+        //  3d. Non-followed users' posts (excluding blocked users)
+        const excludeUserIds = userId ? [...feedUserIds, userId, ...blockedUsers] : [...feedUserIds, ...blockedUsers];
         const nonFollowedPosts = await Post.find({
             ...baseQuery,
             userId: { $nin: excludeUserIds }
@@ -125,11 +134,11 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         // ✅ 4. Get user's interaction history
         let userInteractions = new Map();
         if (userId) {
-            const interactions = await PostInteraction.find({ 
+            const interactions = await PostInteraction.find({
                 userId,
                 lastInteracted: { $gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) } // Last 30 days
             }).select('postId interactionType interactionCount lastInteracted isHidden');
-            
+
             interactions.forEach(interaction => {
                 const postId = interaction.postId.toString();
                 if (!userInteractions.has(postId)) {
@@ -144,7 +153,7 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
             const postAge = (now - new Date(post.createdAt)) / (1000 * 60 * 60); // hours
             const postId = post._id.toString();
             const interactions = userInteractions.get(postId) || [];
-            
+
             // Base scores by source
             let baseScore = 0;
             switch (source) {
@@ -153,13 +162,13 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
                 case 'trending': baseScore = 50; break;
                 case 'non-followed': baseScore = 25; break;
             }
-            
+
             // Relationship weight (higher for followed users)
             const relationshipWeight = source === 'followed' ? 2.0 : 1.0;
-            
+
             // Recency boost (newer posts get higher scores)
             const recencyBoost = Math.max(0, 20 - (postAge / 24) * 10); // Decreases over days
-            
+
             // Content type weight
             const contentTypeWeight = {
                 'product': 15,
@@ -167,7 +176,7 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
                 'business': 10,
                 'normal': 8
             }[post.contentType] || 5;
-            
+
             // Engagement score
             const engagement = post.engagement || {};
             const engagementScore = (
@@ -176,32 +185,32 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
                 (engagement.shares || 0) * 3.0 +
                 (engagement.views || 0) * 0.1
             );
-            
+
             // Interaction penalty (reduce score for seen/interacted posts)
             let interactionPenalty = 0;
             if (interactions.length > 0) {
-                const hasRecentView = interactions.some(i => 
-                    i.interactionType === 'view' && 
+                const hasRecentView = interactions.some(i =>
+                    i.interactionType === 'view' &&
                     (now - new Date(i.lastInteracted)) < 24 * 60 * 60 * 1000 // Last 24 hours
                 );
                 const totalInteractions = interactions.reduce((sum, i) => sum + i.interactionCount, 0);
                 const isHidden = interactions.some(i => i.isHidden);
-                
+
                 if (isHidden) interactionPenalty = 90; // Almost eliminate hidden posts
                 else if (hasRecentView) interactionPenalty = 60; // Heavy penalty for recent views
                 else if (totalInteractions > 3) interactionPenalty = 40; // Penalty for multiple interactions
                 else if (totalInteractions > 1) interactionPenalty = 20; // Light penalty for few interactions
             }
-            
+
             // Calculate final score
-            const finalScore = Math.max(0, 
-                (baseScore * relationshipWeight) + 
-                recencyBoost + 
-                contentTypeWeight + 
+            const finalScore = Math.max(0,
+                (baseScore * relationshipWeight) +
+                recencyBoost +
+                contentTypeWeight +
                 Math.min(engagementScore, 30) - // Cap engagement boost
                 interactionPenalty
             );
-            
+
             return finalScore;
         };
 

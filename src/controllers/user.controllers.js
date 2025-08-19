@@ -98,17 +98,28 @@ const registerUser = asyncHandler(async (req, res) => {
 });
 
 const loginUser = asyncHandler(async (req, res) => {
-    const { email, password } = req.body;
+    const { email, username, password } = req.body;
 
-    if (!(email)) {
-        throw new ApiError(400, "Email is required");
+    // User must provide either email OR username, not both
+    if (!email && !username) {
+        throw new ApiError(400, "Please provide either email or username");
+    }
+
+    if (email && username) {
+        throw new ApiError(400, "Please provide either email OR username, not both");
     }
 
     if (!password) {
         throw new ApiError(400, "Password is required");
     }
 
-    const user = await User.findOne({ email });
+    // Find user based on provided field
+    let user;
+    if (email) {
+        user = await User.findOne({ email });
+    } else {
+        user = await User.findOne({ username: username.toLowerCase() });
+    }
 
     if (!user) {
         throw new ApiError(404, "User not found");
@@ -404,6 +415,8 @@ const deleteAccount = asyncHandler(async (req, res) => {
 
 const searchUsers = asyncHandler(async (req, res) => {
     const { query } = req.query;
+    const userId = req.user?._id;
+    const blockedUsers = req.blockedUsers || [];
 
     if (!query || query.trim() == "") {
         throw new ApiError(400, "Search query is required");
@@ -433,13 +446,21 @@ const searchUsers = asyncHandler(async (req, res) => {
         }
     }
 
-    const user = await User.find({
+    // Build search query excluding blocked users
+    const searchQuery = {
         accountStatus: "active",
         $or: [
             { username: new RegExp(query, "i") },
             { fullNameLower: new RegExp(query, "i") }
         ]
-    }).select("username fullName profileImageUrl bio location");
+    };
+
+    // Add blocked users filter if there are any
+    if (blockedUsers.length > 0) {
+        searchQuery._id = { $nin: blockedUsers };
+    }
+
+    const user = await User.find(searchQuery).select("username fullName profileImageUrl bio location");
 
     return res
         .status(200)
@@ -608,6 +629,7 @@ const resetPasswordWithOTP = asyncHandler(async (req, res) => {
 const getOtherUserProfile = asyncHandler(async (req, res) => {
     const { identifier } = req.query;
     const currentUserId = req.user._id;
+    const blockedUsers = req.blockedUsers || [];
 
     if (!identifier) {
         throw new ApiError(400, "User identifier (userId or username) is required");
@@ -627,6 +649,11 @@ const getOtherUserProfile = asyncHandler(async (req, res) => {
 
     if (!targetUser) {
         throw new ApiError(404, "User not found");
+    }
+
+    // Check if there's a blocking relationship between users
+    if (blockedUsers.includes(targetUser._id.toString())) {
+        throw new ApiError(403, "Cannot access this profile due to blocking");
     }
 
     // Check if current user follows the target user

@@ -10,6 +10,9 @@ export const getExploreFeed = asyncHandler(async (req, res) => {
     page = parseInt(page, 10) || 1;
     limit = parseInt(limit, 10) || 10;
 
+    // Get blocked users from middleware
+    const blockedUsers = req.blockedUsers || [];
+
     // Calculate how many reels and posts per page (default: 2 reels, rest posts)
     const reelsPerPage = Math.min(2, limit);
     const postsPerPage = limit - reelsPerPage;
@@ -52,8 +55,11 @@ export const getExploreFeed = asyncHandler(async (req, res) => {
     // 2. Get posts using reliable find() method like homeFeed (not aggregation)
     const EXPLORE_LIMIT = 100;
 
-    // Get all posts matching the criteria using the same reliable approach as homeFeed
-    const allPosts = await Post.find(postMatch)
+    // Get all posts matching the criteria using the same reliable approach as homeFeed (excluding blocked users)
+    const allPosts = await Post.find({
+        ...postMatch,
+        userId: { $nin: blockedUsers }
+    })
         .sort({ createdAt: -1 })
         .limit(EXPLORE_LIMIT)
         .populate('userId', 'username profileImageUrl')

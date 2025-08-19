@@ -22,6 +22,9 @@ export const searchAllContent = async (req, res) => {
             limit = 20
         } = req.query;
 
+        // Get blocked users from middleware
+        const blockedUsers = req.blockedUsers || [];
+
         if (!q) throw new ApiError(400, "Search query 'q' is required");
 
         // Track search keyword if it's 3+ characters
@@ -143,24 +146,26 @@ export const searchAllContent = async (req, res) => {
             }));
         }
 
-        // First, find users that match the search query
+        // First, find users that match the search query (excluding blocked users)
         const matchingUsers = await User.find({
             $or: [
                 { username: searchRegex },
                 { fullName: searchRegex }
-            ]
+            ],
+            _id: { $nin: blockedUsers }
         }).select('_id');
 
         const matchingUserIds = matchingUsers.map(user => user._id);
 
-        // Find businesses that match the search query by category
+        // Find businesses that match the search query by category (excluding blocked users)
         const matchingBusinesses = await Business.find({
             $or: [
                 { category: searchRegex },
                 { businessName: searchRegex },
                 { businessType: searchRegex },
                 { tags: searchRegex }
-            ]
+            ],
+            userId: { $nin: blockedUsers }
         }).select('userId');
 
         const businessUserIds = matchingBusinesses.map(business => business.userId);
@@ -175,8 +180,11 @@ export const searchAllContent = async (req, res) => {
             basePostFilters.$or.push({ userId: { $in: businessUserIds } });
         }
 
-        //  Fetch Posts
-        const rawPosts = await Post.find(basePostFilters)
+        //  Fetch Posts (excluding blocked users)
+        const rawPosts = await Post.find({
+            ...basePostFilters,
+            userId: { $nin: blockedUsers }
+        })
             .populate('userId', 'username profileImageUrl bio location')
             .lean();
 

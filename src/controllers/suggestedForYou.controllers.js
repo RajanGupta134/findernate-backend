@@ -26,6 +26,9 @@ const getSuggestedForYou = asyncHandler(async (req, res) => {
     const limit = Math.min(parseInt(req.query.limit) || 10, 50);
     const skip = (page - 1) * limit;
 
+    // Get blocked users from middleware
+    const blockedUsers = req.blockedUsers || [];
+
     try {
         // 1. Users whose posts the current user liked
         const likedUsers = await Like.aggregate([
@@ -157,10 +160,13 @@ const getSuggestedForYou = asyncHandler(async (req, res) => {
 
         const userIds = paginated.map(s => s.userId);
 
-        // Fetch users with selected fields
+        // Fetch users with selected fields (excluding blocked users)
         const users = await User.find({
-            _id: { $in: userIds },
-            _id: { $ne: currentUserId },
+            _id: {
+                $in: userIds,
+                $ne: currentUserId,
+                $nin: blockedUsers
+            },
             accountStatus: 'active',
             isBusinessProfile: { $ne: true }
         }).select('username fullName profileImageUrl bio');

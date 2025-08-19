@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { upload } from "../middlewares/multerConfig.js";
 import { verifyJWT, optionalVerifyJWT } from "../middlewares/auth.middleware.js";
+import { getBlockedUsers as getBlockedUsersMiddleware, filterBlockedUsers } from "../middlewares/blocking.middleware.js";
 import { loginUser, logOutUser, registerUser, getUserProfile, updateUserProfile, changePassword, deleteAccount, searchUsers, verifyEmailWithOTP, uploadProfileImage, sendVerificationOTPForEmail, sendPasswordResetOTP, resetPasswordWithOTP, getOtherUserProfile, checkTokenExpiry, togglePhoneNumberVisibility, toggleAddressVisibility, trackSearch, getPopularSearches, blockUser, unblockUser, getBlockedUsers, checkIfUserBlocked } from "../controllers/user.controllers.js";
 import { searchAllContent } from "../controllers/searchAllContent.controllers.js";
 import { followUser, unfollowUser, getFollowers, getFollowing } from "../controllers/follower.controllers.js";
@@ -15,15 +16,15 @@ router.route("/profile").get(verifyJWT, getUserProfile);
 router.route("/profile").put(verifyJWT, updateUserProfile);
 router.route("/profile/change-password").put(verifyJWT, changePassword);
 router.route("/profile").delete(verifyJWT, deleteAccount);
-router.route("/profile/search").get(verifyJWT, searchUsers);
+router.route("/profile/search").get(verifyJWT, getBlockedUsersMiddleware, searchUsers);
 router.route("/verify-email-otp").post(verifyEmailWithOTP);
 router.route("/send-verification-otp").post(sendVerificationOTPForEmail);
 router.route("/profile/upload-image").post(verifyJWT, upload.single("profileImage"), uploadProfileImage);
 router.route("/send-reset-otp").post(sendPasswordResetOTP);
 router.route("/reset-password").post(resetPasswordWithOTP);
 router.route("/check-token").post(checkTokenExpiry);
-router.route("/searchAllContent").get(optionalVerifyJWT, searchAllContent);
-router.route("/profile/other").get(verifyJWT, getOtherUserProfile);
+router.route("/searchAllContent").get(optionalVerifyJWT, getBlockedUsersMiddleware, searchAllContent);
+router.route("/profile/other").get(verifyJWT, getBlockedUsersMiddleware, getOtherUserProfile);
 
 // Follower routes
 router.post("/follow", verifyJWT, followUser);
