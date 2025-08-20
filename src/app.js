@@ -37,6 +37,7 @@ import trendingBusinessOwnersRouter from "./routes/trendingBusinessOwners.routes
 import contactRequestRouter from "./routes/contactRequest.routes.js";
 import notificationRouter from "./routes/notification.routes.js";
 import pushNotificationRouter from "./routes/pushNotification.routes.js";
+import callRouter from "./routes/call.routes.js";
 
 
 app.use("/api/v1/users", userRouter);
@@ -52,6 +53,7 @@ app.use("/api/v1/business-owners", trendingBusinessOwnersRouter);
 app.use("/api/v1/contact-requests", contactRequestRouter);
 app.use("/api/v1/notifications", notificationRouter);
 app.use("/api/v1/push", pushNotificationRouter);
+app.use("/api/v1/calls", callRouter);
 
 app.use(errorHandler);
 

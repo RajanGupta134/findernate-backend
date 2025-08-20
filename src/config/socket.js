@@ -169,6 +169,144 @@ class SocketManager {
                 });
             });
 
+            // ===== CALL SIGNALING EVENTS =====
+            
+            // Handle call initiation
+            socket.on('call_initiate', (data) => {
+                const { receiverId, chatId, callType, callId } = data;
+                console.log(`User ${socket.userId} initiating ${callType} call to ${receiverId} in chat ${chatId}`);
+                
+                // Emit to receiver
+                this.emitToUser(receiverId, 'incoming_call', {
+                    callId,
+                    chatId,
+                    callType,
+                    caller: {
+                        _id: socket.userId,
+                        username: socket.user.username,
+                        fullName: socket.user.fullName,
+                        profileImageUrl: socket.user.profileImageUrl
+                    },
+                    timestamp: new Date()
+                });
+            });
+
+            // Handle call acceptance
+            socket.on('call_accept', (data) => {
+                const { callId, callerId } = data;
+                console.log(`User ${socket.userId} accepted call ${callId} from ${callerId}`);
+                
+                // Emit to caller that call was accepted
+                this.emitToUser(callerId, 'call_accepted', {
+                    callId,
+                    acceptedBy: {
+                        _id: socket.userId,
+                        username: socket.user.username,
+                        fullName: socket.user.fullName,
+                        profileImageUrl: socket.user.profileImageUrl
+                    },
+                    timestamp: new Date()
+                });
+            });
+
+            // Handle call decline
+            socket.on('call_decline', (data) => {
+                const { callId, callerId } = data;
+                console.log(`User ${socket.userId} declined call ${callId} from ${callerId}`);
+                
+                // Emit to caller that call was declined
+                this.emitToUser(callerId, 'call_declined', {
+                    callId,
+                    declinedBy: {
+                        _id: socket.userId,
+                        username: socket.user.username,
+                        fullName: socket.user.fullName,
+                        profileImageUrl: socket.user.profileImageUrl
+                    },
+                    timestamp: new Date()
+                });
+            });
+
+            // Handle call end
+            socket.on('call_end', (data) => {
+                const { callId, participants, endReason = 'normal' } = data;
+                console.log(`User ${socket.userId} ended call ${callId}, reason: ${endReason}`);
+                
+                // Emit to all participants except the one who ended it
+                participants
+                    .filter(participantId => participantId !== socket.userId)
+                    .forEach(participantId => {
+                        this.emitToUser(participantId, 'call_ended', {
+                            callId,
+                            endedBy: {
+                                _id: socket.userId,
+                                username: socket.user.username,
+                                fullName: socket.user.fullName,
+                                profileImageUrl: socket.user.profileImageUrl
+                            },
+                            endReason,
+                            timestamp: new Date()
+                        });
+                    });
+            });
+
+            // ===== WEBRTC SIGNALING EVENTS =====
+            
+            // Handle WebRTC offer
+            socket.on('webrtc_offer', (data) => {
+                const { callId, receiverId, offer } = data;
+                console.log(`User ${socket.userId} sending WebRTC offer for call ${callId} to ${receiverId}`);
+                
+                this.emitToUser(receiverId, 'webrtc_offer', {
+                    callId,
+                    offer,
+                    senderId: socket.userId
+                });
+            });
+
+            // Handle WebRTC answer
+            socket.on('webrtc_answer', (data) => {
+                const { callId, callerId, answer } = data;
+                console.log(`User ${socket.userId} sending WebRTC answer for call ${callId} to ${callerId}`);
+                
+                this.emitToUser(callerId, 'webrtc_answer', {
+                    callId,
+                    answer,
+                    senderId: socket.userId
+                });
+            });
+
+            // Handle ICE candidates
+            socket.on('webrtc_ice_candidate', (data) => {
+                const { callId, receiverId, candidate } = data;
+                console.log(`User ${socket.userId} sending ICE candidate for call ${callId} to ${receiverId}`);
+                
+                this.emitToUser(receiverId, 'webrtc_ice_candidate', {
+                    callId,
+                    candidate,
+                    senderId: socket.userId
+                });
+            });
+
+            // Handle call status updates (connecting, quality, etc.)
+            socket.on('call_status_update', (data) => {
+                const { callId, participants, status, metadata } = data;
+                console.log(`User ${socket.userId} updating call ${callId} status to ${status}`);
+                
+                // Emit to all other participants
+                participants
+                    .filter(participantId => participantId !== socket.userId)
+                    .forEach(participantId => {
+                        this.emitToUser(participantId, 'call_status_update', {
+                            callId,
+                            status,
+                            metadata,
+                            updatedBy: socket.userId,
+                            timestamp: new Date()
+                        });
+                    });
+            });
+
             // Handle disconnect
             socket.on('disconnect', () => {
                 this.connectedUsers.delete(socket.userId);
