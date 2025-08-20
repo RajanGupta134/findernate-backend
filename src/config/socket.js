@@ -19,6 +19,10 @@ class SocketManager {
                 }
             });
 
+            // Make socket.io and onlineUsers globally available for notifications
+            global.io = this.io;
+            global.onlineUsers = this.connectedUsers;
+
             // Authentication middleware
             this.io.use(async (socket, next) => {
                 try {

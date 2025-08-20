@@ -157,10 +157,11 @@ export const searchAllContent = async (req, res) => {
 
         const matchingUserIds = matchingUsers.map(user => user._id);
 
-        // Find businesses that match the search query by category (excluding blocked users)
+        // Find businesses that match the search query by category and subcategory (excluding blocked users)
         const matchingBusinesses = await Business.find({
             $or: [
                 { category: searchRegex },
+                { subcategory: searchRegex },
                 { businessName: searchRegex },
                 { businessType: searchRegex },
                 { tags: searchRegex }
@@ -267,19 +268,72 @@ export const searchAllContent = async (req, res) => {
 
         const paginatedContent = combinedContent.slice(skip, skip + limit);
 
-        //  Search Users
+        //  Search Users (including business category and subcategory)
         const users = await User.find({
             $or: [
                 { username: searchRegex },
                 { fullName: searchRegex },
-                { bio: searchRegex }
+                { bio: searchRegex },
+                { 'customization.normal.location.name': searchRegex },
+                { 'customization.product.location.name': searchRegex },
+                { 'customization.service.location.city': searchRegex },
+                { 'customization.service.location.state': searchRegex },
+                { 'customization.service.location.country': searchRegex },
+                { 'customization.business.location.city': searchRegex },
+                { 'customization.business.location.state': searchRegex },
+                { 'customization.business.location.country': searchRegex },
+                { 'customization.business.location.name': searchRegex },
+                { 'customization.business.location.address': searchRegex },
+                { 'customization.business.location.pincode': searchRegex },
+                { 'customization.business.location.coordinates': searchRegex },
+                { 'customization.business.location.city': searchRegex },
+                { 'customization.business.location.state': searchRegex },
+                { 'customization.business.location.country': searchRegex },
+                { 'customization.business.category': searchRegex },
+                { 'customization.business.subcategory': searchRegex },
+
             ]
         })
             .limit(limit)
             .select('username fullName profileImageUrl bio location');
 
+        // Also find users through business category and subcategory search
+        const businessUsersByCategory = await Business.find({
+            $or: [
+                { category: searchRegex },
+                { subcategory: searchRegex }
+            ],
+            userId: { $nin: blockedUsers }
+        })
+            .populate('userId', 'username fullName profileImageUrl bio location')
+            .limit(limit)
+            .lean();
+
+        // Combine user results, avoiding duplicates
+        const allUserIds = new Set();
+        const allUsers = [];
+
+        // Add direct user search results
+        users.forEach(user => {
+            if (!allUserIds.has(user._id.toString())) {
+                allUserIds.add(user._id.toString());
+                allUsers.push(user);
+            }
+        });
+
+        // Add business category search results
+        businessUsersByCategory.forEach(business => {
+            if (business.userId && !allUserIds.has(business.userId._id.toString())) {
+                allUserIds.add(business.userId._id.toString());
+                allUsers.push(business.userId);
+            }
+        });
+
+        // Limit the combined results
+        const limitedUsers = allUsers.slice(0, limit);
+
         // Fetch posts for each user found and include business information
-        const usersWithPosts = await Promise.all(users.map(async (user) => {
+        const usersWithPosts = await Promise.all(limitedUsers.map(async (user) => {
             const userPosts = await Post.find({ userId: user._id })
                 .sort({ createdAt: -1 })
                 .limit(10) // Limit to 10 recent posts per user
@@ -292,7 +346,7 @@ export const searchAllContent = async (req, res) => {
 
             // Check if user has a business profile
             const businessProfile = await Business.findOne({ userId: user._id })
-                .select('businessName category businessType tags isVerified rating')
+                .select('businessName category subcategory businessType tags isVerified rating')
                 .lean();
 
             return {

@@ -2,12 +2,22 @@ import SearchSuggestion from '../models/searchSuggestion.models.js';
 import { User } from '../models/user.models.js';
 import Post from '../models/userPost.models.js';
 import Reel from '../models/reels.models.js';
+import Business from '../models/business.models.js';
 import { ApiResponse } from '../utlis/ApiResponse.js';
 import { ApiError } from '../utlis/ApiError.js';
 import { asyncHandler } from '../utlis/asyncHandler.js';
 
+/**
+ * Enhanced search suggestions that always include user profiles with their posts, reels, and business information
+ * Provides comprehensive search results including:
+ * - Keyword suggestions from search history
+ * - User profiles matching the search query
+ * - Business profiles and categories
+ * - User posts and reels
+ * - Business information for users
+ */
 export const getSearchSuggestions = asyncHandler(async (req, res) => {
-    const { q, limit = 10, includeUserPosts } = req.query;
+    const { q, limit = 10, includeUserPosts } = req.query; // includeUserPosts is kept for backward compatibility but always returns user profiles
 
 
 
@@ -28,36 +38,77 @@ export const getSearchSuggestions = asyncHandler(async (req, res) => {
 
     const keywords = suggestions.map(s => s.keyword);
 
-    // Check if we should include user posts - either explicitly requested OR if no users found in suggestions, search for users
+    // Always include user profiles in search suggestions for better user experience
     const shouldIncludePosts = includeUserPosts === 'true' || includeUserPosts === true || includeUserPosts === '1';
-
-    // Also check if there are any matching users - if yes, always include posts for better search results
-    const potentialUsers = await User.find({
-        $or: [
-            { username: searchRegex },
-            { fullName: searchRegex }
-        ]
-    }).limit(1);
-
-    const hasMatchingUsers = potentialUsers.length > 0;
-    const finalShouldIncludePosts = shouldIncludePosts || hasMatchingUsers;
+    const finalShouldIncludePosts = true; // Always include user profiles
 
     if (finalShouldIncludePosts) {
-        console.log('✅ Including user posts in search...');
-        // Find users matching the search query
+        console.log('✅ Including user profiles in search suggestions...');
+        // Enhanced user search - Find users matching the search query across multiple fields
         const users = await User.find({
             $or: [
                 { username: searchRegex },
-                { fullName: searchRegex }
+                { fullName: searchRegex },
+                { bio: searchRegex },
+                { 'customization.normal.location.name': searchRegex },
+                { 'customization.product.location.name': searchRegex },
+                { 'customization.service.location.city': searchRegex },
+                { 'customization.service.location.state': searchRegex },
+                { 'customization.service.location.country': searchRegex },
+                { 'customization.business.location.city': searchRegex },
+                { 'customization.business.location.state': searchRegex },
+                { 'customization.business.location.country': searchRegex },
+                { 'customization.business.location.name': searchRegex },
+                { 'customization.business.location.address': searchRegex },
+                { 'customization.business.location.pincode': searchRegex },
+                { 'customization.business.category': searchRegex },
+                { 'customization.business.subcategory': searchRegex }
             ]
         })
             .limit(parseInt(limit))
-            .select('username fullName profileImageUrl bio location');
+            .select('username fullName profileImageUrl bio location customization');
+
+        // Also find users through business category and subcategory search
+        const businessUsersByCategory = await Business.find({
+            $or: [
+                { category: searchRegex },
+                { subcategory: searchRegex },
+                { businessName: searchRegex },
+                { businessType: searchRegex },
+                { tags: searchRegex }
+            ]
+        })
+            .populate('userId', 'username fullName profileImageUrl bio location customization')
+            .limit(parseInt(limit))
+            .lean();
+
+        // Combine user results, avoiding duplicates
+        const allUserIds = new Set();
+        const allUsers = [];
+
+        // Add direct user search results
+        users.forEach(user => {
+            if (!allUserIds.has(user._id.toString())) {
+                allUserIds.add(user._id.toString());
+                allUsers.push(user);
+            }
+        });
+
+        // Add business category search results
+        businessUsersByCategory.forEach(business => {
+            if (business.userId && !allUserIds.has(business.userId._id.toString())) {
+                allUserIds.add(business.userId._id.toString());
+                allUsers.push(business.userId);
+            }
+        });
+
+        // Limit the combined results
+        const limitedUsers = allUsers.slice(0, parseInt(limit));
 
 
 
         // Fetch posts for each user found - exactly like searchAllContent
-        const usersWithPosts = await Promise.all(users.map(async (user) => {
+        const usersWithPosts = await Promise.all(limitedUsers.map(async (user) => {
             const userPosts = await Post.find({ userId: user._id })
                 .sort({ createdAt: -1 })
                 .limit(10) // Limit to 10 recent posts per user (same as searchAllContent)
@@ -68,8 +119,14 @@ export const getSearchSuggestions = asyncHandler(async (req, res) => {
                 .limit(5) // Limit to 5 recent reels per user (same as searchAllContent)
                 .lean();
 
+            // Check if user has a business profile
+            const businessProfile = await Business.findOne({ userId: user._id })
+                .select('businessName category subcategory businessType tags isVerified rating')
+                .lean();
+
             return {
                 ...user.toObject(),
+                business: businessProfile,
                 posts: userPosts,
                 reels: userReels,
                 totalPosts: await Post.countDocuments({ userId: user._id }),
@@ -79,14 +136,14 @@ export const getSearchSuggestions = asyncHandler(async (req, res) => {
 
         // Now get all posts/reels from matching users for the main results array with population and scoring
         const allUserPosts = await Post.find({
-            userId: { $in: users.map(u => u._id) }
+            userId: { $in: limitedUsers.map(u => u._id) }
         })
             .populate('userId', 'username profileImageUrl bio location')
             .sort({ createdAt: -1 })
             .lean();
 
         const allUserReels = await Reel.find({
-            userId: { $in: users.map(u => u._id) }
+            userId: { $in: limitedUsers.map(u => u._id) }
         })
             .populate('userId', 'username profileImageUrl bio location')
             .sort({ createdAt: -1 })

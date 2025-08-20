@@ -81,8 +81,8 @@ router.route("/:postId").get(verifyJWT, getPostById).delete(verifyJWT, deleteCon
 
 // Notification routes
 router.route("/notification").get(optionalVerifyJWT, getNotifications);
-router.route("/notification/:noticationId/read").patch(verifyJWT, markNotificationAsRead);
+router.route("/notification/:notificationId/read").patch(verifyJWT, markNotificationAsRead);
 router.route("/notification/read-all").patch(verifyJWT, markAllNotificationsAsRead);
-router.route("/notification/:noticationId").delete(verifyJWT, deleteNotification);
+router.route("/notification/:notificationId").delete(verifyJWT, deleteNotification);
 
 export default router;

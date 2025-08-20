@@ -587,7 +587,7 @@ export const updateBusinessProfile = asyncHandler(async (req, res) => {
 export const getMyBusinessCategory = asyncHandler(async (req, res) => {
     const userId = req.user._id;
 
-    const business = await Business.findOne({ userId }).select('category businessName').lean();
+    const business = await Business.findOne({ userId }).select('category subcategory businessName').lean();
     if (!business) {
         throw new ApiError(404, "Business profile not found");
     }
@@ -595,8 +595,9 @@ export const getMyBusinessCategory = asyncHandler(async (req, res) => {
     return res.status(200).json(
         new ApiResponse(200, {
             category: business.category,
+            subcategory: business.subcategory,
             businessName: business.businessName
-        }, "Business category fetched successfully")
+        }, "Business category and subcategory fetched successfully")
     );
 });
 

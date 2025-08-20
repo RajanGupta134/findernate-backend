@@ -2,18 +2,51 @@ import { asyncHandler } from "../utlis/asyncHandler.js";
 import { ApiError } from "../utlis/ApiError.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import Comment from "../models/comment.models.js";
+import Post from "../models/userPost.models.js";
+import { createCommentNotification } from "./notification.controllers.js";
 
 // Create a new comment (or reply)
 export const createComment = asyncHandler(async (req, res) => {
     const userId = req.user._id;
     const { postId, content, parentCommentId } = req.body;
     if (!postId || !content) throw new ApiError(400, "postId and content are required");
+
     const comment = await Comment.create({
         postId,
         userId,
         content,
         parentCommentId: parentCommentId || null
     });
+
+    // Send notification to post owner (if not commenting on own post)
+    try {
+        const post = await Post.findById(postId).select("userId");
+        if (post && post.userId.toString() !== userId.toString()) {
+            await createCommentNotification({
+                recipientId: post.userId,
+                sourceUserId: userId,
+                postId,
+                commentId: comment._id
+            });
+        }
+
+        // If this is a reply to another comment, also notify the comment owner
+        if (parentCommentId) {
+            const parentComment = await Comment.findById(parentCommentId).select("userId");
+            if (parentComment && parentComment.userId.toString() !== userId.toString()) {
+                await createCommentNotification({
+                    recipientId: parentComment.userId,
+                    sourceUserId: userId,
+                    postId,
+                    commentId: comment._id
+                });
+            }
+        }
+    } catch (error) {
+        // Log error but don't fail the comment creation
+        console.error("Error sending comment notification:", error);
+    }
+
     return res.status(201).json(new ApiResponse(201, comment, "Comment created successfully"));
 });
 

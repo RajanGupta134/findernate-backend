@@ -7,6 +7,7 @@ import { sendEmail } from "../utlis/sendEmail.js"
 import { uploadBufferToCloudinary } from "../utlis/cloudinary.js";
 import Follower from "../models/follower.models.js";
 import Post from "../models/userPost.models.js";
+import Reel from "../models/reels.models.js";
 import Comment from "../models/comment.models.js";
 import Like from "../models/like.models.js";
 import Business from "../models/business.models.js";
@@ -417,10 +418,13 @@ const searchUsers = asyncHandler(async (req, res) => {
     const { query } = req.query;
     const userId = req.user?._id;
     const blockedUsers = req.blockedUsers || [];
+    let matchingBusinesses = [];
 
     if (!query || query.trim() == "") {
         throw new ApiError(400, "Search query is required");
     }
+
+    console.log('🔍 Search query received:', query);
 
     // Track search keyword if it's 3+ characters
     if (query.trim().length >= 3) {
@@ -451,6 +455,7 @@ const searchUsers = asyncHandler(async (req, res) => {
         accountStatus: "active",
         $or: [
             { username: new RegExp(query, "i") },
+            { fullName: new RegExp(query, "i") },
             { fullNameLower: new RegExp(query, "i") }
         ]
     };
@@ -460,14 +465,144 @@ const searchUsers = asyncHandler(async (req, res) => {
         searchQuery._id = { $nin: blockedUsers };
     }
 
-    const user = await User.find(searchQuery).select("username fullName profileImageUrl bio location");
+
+
+    let user = await User.find(searchQuery)
+        .select("username fullName profileImageUrl bio location isBusinessProfile businessProfileId")
+        .populate({
+            path: 'businessProfileId',
+            select: 'category subcategory businessName businessType'
+        });
+
+    // If no users found, try searching without fullNameLower (in case it's not populated)
+    if (user.length === 0) {
+
+        const fallbackQuery = {
+            accountStatus: "active",
+            $or: [
+                { username: new RegExp(query, "i") },
+                { fullName: new RegExp(query, "i") }
+            ]
+        };
+
+        if (blockedUsers.length > 0) {
+            fallbackQuery._id = { $nin: blockedUsers };
+        }
+
+        user = await User.find(fallbackQuery)
+            .select("username fullName profileImageUrl bio location isBusinessProfile businessProfileId")
+            .populate({
+                path: 'businessProfileId',
+                select: 'category subcategory businessName businessType'
+            });
+    }
+
+    // If still no users found, search through business categories and subcategories
+    if (user.length === 0) {
+        console.log('📊 No users found, searching businesses for:', query);
+        const businessSearchQuery = {
+            $or: [
+                { category: new RegExp(query, "i") },
+                { subcategory: new RegExp(query, "i") },
+                { businessName: new RegExp(query, "i") },
+                { businessType: new RegExp(query, "i") }
+            ]
+        };
+        console.log('📊 Business search query:', businessSearchQuery);
+
+        // Find businesses matching the query
+        matchingBusinesses = await Business.find(businessSearchQuery)
+            .populate({
+                path: 'userId',
+                match: {
+                    accountStatus: "active",
+                    _id: { $nin: blockedUsers }
+                },
+                select: "username fullName profileImageUrl bio location isBusinessProfile businessProfileId"
+            })
+            .select('category subcategory businessName businessType');
+
+        console.log('📊 Matching businesses found:', matchingBusinesses.length);
+
+        // Filter out businesses where user population failed (due to blocked users or inactive accounts)
+        const validBusinessUsers = matchingBusinesses
+            .filter(business => business.userId)
+            .map(business => {
+                const userObj = business.userId.toObject();
+                return {
+                    ...userObj,
+                    businessProfileId: {
+                        category: business.category,
+                        subcategory: business.subcategory,
+                        businessName: business.businessName,
+                        businessType: business.businessType
+                    }
+                };
+            });
+
+        user = validBusinessUsers;
+    }
+
+    // Format the response to include business information
+    const formattedUsersMap = new Map();
+
+    const addFormattedUser = (rawUserObj, businessInfo) => {
+        if (!rawUserObj || !rawUserObj._id) return;
+        const id = rawUserObj._id.toString();
+        if (formattedUsersMap.has(id)) return;
+
+        const formatted = {
+            _id: rawUserObj._id,
+            username: rawUserObj.username,
+            fullName: rawUserObj.fullName,
+            bio: rawUserObj.bio,
+            location: rawUserObj.location,
+            profileImageUrl: rawUserObj.profileImageUrl
+        };
+
+        if (businessInfo) {
+            formatted.businessCategory = businessInfo.category;
+            formatted.businessSubcategory = businessInfo.subcategory;
+            formatted.businessName = businessInfo.businessName;
+            formatted.businessType = businessInfo.businessType;
+        } else if (rawUserObj.isBusinessProfile && rawUserObj.businessProfileId) {
+            formatted.businessCategory = rawUserObj.businessProfileId.category;
+            formatted.businessSubcategory = rawUserObj.businessProfileId.subcategory;
+            formatted.businessName = rawUserObj.businessProfileId.businessName;
+            formatted.businessType = rawUserObj.businessProfileId.businessType;
+        }
+
+        formattedUsersMap.set(id, formatted);
+    };
+
+    // Add users found by direct user search
+    for (const userDoc of user) {
+        const obj = typeof userDoc?.toObject === 'function' ? userDoc.toObject() : userDoc;
+        addFormattedUser(obj, null);
+    }
+
+    // Add users discovered via business search
+    for (const biz of matchingBusinesses) {
+        if (!biz.userId) continue;
+        const userObj = typeof biz.userId?.toObject === 'function' ? biz.userId.toObject() : biz.userId;
+        addFormattedUser(userObj, {
+            category: biz.category,
+            subcategory: biz.subcategory,
+            businessName: biz.businessName,
+            businessType: biz.businessType
+        });
+    }
+
+    const formattedUsers = Array.from(formattedUsersMap.values());
+
+    console.log('✅ Final result count:', formattedUsers.length);
 
     return res
         .status(200)
         .json(
             new ApiResponse(
                 200,
-                user,
+                formattedUsers,
                 "Users found successfully"
             )
         );
@@ -668,6 +803,15 @@ const getOtherUserProfile = asyncHandler(async (req, res) => {
     // Count posts directly from Post collection
     const postsCount = await Post.countDocuments({ userId: targetUser._id });
 
+    // Get business ID if user has a business profile
+    let businessId = null;
+    if (targetUser.isBusinessProfile) {
+        const business = await Business.findOne({ userId: targetUser._id });
+        if (business) {
+            businessId = business._id;
+        }
+    }
+
     // Prepare user data with counts (respecting privacy settings)
     const userWithCounts = {
         _id: targetUser._id,
@@ -679,6 +823,7 @@ const getOtherUserProfile = asyncHandler(async (req, res) => {
         dateOfBirth: targetUser.dateOfBirth || "",
         gender: targetUser.gender || "",
         isBusinessProfile: targetUser.isBusinessProfile,
+        businessId: businessId,
         isEmailVerified: targetUser.isEmailVerified,
         isPhoneVerified: targetUser.isPhoneVerified,
         isPhoneNumberHidden: targetUser.isPhoneNumberHidden,
