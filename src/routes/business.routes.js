@@ -2,6 +2,7 @@ import { Router } from "express";
 import { verifyJWT, optionalVerifyJWT } from "../middlewares/auth.middleware.js";
 import {
     switchToBusinessProfile,
+    switchToPersonalAccount,
     createBusinessProfile,
     deleteBusinessProfile,
     selectBusinessPlan,
@@ -15,7 +16,6 @@ import {
     getNearbyBusinesses,
     updateBusinessCategory,
     getBusinessCategories,
-    // Rating-related controllers
     rateBusiness,
     getBusinessRatingSummary
 } from "../controllers/business.controllers.js";
@@ -24,6 +24,9 @@ const router = Router();
 
 // Switch to business profile (checks if business exists or needs registration)
 router.route("/switch-to-business").post(optionalVerifyJWT, switchToBusinessProfile);
+
+// Switch to personal account from business account
+router.route("/switch-to-personal").post(optionalVerifyJWT, switchToPersonalAccount);
 
 // Create business profile
 router.route("/create").post(optionalVerifyJWT, createBusinessProfile);

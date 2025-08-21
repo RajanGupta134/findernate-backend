@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { 
+import {
     initiateCall,
     acceptCall,
     declineCall,
@@ -10,12 +10,12 @@ import {
     getCallStats,
     storeSessionData
 } from '../controllers/call.controllers.js';
-import { authenticateToken } from '../middlewares/auth.middleware.js';
+import { verifyJWT } from '../middlewares/auth.middleware.js';
 
 const router = Router();
 
 // Apply authentication middleware to all routes
-router.use(authenticateToken);
+router.use(verifyJWT);
 
 // Call management routes
 router.post('/initiate', initiateCall);                    // POST /api/v1/calls/initiate

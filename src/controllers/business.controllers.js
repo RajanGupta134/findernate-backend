@@ -959,4 +959,38 @@ export const getBusinessRatingSummary = asyncHandler(async (req, res) => {
     );
 });
 
+// ✅ POST /api/v1/business/switch-to-personal
+export const switchToPersonalAccount = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+
+    const user = await User.findById(userId);
+    if (!user) throw new ApiError(404, "User not found");
+
+    // Check if user is currently a business profile
+    if (!user.isBusinessProfile) {
+        throw new ApiError(400, "User is already on a personal account");
+    }
+
+    // Find the business profile
+    const business = await Business.findOne({ userId });
+    if (!business) {
+        throw new ApiError(404, "Business profile not found");
+    }
+
+    // Switch back to personal account
+    user.isBusinessProfile = false;
+    user.businessProfileId = undefined;
+    await user.save();
+
+    // Note: We don't delete the business profile, just disable it
+    // This allows users to switch back to business mode later without losing data
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            isBusinessProfile: false,
+            message: "Successfully switched to personal account"
+        }, "Switched to personal account successfully")
+    );
+});
+
 
