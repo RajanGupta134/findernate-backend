@@ -23,6 +23,23 @@ app.use(cors({
 
 app.use(cookieParser());
 
+// Health check endpoint for monitoring
+app.get('/', (req, res) => {
+        res.status(200).json({
+                message: 'FinderNate Backend API is running!',
+                status: 'healthy',
+                timestamp: new Date().toISOString()
+        });
+});
+
+app.get('/health', (req, res) => {
+        res.status(200).json({
+                status: 'healthy',
+                uptime: process.uptime(),
+                timestamp: new Date().toISOString()
+        });
+});
+
 //import route
 import userRouter from './routes/user.routes.js';
 import postRouter from './routes/post.routes.js';

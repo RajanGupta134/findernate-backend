@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: findernate-backend
+    env: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+    autoDeploy: true
+    healthCheckPath: /
+    disk:
+      name: data
+      mountPath: /opt/render/project/data
+      sizeGB: 1
