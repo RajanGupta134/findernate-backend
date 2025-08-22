@@ -12,7 +12,3 @@ services:
         value: 10000
     autoDeploy: true
     healthCheckPath: /
-    disk:
-      name: data
-      mountPath: /opt/render/project/data
-      sizeGB: 1
