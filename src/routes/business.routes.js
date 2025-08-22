@@ -40,11 +40,11 @@ router.route("/select-plan").post(optionalVerifyJWT, selectBusinessPlan);
 // Get authenticated user's business profile
 router.route("/profile").get(optionalVerifyJWT, getBusinessProfile);
 
-// Update business profile
-router.route("/update").patch(optionalVerifyJWT, updateBusinessProfile);
+// Update business profile (any plan can update)
+router.route("/update").patch(verifyJWT, updateBusinessProfile);
 
-// Update business category specifically
-router.route("/update-category").patch(optionalVerifyJWT, updateBusinessCategory);
+// Update business category specifically (any plan can update)
+router.route("/update-category").patch(verifyJWT, updateBusinessCategory);
 
 // Get all available business categories (public access)
 router.route("/categories").get(getBusinessCategories);

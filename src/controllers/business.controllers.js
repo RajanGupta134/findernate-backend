@@ -43,27 +43,74 @@ function extractTagsFromText(...fields) {
 export const switchToBusinessProfile = asyncHandler(async (req, res) => {
     const userId = req.user._id;
 
-    const user = await User.findById(userId).populate("businessProfileId").lean();
+    const user = await User.findById(userId);
     if (!user) throw new ApiError(404, "User not found");
 
     // Check if business profile exists
-    const business = await Business.findOne({ userId }).lean();
-    if (user.isBusinessProfile && business) {
-        const businessObj = { ...business };
+    let business = await Business.findOne({ userId });
+
+    if (business) {
+        // Business profile exists, just switch to it
+        if (!user.isBusinessProfile) {
+            user.isBusinessProfile = true;
+            user.businessProfileId = business._id;
+            await user.save();
+        }
+
+        const businessObj = business.toObject();
         if (businessObj.rating !== undefined) {
             delete businessObj.rating;
         }
+
         return res.status(200).json(
             new ApiResponse(200, {
                 alreadyBusiness: true,
-                businessProfile: businessObj
+                businessProfile: businessObj,
+                message: user.isBusinessProfile ? "Already on business profile" : "Switched to existing business profile"
             }, "Switched to business profile")
         );
     }
 
-    // If not, prompt for registration
-    return res.status(200).json(
-        new ApiResponse(200, { alreadyBusiness: false }, "Business profile registration required")
+    // No business profile exists, create a basic one automatically
+    business = await Business.create({
+        userId,
+        businessName: user.fullName || user.username, // Use user's name as default business name
+        businessType: '',
+        description: '',
+        category: '',
+        contact: {
+            email: user.email || '',
+            phone: user.phoneNumber || ''
+        },
+        location: {
+            address: user.address || '',
+            city: '',
+            state: '',
+            country: ''
+        },
+        tags: [],
+        plan: 'plan1',
+        subscriptionStatus: 'pending'
+    });
+
+    // Update user profile to business mode
+    user.isBusinessProfile = true;
+    user.businessProfileId = business._id;
+    await user.save();
+
+    // Remove rating from response
+    const businessObj = business.toObject();
+    if (businessObj.rating !== undefined) {
+        delete businessObj.rating;
+    }
+
+    return res.status(201).json(
+        new ApiResponse(201, {
+            alreadyBusiness: false,
+            businessProfile: businessObj,
+            businessId: business._id,
+            message: "Business profile created and switched successfully"
+        }, "Business profile created and switched to business mode")
     );
 });
 
@@ -86,6 +133,7 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
         businessType,
         description,
         category,
+        subcategory,
         contact,
         location,
         rating,
@@ -104,6 +152,7 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
 
     const trimmedBusinessName = businessName ? businessName.trim() : '';
     const normalizedCategory = category ? category.trim() : '';
+    const normalizedSubcategory = subcategory ? subcategory.trim() : '';
 
     // Validate email format (only if contact.email is provided)
     if (contact && contact.email) {
@@ -157,7 +206,7 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
 
     } else {
         // Fallback to auto-generated tags if no manual tags provided
-        const autoTags = extractTagsFromText(trimmedBusinessName, description, normalizedCategory);
+        const autoTags = extractTagsFromText(trimmedBusinessName, description, normalizedCategory, normalizedSubcategory);
         finalTags = autoTags.map(tag => tag.toLowerCase());
 
     }
@@ -196,6 +245,7 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
         businessType,
         description,
         category: normalizedCategory,
+        subcategory: normalizedSubcategory,
         contact,
         location: resolvedLocation,
         rating,
@@ -204,7 +254,7 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
         gstNumber,
         aadhaarNumber,
         plan: 'plan1',
-        subscriptionStatus: 'pending'
+        subscriptionStatus: 'active'
     });
 
     // Update user profile
@@ -417,7 +467,8 @@ export const getBusinessById = asyncHandler(async (req, res) => {
     );
 });
 
-// PATCH /api/v1/business/update
+// PATCH /api/v1/business/update  
+// Any business plan (plan1, plan2, plan3, plan4) can update their profile including category
 export const updateBusinessProfile = asyncHandler(async (req, res) => {
     const userId = req.user._id;
 
@@ -431,6 +482,7 @@ export const updateBusinessProfile = asyncHandler(async (req, res) => {
         businessType,
         description,
         category,
+        subcategory,
         contact,
         location,
         website,
@@ -480,6 +532,11 @@ export const updateBusinessProfile = asyncHandler(async (req, res) => {
             throw new ApiError(400, `Invalid category. Must be one of: ${BUSINESS_CATEGORIES.join(', ')}`);
         }
         business.category = category.trim();
+    }
+
+    // Update subcategory if provided
+    if (subcategory) {
+        business.subcategory = subcategory.trim();
     }
 
     // Update other fields if provided
@@ -564,7 +621,8 @@ export const updateBusinessProfile = asyncHandler(async (req, res) => {
             const autoTags = extractTagsFromText(
                 business.businessName,
                 business.description,
-                business.category
+                business.category,
+                business.subcategory
             );
             business.tags = [...new Set(autoTags.map(tag => tag.toLowerCase()))];
 
@@ -800,9 +858,10 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 }
 
 // PATCH /api/v1/business/update-category
+// Any business plan (plan1, plan2, plan3, plan4) can update category
 export const updateBusinessCategory = asyncHandler(async (req, res) => {
     const userId = req.user._id;
-    const { category } = req.body;
+    const { category, subcategory } = req.body;
 
     // Validate required field
     if (!category) {
@@ -827,6 +886,12 @@ export const updateBusinessCategory = asyncHandler(async (req, res) => {
 
     // Update the category
     business.category = category.trim();
+
+    // Update subcategory if provided
+    if (subcategory) {
+        business.subcategory = subcategory.trim();
+    }
+
     await business.save();
 
     // Remove rating from response
@@ -836,7 +901,8 @@ export const updateBusinessCategory = asyncHandler(async (req, res) => {
     return res.status(200).json(
         new ApiResponse(200, {
             business: businessObj,
-            updatedCategory: business.category
+            updatedCategory: business.category,
+            updatedSubcategory: business.subcategory
         }, "Business category updated successfully")
     );
 });

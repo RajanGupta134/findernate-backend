@@ -301,7 +301,10 @@ export const searchAllContent = async (req, res) => {
         const businessUsersByCategory = await Business.find({
             $or: [
                 { category: searchRegex },
-                { subcategory: searchRegex }
+                { subcategory: searchRegex },
+                { businessName: searchRegex },
+                { businessType: searchRegex },
+                { tags: searchRegex }
             ],
             userId: { $nin: blockedUsers }
         })

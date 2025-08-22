@@ -424,7 +424,7 @@ const searchUsers = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Search query is required");
     }
 
-    console.log('🔍 Search query received:', query);
+
 
     // Track search keyword if it's 3+ characters
     if (query.trim().length >= 3) {
@@ -474,6 +474,7 @@ const searchUsers = asyncHandler(async (req, res) => {
             select: 'category subcategory businessName businessType'
         });
 
+
     // If no users found, try searching without fullNameLower (in case it's not populated)
     if (user.length === 0) {
 
@@ -497,50 +498,50 @@ const searchUsers = asyncHandler(async (req, res) => {
             });
     }
 
-    // If still no users found, search through business categories and subcategories
-    if (user.length === 0) {
-        console.log('📊 No users found, searching businesses for:', query);
-        const businessSearchQuery = {
-            $or: [
-                { category: new RegExp(query, "i") },
-                { subcategory: new RegExp(query, "i") },
-                { businessName: new RegExp(query, "i") },
-                { businessType: new RegExp(query, "i") }
-            ]
-        };
-        console.log('📊 Business search query:', businessSearchQuery);
+    // Search through business categories and subcategories (always run in parallel)
+    const businessSearchQuery = {
+        $or: [
+            { category: new RegExp(query, "i") },
+            { subcategory: new RegExp(query, "i") },
+            { businessName: new RegExp(query, "i") },
+            { businessType: new RegExp(query, "i") },
+            { tags: new RegExp(query, "i") }
+        ],
+        userId: { $nin: blockedUsers } // Exclude blocked users at Business level
+    };
 
-        // Find businesses matching the query
-        matchingBusinesses = await Business.find(businessSearchQuery)
-            .populate({
-                path: 'userId',
-                match: {
-                    accountStatus: "active",
-                    _id: { $nin: blockedUsers }
-                },
-                select: "username fullName profileImageUrl bio location isBusinessProfile businessProfileId"
-            })
-            .select('category subcategory businessName businessType');
+    // Find businesses matching the query
+    matchingBusinesses = await Business.find(businessSearchQuery)
+        .populate({
+            path: 'userId',
+            match: {
+                accountStatus: "active"
+            },
+            select: "username fullName profileImageUrl bio location isBusinessProfile businessProfileId"
+        })
+        .select('category subcategory businessName businessType tags');
 
-        console.log('📊 Matching businesses found:', matchingBusinesses.length);
 
-        // Filter out businesses where user population failed (due to blocked users or inactive accounts)
-        const validBusinessUsers = matchingBusinesses
-            .filter(business => business.userId)
-            .map(business => {
-                const userObj = business.userId.toObject();
-                return {
-                    ...userObj,
-                    businessProfileId: {
-                        category: business.category,
-                        subcategory: business.subcategory,
-                        businessName: business.businessName,
-                        businessType: business.businessType
-                    }
-                };
-            });
 
-        user = validBusinessUsers;
+    // Filter out businesses where user population failed (due to blocked users or inactive accounts)
+    const validBusinessUsers = matchingBusinesses
+        .filter(business => business.userId)
+        .map(business => {
+            const userObj = business.userId.toObject();
+            return {
+                ...userObj,
+                businessProfileId: {
+                    category: business.category,
+                    subcategory: business.subcategory,
+                    businessName: business.businessName,
+                    businessType: business.businessType
+                }
+            };
+        });
+
+    // Combine direct user search results with business search results
+    if (validBusinessUsers.length > 0) {
+        user = [...user, ...validBusinessUsers];
     }
 
     // Format the response to include business information
@@ -575,27 +576,23 @@ const searchUsers = asyncHandler(async (req, res) => {
         formattedUsersMap.set(id, formatted);
     };
 
-    // Add users found by direct user search
+    // Add all users (direct search results and business-matched users) with deduplication
     for (const userDoc of user) {
         const obj = typeof userDoc?.toObject === 'function' ? userDoc.toObject() : userDoc;
-        addFormattedUser(obj, null);
-    }
 
-    // Add users discovered via business search
-    for (const biz of matchingBusinesses) {
-        if (!biz.userId) continue;
-        const userObj = typeof biz.userId?.toObject === 'function' ? biz.userId.toObject() : biz.userId;
-        addFormattedUser(userObj, {
-            category: biz.category,
-            subcategory: biz.subcategory,
-            businessName: biz.businessName,
-            businessType: biz.businessType
-        });
+        // Check if this user came from business search (has modified businessProfileId)
+        if (obj.businessProfileId && obj.businessProfileId.category) {
+            // This is from business search, use the business info
+            addFormattedUser(obj, obj.businessProfileId);
+        } else {
+            // This is from direct user search
+            addFormattedUser(obj, null);
+        }
     }
 
     const formattedUsers = Array.from(formattedUsersMap.values());
 
-    console.log('✅ Final result count:', formattedUsers.length);
+
 
     return res
         .status(200)

@@ -39,7 +39,7 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         const baseQuery = { contentType: { $in: allowedTypes } };
 
         // ✅ 3a. Posts from followed/follower users (excluding blocked users)
-        const followedPosts = await Post.find({
+        const followedPostsRaw = await Post.find({
             ...baseQuery,
             userId: {
                 $in: feedUserIds,
@@ -50,8 +50,11 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
             .limit(FEED_LIMIT)
             .populate('userId', 'username profileImageUrl');
 
+        // Filter out posts from deleted users (where userId is null after population)
+        const followedPosts = followedPostsRaw.filter(post => post.userId);
+
         // ✅ 3b. Trending posts (excluding blocked users)
-        const trendingPosts = await Post.find({
+        const trendingPostsRaw = await Post.find({
             ...baseQuery,
             createdAt: { $gte: yesterday },
             userId: { $nin: blockedUsers }
@@ -66,11 +69,14 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
             .limit(FEED_LIMIT)
             .populate('userId', 'username profileImageUrl');
 
+        // Filter out posts from deleted users (where userId is null after population)
+        const trendingPosts = trendingPostsRaw.filter(post => post.userId);
+
         // ✅ 3c. Nearby posts (enhanced with business profile locations)
         let nearbyPosts = [];
         if (userLocation && userLocation.coordinates) {
             // Get posts with location data (excluding blocked users)
-            const locationBasedPosts = await Post.find({
+            const locationBasedPostsRaw = await Post.find({
                 ...baseQuery,
                 userId: { $nin: blockedUsers },
                 $or: [
@@ -81,6 +87,9 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
                 ]
             })
                 .populate('userId', 'username profileImageUrl');
+
+            // Filter out posts from deleted users (where userId is null after population)
+            const locationBasedPosts = locationBasedPostsRaw.filter(post => post.userId);
 
             // Get nearby businesses with live location enabled
             const nearbyBusinesses = await Business.find({
@@ -99,7 +108,7 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
 
             // Get posts from nearby business owners (excluding blocked users)
             const nearbyBusinessUserIds = nearbyBusinesses.map(business => business.userId);
-            const businessOwnerPosts = nearbyBusinessUserIds.length > 0 ? await Post.find({
+            const businessOwnerPostsRaw = nearbyBusinessUserIds.length > 0 ? await Post.find({
                 ...baseQuery,
                 userId: {
                     $in: nearbyBusinessUserIds,
@@ -107,6 +116,9 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
                 }
             })
                 .populate('userId', 'username profileImageUrl') : [];
+
+            // Filter out posts from deleted users (where userId is null after population)
+            const businessOwnerPosts = businessOwnerPostsRaw.filter(post => post.userId);
 
             // Combine location-based posts and business posts, avoiding duplicates
             const allNearbyPosts = [...locationBasedPosts, ...businessOwnerPosts];
@@ -123,13 +135,16 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
 
         //  3d. Non-followed users' posts (excluding blocked users)
         const excludeUserIds = userId ? [...feedUserIds, userId, ...blockedUsers] : [...feedUserIds, ...blockedUsers];
-        const nonFollowedPosts = await Post.find({
+        const nonFollowedPostsRaw = await Post.find({
             ...baseQuery,
             userId: { $nin: excludeUserIds }
         })
             .sort({ createdAt: -1 })
             .limit(FEED_LIMIT)
             .populate('userId', 'username profileImageUrl');
+
+        // Filter out posts from deleted users (where userId is null after population)
+        const nonFollowedPosts = nonFollowedPostsRaw.filter(post => post.userId);
 
         // ✅ 4. Get user's interaction history
         let userInteractions = new Map();
@@ -265,7 +280,7 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         const feedWithComments = await Promise.all(
             paginatedFeed.map(async post => {
                 // Top-level comments
-                const comments = await Comment.find({
+                const commentsRaw = await Comment.find({
                     postId: post._id,
                     parentCommentId: null,
                     isDeleted: false
@@ -274,16 +289,22 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
                     .populate('userId', 'username profileImageUrl')
                     .select('_id content userId createdAt');
 
+                // Filter out comments from deleted users (where userId is null after population)
+                const comments = commentsRaw.filter(comment => comment.userId);
+
                 // For each comment, fetch replies
                 const commentsWithReplies = await Promise.all(
                     comments.map(async c => {
-                        const replies = await Comment.find({
+                        const repliesRaw = await Comment.find({
                             parentCommentId: c._id,
                             isDeleted: false
                         })
                             .sort({ createdAt: 1 })
                             .populate('userId', 'username profileImageUrl')
                             .select('_id content userId createdAt');
+
+                        // Filter out replies from deleted users (where userId is null after population)
+                        const replies = repliesRaw.filter(reply => reply.userId);
                         return {
                             commentId: c._id,
                             content: c.content,
