@@ -12,12 +12,13 @@ app.use(express.urlencoded({ extended: true }));
 app.use(cors({
         origin: [
                 "*",
+                "https://findernate-frontend-pq94.vercel.app",
                 "https://findernate.netlify.app/",
                 "https://findernate1.vercel.app",
                 "https://findernate-test.vercel.app",
                 "https://findernate.vercel.app",
                 "http://localhost:3000",
-                "https://findernate-frontend-pq94.vercel.app/"
+              
         ],
         credentials: true
 }));
