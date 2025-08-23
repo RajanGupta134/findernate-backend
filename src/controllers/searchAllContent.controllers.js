@@ -27,6 +27,16 @@ export const searchAllContent = async (req, res) => {
 
         if (!q) throw new ApiError(400, "Search query 'q' is required");
 
+        // 🎯 Smart query preprocessing
+        const isHashtagSearch = q.startsWith('#');
+        const cleanQuery = q.replace(/^#/, '').trim();
+        const queryVariations = [
+            q.trim(),
+            cleanQuery,
+            q.toLowerCase().trim(),
+            cleanQuery.toLowerCase()
+        ].filter(Boolean);
+
         // Track search keyword if it's 3+ characters
         if (q.trim().length >= 3) {
             const normalizedKeyword = q.trim().toLowerCase();
@@ -61,28 +71,60 @@ export const searchAllContent = async (req, res) => {
             postTypeArray = postType.split(',').map(type => type.trim());
         }
 
-        // 🔎 Base Post filters
+        // 🔎 Enhanced Post filters for comprehensive search
         const basePostFilters = {
             $or: [
+                // Caption and description search
                 { caption: searchRegex },
                 { description: searchRegex },
-                { 'hashtags.text': searchRegex },
+
+                // Hashtag search (both with and without # symbol)
+                { hashtags: searchRegex },
+                { hashtags: new RegExp(q.replace(/^#/, ''), 'i') }, // Remove # if present
+                { caption: new RegExp(`#${q.replace(/^#/, '')}`, 'i') }, // Search for #hashtag in caption
+                { description: new RegExp(`#${q.replace(/^#/, '')}`, 'i') }, // Search for #hashtag in description
+
+                // Business information search
                 { 'customization.business.businessName': searchRegex },
                 { 'customization.business.category': searchRegex },
                 { 'customization.business.subcategory': searchRegex },
                 { 'customization.business.businessType': searchRegex },
                 { 'customization.business.tags': searchRegex },
+                { 'customization.business.description': searchRegex },
+
+                // Product information search
                 { 'customization.product.name': searchRegex },
                 { 'customization.product.category': searchRegex },
                 { 'customization.product.subcategory': searchRegex },
+                { 'customization.product.description': searchRegex },
+                { 'customization.product.tags': searchRegex },
+                { 'customization.product.brand': searchRegex },
+
+                // Service information search
                 { 'customization.service.name': searchRegex },
                 { 'customization.service.category': searchRegex },
                 { 'customization.service.subcategory': searchRegex },
+                { 'customization.service.description': searchRegex },
+                { 'customization.service.tags': searchRegex },
+
+                // Location-based search
                 { 'customization.normal.location.name': searchRegex },
+                { 'customization.normal.location.address': searchRegex },
+                { 'customization.normal.location.city': searchRegex },
+                { 'customization.normal.location.state': searchRegex },
+                { 'customization.normal.location.country': searchRegex },
                 { 'customization.product.location.name': searchRegex },
+                { 'customization.product.location.address': searchRegex },
+                { 'customization.product.location.city': searchRegex },
+                { 'customization.product.location.state': searchRegex },
+                { 'customization.product.location.country': searchRegex },
+                { 'customization.service.location.name': searchRegex },
+                { 'customization.service.location.address': searchRegex },
                 { 'customization.service.location.city': searchRegex },
                 { 'customization.service.location.state': searchRegex },
                 { 'customization.service.location.country': searchRegex },
+                { 'customization.business.location.name': searchRegex },
+                { 'customization.business.location.address': searchRegex },
                 { 'customization.business.location.city': searchRegex },
                 { 'customization.business.location.state': searchRegex },
                 { 'customization.business.location.country': searchRegex },
@@ -146,25 +188,38 @@ export const searchAllContent = async (req, res) => {
             }));
         }
 
-        // First, find users that match the search query (excluding blocked users)
+        // Enhanced user search (excluding blocked users)
         const matchingUsers = await User.find({
             $or: [
                 { username: searchRegex },
-                { fullName: searchRegex }
+                { fullName: searchRegex },
+                { fullNameLower: searchRegex },
+                { bio: searchRegex },
+                { location: searchRegex },
+                { address: searchRegex }
             ],
             _id: { $nin: blockedUsers }
         }).select('_id');
 
         const matchingUserIds = matchingUsers.map(user => user._id);
 
-        // Find businesses that match the search query by category and subcategory (excluding blocked users)
+        // Enhanced business search (excluding blocked users)
         const matchingBusinesses = await Business.find({
             $or: [
                 { category: searchRegex },
                 { subcategory: searchRegex },
                 { businessName: searchRegex },
                 { businessType: searchRegex },
-                { tags: searchRegex }
+                { tags: searchRegex },
+                { description: searchRegex },
+                { email: searchRegex },
+                { phoneNumber: searchRegex },
+                { website: searchRegex },
+                { 'location.name': searchRegex },
+                { 'location.address': searchRegex },
+                { 'location.city': searchRegex },
+                { 'location.state': searchRegex },
+                { 'location.country': searchRegex }
             ],
             userId: { $nin: blockedUsers }
         }).select('userId');
@@ -181,7 +236,7 @@ export const searchAllContent = async (req, res) => {
             basePostFilters.$or.push({ userId: { $in: businessUserIds } });
         }
 
-        //  Fetch Posts (excluding blocked users)
+        // 📄 Fetch Posts (excluding blocked users)
         const rawPosts = await Post.find({
             ...basePostFilters,
             userId: { $nin: blockedUsers }
@@ -212,14 +267,32 @@ export const searchAllContent = async (req, res) => {
             };
         });
 
-        // 📥 Fetch Reels
+        // 📥 Enhanced Reel Search
         let scoredReels = [];
         if (!contentType || contentType === 'reel') {
             const reelFilters = {
                 $or: [
+                    // Caption and description search
                     { caption: searchRegex },
-                    { hashtags: searchRegex }
-                ]
+                    { description: searchRegex },
+
+                    // Enhanced hashtag search for reels
+                    { hashtags: searchRegex },
+                    { hashtags: new RegExp(q.replace(/^#/, ''), 'i') }, // Remove # if present
+                    { caption: new RegExp(`#${q.replace(/^#/, '')}`, 'i') }, // Search for #hashtag in caption
+                    { description: new RegExp(`#${q.replace(/^#/, '')}`, 'i') }, // Search for #hashtag in description
+
+                    // Music and audio search
+                    { 'audio.title': searchRegex },
+                    { 'audio.artist': searchRegex },
+
+                    // Location search for reels
+                    { 'location.name': searchRegex },
+                    { 'location.city': searchRegex },
+                    { 'location.state': searchRegex },
+                    { 'location.country': searchRegex }
+                ],
+                userId: { $nin: blockedUsers }
             };
 
             // Add username search to reel filters
@@ -268,31 +341,19 @@ export const searchAllContent = async (req, res) => {
 
         const paginatedContent = combinedContent.slice(skip, skip + limit);
 
-        //  Search Users (including business category and subcategory)
+        // 👥 Enhanced User Search
         const users = await User.find({
             $or: [
+                // Basic user information
                 { username: searchRegex },
                 { fullName: searchRegex },
+                { fullNameLower: searchRegex },
                 { bio: searchRegex },
-                { 'customization.normal.location.name': searchRegex },
-                { 'customization.product.location.name': searchRegex },
-                { 'customization.service.location.city': searchRegex },
-                { 'customization.service.location.state': searchRegex },
-                { 'customization.service.location.country': searchRegex },
-                { 'customization.business.location.city': searchRegex },
-                { 'customization.business.location.state': searchRegex },
-                { 'customization.business.location.country': searchRegex },
-                { 'customization.business.location.name': searchRegex },
-                { 'customization.business.location.address': searchRegex },
-                { 'customization.business.location.pincode': searchRegex },
-                { 'customization.business.location.coordinates': searchRegex },
-                { 'customization.business.location.city': searchRegex },
-                { 'customization.business.location.state': searchRegex },
-                { 'customization.business.location.country': searchRegex },
-                { 'customization.business.category': searchRegex },
-                { 'customization.business.subcategory': searchRegex },
-
-            ]
+                { location: searchRegex },
+                { address: searchRegex },
+                { email: searchRegex }
+            ],
+            _id: { $nin: blockedUsers }
         })
             .limit(limit)
             .select('username fullName profileImageUrl bio location');
