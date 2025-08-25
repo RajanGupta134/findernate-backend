@@ -23,8 +23,9 @@ const SearchSuggestionSchema = new mongoose.Schema({
     timestamps: true
 });
 
-SearchSuggestionSchema.index({ keyword: 1 });
+// Index for search count (for ordering suggestions)
 SearchSuggestionSchema.index({ searchCount: -1 });
+// Text index for keyword search (separate from unique index)
 SearchSuggestionSchema.index({ keyword: 'text' });
 
 export default mongoose.model('SearchSuggestion', SearchSuggestionSchema);
