@@ -204,14 +204,59 @@ export const getAadhaarVerificationHistory = asyncHandler(async (req, res) => {
         filter.verificationStatus = status;
     }
 
-    const businesses = await Business.find(filter)
-        .populate('userId', 'username fullName email')
-        .populate('verifiedBy', 'fullName username')
-        .populate('rejectedBy', 'fullName username')
-        .select('businessName aadhaarNumber verificationStatus verificationRemarks verifiedAt rejectedAt')
-        .sort({ $or: [{ verifiedAt: -1 }, { rejectedAt: -1 }] })
-        .limit(limit * 1)
-        .skip((page - 1) * limit);
+    const businesses = await Business.aggregate([
+        { $match: filter },
+        {
+            $addFields: {
+                lastVerificationDate: {
+                    $max: ['$verifiedAt', '$rejectedAt']
+                }
+            }
+        },
+        { $sort: { lastVerificationDate: -1 } },
+        { $skip: (page - 1) * limit },
+        { $limit: limit * 1 },
+        {
+            $lookup: {
+                from: 'users',
+                localField: 'userId',
+                foreignField: '_id',
+                as: 'userId',
+                pipeline: [{ $project: { username: 1, fullName: 1, email: 1 } }]
+            }
+        },
+        {
+            $lookup: {
+                from: 'admins',
+                localField: 'verifiedBy',
+                foreignField: '_id',
+                as: 'verifiedBy',
+                pipeline: [{ $project: { fullName: 1, username: 1 } }]
+            }
+        },
+        {
+            $lookup: {
+                from: 'admins',
+                localField: 'rejectedBy',
+                foreignField: '_id',
+                as: 'rejectedBy',
+                pipeline: [{ $project: { fullName: 1, username: 1 } }]
+            }
+        },
+        {
+            $project: {
+                businessName: 1,
+                aadhaarNumber: 1,
+                verificationStatus: 1,
+                verificationRemarks: 1,
+                verifiedAt: 1,
+                rejectedAt: 1,
+                userId: { $arrayElemAt: ['$userId', 0] },
+                verifiedBy: { $arrayElemAt: ['$verifiedBy', 0] },
+                rejectedBy: { $arrayElemAt: ['$rejectedBy', 0] }
+            }
+        }
+    ]);
 
     const totalBusinesses = await Business.countDocuments(filter);
 
