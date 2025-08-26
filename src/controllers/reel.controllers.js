@@ -119,13 +119,13 @@ export const getSuggestedReels = asyncHandler(async (req, res) => {
 
 
 
-            // Add computed fields and enhance with Cloudinary details
+            // Add computed fields and enhance with Bunny.net details
             {
                 $addFields: {
                     isLikedBy: false, // Will be updated based on user context
                     isFollowed: false, // Will be updated based on user context
 
-                    // Enhanced media with Cloudinary details
+                    // Enhanced media with Bunny.net details
                     media: {
                         $map: {
                             input: "$media",
@@ -134,8 +134,8 @@ export const getSuggestedReels = asyncHandler(async (req, res) => {
                                 $mergeObjects: [
                                     "$$mediaItem",
                                     {
-                                        // Add Cloudinary metadata
-                                        cloudinaryId: {
+                                        // Add Bunny.net metadata
+                                        bunnyId: {
                                             $let: {
                                                 vars: {
                                                     urlParts: { $split: ["$$mediaItem.url", "/"] }
@@ -150,7 +150,7 @@ export const getSuggestedReels = asyncHandler(async (req, res) => {
                                                 }
                                             }
                                         },
-                                        cloudinaryFolder: {
+                                        bunnyFolder: {
                                             $let: {
                                                 vars: {
                                                     urlParts: { $split: ["$$mediaItem.url", "/"] }
@@ -160,10 +160,10 @@ export const getSuggestedReels = asyncHandler(async (req, res) => {
                                                 }
                                             }
                                         },
-                                        isCloudinaryHosted: {
+                                        isBunnyHosted: {
                                             $regexMatch: {
                                                 input: { $ifNull: ["$$mediaItem.url", ""] },
-                                                regex: "cloudinary"
+                                                regex: "b-cdn.net"
                                             }
                                         },
                                         quality: { $ifNull: ["$$mediaItem.quality", "auto"] },

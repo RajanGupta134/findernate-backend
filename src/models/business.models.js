@@ -72,7 +72,18 @@ const BusinessSchema = new mongoose.Schema({
         type: String,
         enum: ['active', 'inactive', 'pending'],
         default: 'pending'
-    }
+    },
+    // Admin verification fields
+    verificationStatus: {
+        type: String,
+        enum: ['pending', 'approved', 'rejected'],
+        default: 'pending'
+    },
+    verificationRemarks: { type: String },
+    verifiedAt: { type: Date },
+    verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
+    rejectedAt: { type: Date },
+    rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' }
 }, { timestamps: true });
 
 // 🚀 Auto-verify business when subscription becomes active

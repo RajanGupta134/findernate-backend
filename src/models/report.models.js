@@ -39,6 +39,15 @@ const ReportSchema = new mongoose.Schema({
         type: String,
         enum: ['pending', 'reviewed', 'resolved', 'dismissed'],
         default: 'pending'
+    },
+    // Admin review fields
+    adminRemarks: { type: String },
+    reviewedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
+    reviewedAt: { type: Date },
+    actionTaken: {
+        type: String,
+        enum: ['none', 'warning', 'content_deleted', 'user_suspended', 'user_banned'],
+        default: 'none'
     }
 }, { timestamps: true });
 
@@ -46,50 +55,50 @@ const ReportSchema = new mongoose.Schema({
 // Each index ensures a user can only report the same specific content once.
 ReportSchema.index(
     { reporterId: 1, reportedPostId: 1 },
-    { 
-        unique: true, 
-        partialFilterExpression: { 
+    {
+        unique: true,
+        partialFilterExpression: {
             reportedPostId: { $exists: true, $ne: null },
             reportedUserId: null,
             reportedCommentId: null,
             reportedStoryId: null
-        } 
+        }
     }
 );
 ReportSchema.index(
     { reporterId: 1, reportedUserId: 1 },
-    { 
-        unique: true, 
-        partialFilterExpression: { 
+    {
+        unique: true,
+        partialFilterExpression: {
             reportedUserId: { $exists: true, $ne: null },
             reportedPostId: null,
             reportedCommentId: null,
             reportedStoryId: null
-        } 
+        }
     }
 );
 ReportSchema.index(
     { reporterId: 1, reportedCommentId: 1 },
-    { 
-        unique: true, 
-        partialFilterExpression: { 
+    {
+        unique: true,
+        partialFilterExpression: {
             reportedCommentId: { $exists: true, $ne: null },
             reportedPostId: null,
             reportedUserId: null,
             reportedStoryId: null
-        } 
+        }
     }
 );
 ReportSchema.index(
     { reporterId: 1, reportedStoryId: 1 },
-    { 
-        unique: true, 
-        partialFilterExpression: { 
+    {
+        unique: true,
+        partialFilterExpression: {
             reportedStoryId: { $exists: true, $ne: null },
             reportedPostId: null,
             reportedUserId: null,
             reportedCommentId: null
-        } 
+        }
     }
 );
 

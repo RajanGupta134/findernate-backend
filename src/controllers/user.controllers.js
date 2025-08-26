@@ -4,7 +4,7 @@ import { ApiError } from "../utlis/ApiError.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import { v4 as uuidv4 } from "uuid";
 import { sendEmail } from "../utlis/sendEmail.js"
-import { uploadBufferToCloudinary } from "../utlis/cloudinary.js";
+import { uploadBufferToBunny } from "../utlis/bunny.js";
 import Follower from "../models/follower.models.js";
 import Post from "../models/userPost.models.js";
 import Reel from "../models/reels.models.js";
@@ -17,7 +17,6 @@ import SearchSuggestion from "../models/searchSuggestion.models.js";
 import SearchHistory from "../models/searchHistory.models.js";
 import Media from "../models/mediaUser.models.js";
 import Block from "../models/block.models.js";
-import { v2 as cloudinary } from "cloudinary";
 import jwt from "jsonwebtoken";
 
 
@@ -318,25 +317,15 @@ const deleteAccount = asyncHandler(async (req, res) => {
 
     const userId = user._id;
 
-    // --- Delete all user media from Cloudinary and DB ---
+    // --- Delete all user media from Bunny.net and DB ---
     let mediaCleanup = { deleted: 0, failed: 0, errors: [] };
     try {
         const userMedia = await Media.find({ uploadedBy: userId });
         for (const media of userMedia) {
             try {
-                // Extract public_id from Cloudinary URL
-                // Example: https://res.cloudinary.com/<cloud_name>/<resource_type>/upload/v1234567890/folder/filename.jpg
-                // public_id = folder/filename (without extension)
-                const urlParts = media.url.split("/");
-                // Remove version and domain parts
-                // Find the index of 'upload' (Cloudinary always has .../upload/...)
-                const uploadIdx = urlParts.findIndex(part => part === "upload");
-                let publicIdWithExt = urlParts.slice(uploadIdx + 1).join("/");
-                // Remove extension
-                const lastDot = publicIdWithExt.lastIndexOf(".");
-                const publicId = lastDot !== -1 ? publicIdWithExt.substring(0, lastDot) : publicIdWithExt;
-                // Delete from Cloudinary
-                await cloudinary.uploader.destroy(publicId, { resource_type: media.type });
+                // Delete media from Bunny.net using full URL
+                const { deleteFromBunny } = await import("../utlis/bunny.js");
+                await deleteFromBunny(media.url);
                 mediaCleanup.deleted++;
             } catch (err) {
                 mediaCleanup.failed++;
@@ -678,10 +667,10 @@ const uploadProfileImage = asyncHandler(async (req, res) => {
 
     const userId = req.user._id;
 
-    const uploadResult = await uploadBufferToCloudinary(req.file.buffer);
+    const uploadResult = await uploadBufferToBunny(req.file.buffer, "profiles");
 
     if (!uploadResult || !uploadResult.secure_url) {
-        throw new ApiError(500, "Failed to upload image to Cloudinary");
+        throw new ApiError(500, "Failed to upload image to Bunny.net");
     }
 
     const user = await User.findByIdAndUpdate(userId,

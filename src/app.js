@@ -18,7 +18,7 @@ app.use(cors({
                 "https://findernate-test.vercel.app",
                 "https://findernate.vercel.app",
                 "http://localhost:3000",
-              
+
         ],
         credentials: true
 }));
@@ -57,6 +57,7 @@ import contactRequestRouter from "./routes/contactRequest.routes.js";
 import notificationRouter from "./routes/notification.routes.js";
 import pushNotificationRouter from "./routes/pushNotification.routes.js";
 import callRouter from "./routes/call.routes.js";
+import adminRouter from "./routes/admin.routes.js";
 
 
 app.use("/api/v1/users", userRouter);
@@ -73,6 +74,7 @@ app.use("/api/v1/contact-requests", contactRequestRouter);
 app.use("/api/v1/notifications", notificationRouter);
 app.use("/api/v1/push", pushNotificationRouter);
 app.use("/api/v1/calls", callRouter);
+app.use("/api/v1/admin", adminRouter);
 
 app.use(errorHandler);
 

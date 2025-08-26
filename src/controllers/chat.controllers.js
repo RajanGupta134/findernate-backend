@@ -4,7 +4,7 @@ import Follower from '../models/follower.models.js';
 import { ApiError } from '../utlis/ApiError.js';
 import { ApiResponse } from '../utlis/ApiResponse.js';
 import { asyncHandler } from '../utlis/asyncHandler.js';
-import { uploadBufferToCloudinary } from '../utlis/cloudinary.js';
+import { uploadBufferToBunny } from '../utlis/bunny.js';
 import mongoose from 'mongoose';
 import socketManager from '../config/socket.js';
 import { sendPushNotification } from './pushNotification.controllers.js';
@@ -596,15 +596,15 @@ export const addMessage = asyncHandler(async (req, res) => {
     // ✅ Handle file upload if present
     if (mediaFile) {
         try {
-            // Upload file to Cloudinary
-            const uploadResult = await uploadBufferToCloudinary(mediaFile.buffer, 'chat_media');
+            // Upload file to Bunny.net
+            const uploadResult = await uploadBufferToBunny(mediaFile.buffer, 'chat_media');
 
             // Add media fields to message data
             messageData.mediaUrl = uploadResult.secure_url;
             messageData.fileName = mediaFile.originalname;
             messageData.fileSize = mediaFile.size;
 
-            // For videos, try to get duration from Cloudinary response
+            // For videos, try to get duration from Bunny.net response
             if (uploadResult.duration) {
                 messageData.duration = uploadResult.duration;
             }
@@ -663,11 +663,11 @@ export const addMessage = asyncHandler(async (req, res) => {
             // Get sender info for notification
             const sender = await User.findById(currentUserId).select('username fullName');
             const senderName = sender?.fullName || sender?.username || 'Unknown User';
-            
+
             // Create notification data
             const notificationData = {
                 title: `New message from ${senderName}`,
-                body: messageType === 'text' 
+                body: messageType === 'text'
                     ? finalMessage.length > 50 ? finalMessage.substring(0, 50) + '...' : finalMessage
                     : `Sent ${messageType === 'image' ? 'an image' : messageType === 'video' ? 'a video' : messageType === 'audio' ? 'an audio' : 'a file'}`,
                 chatId: chatId,

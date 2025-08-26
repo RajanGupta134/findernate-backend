@@ -4,7 +4,7 @@ import { ApiResponse } from "../utlis/ApiResponse.js";
 import Post from "../models/userPost.models.js";
 import Story from "../models/story.models.js";
 import Reel from "../models/reels.models.js";
-import { uploadBufferToCloudinary, deleteMultipleFromCloudinary, deleteFromCloudinary } from "../utlis/cloudinary.js";
+import { uploadBufferToBunny, deleteMultipleFromBunny, deleteFromBunny, generateOptimizedImageUrl } from "../utlis/bunny.js";
 import { getCoordinates } from "../utlis/getCoordinates.js";
 import Like from "../models/like.models.js";
 // import Comment from "../models/comment.models.mjs";
@@ -68,9 +68,9 @@ export const createNormalPost = asyncHandler(async (req, res) => {
 
     for (const file of files) {
         try {
-            const result = await uploadBufferToCloudinary(file.buffer, "posts");
+            const result = await uploadBufferToBunny(file.buffer, "posts");
             if (result.resource_type === "image") {
-                const thumbnailUrl = result.secure_url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+                const thumbnailUrl = generateOptimizedImageUrl(result.secure_url, { width: 300, height: 300, crop: 'fill' });
                 uploadedMedia.push({
                     type: result.resource_type,
                     url: result.secure_url,
@@ -87,13 +87,11 @@ export const createNormalPost = asyncHandler(async (req, res) => {
                 let thumbnailUrl;
                 const customThumbnail = req.files?.thumbnail?.[0];
                 if (customThumbnail) {
-                    const thumbResult = await uploadBufferToCloudinary(customThumbnail.buffer, "posts");
-                    thumbnailUrl = thumbResult.secure_url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+                    const thumbResult = await uploadBufferToBunny(customThumbnail.buffer, "posts");
+                    thumbnailUrl = generateOptimizedImageUrl(thumbResult.secure_url, { width: 300, height: 300, crop: 'fill' });
                 } else {
-                    // Generate Cloudinary thumbnail from video URL (first frame, 300x300 crop)
-                    thumbnailUrl = result.secure_url
-                        .replace('/upload/', '/upload/w_300,h_300,c_fill,so_1/')
-                        .replace(/\.(mp4|mov|webm)$/i, '.jpg');
+                    // Generate Bunny.net thumbnail from video URL (first frame, 300x300 crop)
+                    thumbnailUrl = `${result.secure_url}?thumbnail=1&width=300&height=300`;
                 }
                 uploadedMedia.push({
                     type: result.resource_type,
@@ -109,7 +107,7 @@ export const createNormalPost = asyncHandler(async (req, res) => {
                 });
             }
         } catch {
-            throw new ApiError(500, "Cloudinary upload failed");
+            throw new ApiError(500, "Bunny.net upload failed");
         }
     }
 
@@ -200,9 +198,9 @@ export const createProductPost = asyncHandler(async (req, res) => {
     for (const file of files) {
         try {
 
-            const result = await uploadBufferToCloudinary(file.buffer, "posts");
+            const result = await uploadBufferToBunny(file.buffer, "posts");
             if (result.resource_type === "image") {
-                const thumbnailUrl = result.secure_url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+                const thumbnailUrl = generateOptimizedImageUrl(result.secure_url, { width: 300, height: 300, crop: 'fill' });
                 uploadedMedia.push({
                     type: result.resource_type,
                     url: result.secure_url,
@@ -219,13 +217,11 @@ export const createProductPost = asyncHandler(async (req, res) => {
                 let thumbnailUrl;
                 const customThumbnail = req.files?.thumbnail?.[0];
                 if (customThumbnail) {
-                    const thumbResult = await uploadBufferToCloudinary(customThumbnail.buffer, "posts");
-                    thumbnailUrl = thumbResult.secure_url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+                    const thumbResult = await uploadBufferToBunny(customThumbnail.buffer, "posts");
+                    thumbnailUrl = generateOptimizedImageUrl(thumbResult.secure_url, { width: 300, height: 300, crop: 'fill' });
                 } else {
-                    // Generate Cloudinary thumbnail from video URL (first frame, 300x300 crop)
-                    thumbnailUrl = result.secure_url
-                        .replace('/upload/', '/upload/w_300,h_300,c_fill,so_1/')
-                        .replace(/\.(mp4|mov|webm)$/i, '.jpg');
+                    // Generate Bunny.net thumbnail from video URL (first frame, 300x300 crop)
+                    thumbnailUrl = `${result.secure_url}?thumbnail=1&width=300&height=300`;
                 }
                 uploadedMedia.push({
                     type: result.resource_type,
@@ -242,7 +238,7 @@ export const createProductPost = asyncHandler(async (req, res) => {
             }
         } catch (error) {
             console.error("Upload failed for:", file.originalname, error);
-            throw new ApiError(500, "Cloudinary upload failed");
+            throw new ApiError(500, "Bunny.net upload failed");
         }
     }
     if (!parsedProduct?.link) {
@@ -335,9 +331,9 @@ export const createServicePost = asyncHandler(async (req, res) => {
     let uploadedMedia = [];
     for (const file of files) {
         try {
-            const result = await uploadBufferToCloudinary(file.buffer, "posts");
+            const result = await uploadBufferToBunny(file.buffer, "posts");
             if (result.resource_type === "image") {
-                const thumbnailUrl = result.secure_url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+                const thumbnailUrl = generateOptimizedImageUrl(result.secure_url, { width: 300, height: 300, crop: 'fill' });
                 uploadedMedia.push({
                     type: result.resource_type,
                     url: result.secure_url,
@@ -354,13 +350,11 @@ export const createServicePost = asyncHandler(async (req, res) => {
                 let thumbnailUrl;
                 const customThumbnail = req.files?.thumbnail?.[0];
                 if (customThumbnail) {
-                    const thumbResult = await uploadBufferToCloudinary(customThumbnail.buffer, "posts");
-                    thumbnailUrl = thumbResult.secure_url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+                    const thumbResult = await uploadBufferToBunny(customThumbnail.buffer, "posts");
+                    thumbnailUrl = generateOptimizedImageUrl(thumbResult.secure_url, { width: 300, height: 300, crop: 'fill' });
                 } else {
-                    // Generate Cloudinary thumbnail from video URL (first frame, 300x300 crop)
-                    thumbnailUrl = result.secure_url
-                        .replace('/upload/', '/upload/w_300,h_300,c_fill,so_1/')
-                        .replace(/\.(mp4|mov|webm)$/i, '.jpg');
+                    // Generate Bunny.net thumbnail from video URL (first frame, 300x300 crop)
+                    thumbnailUrl = `${result.secure_url}?thumbnail=1&width=300&height=300`;
                 }
                 uploadedMedia.push({
                     type: result.resource_type,
@@ -376,7 +370,7 @@ export const createServicePost = asyncHandler(async (req, res) => {
                 });
             }
         } catch {
-            throw new ApiError(500, "Cloudinary upload failed");
+            throw new ApiError(500, "Bunny.net upload failed");
         }
     }
 
@@ -466,9 +460,9 @@ export const createBusinessPost = asyncHandler(async (req, res) => {
     let uploadedMedia = [];
     for (const file of files) {
         try {
-            const result = await uploadBufferToCloudinary(file.buffer, "posts");
+            const result = await uploadBufferToBunny(file.buffer, "posts");
             if (result.resource_type === "image") {
-                const thumbnailUrl = result.secure_url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+                const thumbnailUrl = generateOptimizedImageUrl(result.secure_url, { width: 300, height: 300, crop: 'fill' });
                 uploadedMedia.push({
                     type: result.resource_type,
                     url: result.secure_url,
@@ -485,13 +479,11 @@ export const createBusinessPost = asyncHandler(async (req, res) => {
                 let thumbnailUrl;
                 const customThumbnail = req.files?.thumbnail?.[0];
                 if (customThumbnail) {
-                    const thumbResult = await uploadBufferToCloudinary(customThumbnail.buffer, "posts");
-                    thumbnailUrl = thumbResult.secure_url.replace('/upload/', '/upload/w_300,h_300,c_fill/');
+                    const thumbResult = await uploadBufferToBunny(customThumbnail.buffer, "posts");
+                    thumbnailUrl = generateOptimizedImageUrl(thumbResult.secure_url, { width: 300, height: 300, crop: 'fill' });
                 } else {
-                    // Generate Cloudinary thumbnail from video URL (first frame, 300x300 crop)
-                    thumbnailUrl = result.secure_url
-                        .replace('/upload/', '/upload/w_300,h_300,c_fill,so_1/')
-                        .replace(/\.(mp4|mov|webm)$/i, '.jpg');
+                    // Generate Bunny.net thumbnail from video URL (first frame, 300x300 crop)
+                    thumbnailUrl = `${result.secure_url}?thumbnail=1&width=300&height=300`;
                 }
                 uploadedMedia.push({
                     type: result.resource_type,
@@ -507,7 +499,7 @@ export const createBusinessPost = asyncHandler(async (req, res) => {
                 });
             }
         } catch {
-            throw new ApiError(500, "Cloudinary upload failed");
+            throw new ApiError(500, "Bunny.net upload failed");
         }
     }
 
@@ -597,7 +589,7 @@ export const deletePost = asyncHandler(async (req, res) => {
         throw new ApiError(403, "You can only delete your own posts");
     }
 
-    let cloudinaryDeletionResult = {
+    let bunnyDeletionResult = {
         totalDeleted: 0,
         errors: []
     };
@@ -618,15 +610,15 @@ export const deletePost = asyncHandler(async (req, res) => {
         });
     }
 
-    // Delete media files from Cloudinary if any exist
+    // Delete media files from Bunny.net if any exist
     if (mediaUrls.length > 0) {
         try {
-            cloudinaryDeletionResult = await deleteMultipleFromCloudinary(mediaUrls);
+            bunnyDeletionResult = await deleteMultipleFromBunny(mediaUrls);
         } catch (error) {
-            // Continue with database deletion even if Cloudinary deletion fails
-            console.error("Cloudinary deletion error:", error);
-            cloudinaryDeletionResult.errors.push({
-                error: `Cloudinary deletion failed: ${error.message}`
+            // Continue with database deletion even if Bunny.net deletion fails
+            console.error("Bunny.net deletion error:", error);
+            bunnyDeletionResult.errors.push({
+                error: `Bunny.net deletion failed: ${error.message}`
             });
         }
     }
@@ -650,10 +642,10 @@ export const deletePost = asyncHandler(async (req, res) => {
     const responseData = {
         postId: id,
         mediaCleanup: {
-            filesDeleted: cloudinaryDeletionResult.totalDeleted,
-            filesSkipped: cloudinaryDeletionResult.totalSkipped || 0,
+            filesDeleted: bunnyDeletionResult.totalDeleted,
+            filesSkipped: bunnyDeletionResult.totalSkipped || 0,
             totalMediaFiles: mediaUrls.length,
-            errors: cloudinaryDeletionResult.errors
+            errors: bunnyDeletionResult.errors
         }
     };
 
@@ -661,7 +653,7 @@ export const deletePost = asyncHandler(async (req, res) => {
         new ApiResponse(
             200,
             responseData,
-            cloudinaryDeletionResult.errors.length > 0
+            bunnyDeletionResult.errors.length > 0
                 ? "Post deleted successfully, but some media files could not be removed from cloud storage"
                 : "Post and all associated media deleted successfully"
         )
@@ -684,20 +676,20 @@ export const deleteStory = asyncHandler(async (req, res) => {
         throw new ApiError(403, "You can only delete your own stories");
     }
 
-    let cloudinaryDeletionResult = {
+    let bunnyDeletionResult = {
         totalDeleted: 0,
         errors: []
     };
 
-    // Delete media from Cloudinary if exists
+    // Delete media from Bunny.net if exists
     if (story.mediaUrl) {
         try {
-            await deleteFromCloudinary(story.mediaUrl);
-            cloudinaryDeletionResult.totalDeleted = 1;
+            await deleteFromBunny(story.mediaUrl);
+            bunnyDeletionResult.totalDeleted = 1;
         } catch (error) {
-            console.error("Cloudinary deletion error:", error);
-            cloudinaryDeletionResult.errors.push({
-                error: `Cloudinary deletion failed: ${error.message}`
+            console.error("Bunny.net deletion error:", error);
+            bunnyDeletionResult.errors.push({
+                error: `Bunny.net deletion failed: ${error.message}`
             });
         }
     }
@@ -708,10 +700,10 @@ export const deleteStory = asyncHandler(async (req, res) => {
     const responseData = {
         storyId: id,
         mediaCleanup: {
-            filesDeleted: cloudinaryDeletionResult.totalDeleted,
+            filesDeleted: bunnyDeletionResult.totalDeleted,
             filesSkipped: 0,
             totalMediaFiles: story.mediaUrl ? 1 : 0,
-            errors: cloudinaryDeletionResult.errors
+            errors: bunnyDeletionResult.errors
         }
     };
 
@@ -719,7 +711,7 @@ export const deleteStory = asyncHandler(async (req, res) => {
         new ApiResponse(
             200,
             responseData,
-            cloudinaryDeletionResult.errors.length > 0
+            bunnyDeletionResult.errors.length > 0
                 ? "Story deleted successfully, but media file could not be removed from cloud storage"
                 : "Story and associated media deleted successfully"
         )
@@ -742,7 +734,7 @@ export const deleteReel = asyncHandler(async (req, res) => {
         throw new ApiError(403, "You can only delete your own reels");
     }
 
-    let cloudinaryDeletionResult = {
+    let bunnyDeletionResult = {
         totalDeleted: 0,
         errors: []
     };
@@ -752,15 +744,15 @@ export const deleteReel = asyncHandler(async (req, res) => {
     if (reel.videoUrl) mediaUrls.push(reel.videoUrl);
     if (reel.thumbnailUrl) mediaUrls.push(reel.thumbnailUrl);
 
-    // Delete media files from Cloudinary if any exist
+    // Delete media files from Bunny.net if any exist
     if (mediaUrls.length > 0) {
         try {
-            const deletionResult = await deleteMultipleFromCloudinary(mediaUrls);
-            cloudinaryDeletionResult = deletionResult;
+            const deletionResult = await deleteMultipleFromBunny(mediaUrls);
+            bunnyDeletionResult = deletionResult;
         } catch (error) {
-            console.error("Cloudinary deletion error:", error);
-            cloudinaryDeletionResult.errors.push({
-                error: `Cloudinary deletion failed: ${error.message}`
+            console.error("Bunny.net deletion error:", error);
+            bunnyDeletionResult.errors.push({
+                error: `Bunny.net deletion failed: ${error.message}`
             });
         }
     }
@@ -778,10 +770,10 @@ export const deleteReel = asyncHandler(async (req, res) => {
     const responseData = {
         reelId: id,
         mediaCleanup: {
-            filesDeleted: cloudinaryDeletionResult.totalDeleted,
-            filesSkipped: cloudinaryDeletionResult.totalSkipped || 0,
+            filesDeleted: bunnyDeletionResult.totalDeleted,
+            filesSkipped: bunnyDeletionResult.totalSkipped || 0,
             totalMediaFiles: mediaUrls.length,
-            errors: cloudinaryDeletionResult.errors
+            errors: bunnyDeletionResult.errors
         }
     };
 
@@ -789,7 +781,7 @@ export const deleteReel = asyncHandler(async (req, res) => {
         new ApiResponse(
             200,
             responseData,
-            cloudinaryDeletionResult.errors.length > 0
+            bunnyDeletionResult.errors.length > 0
                 ? "Reel deleted successfully, but some media files could not be removed from cloud storage"
                 : "Reel and all associated media deleted successfully"
         )
@@ -806,7 +798,7 @@ export const deleteContent = asyncHandler(async (req, res) => {
     let content = null;
     let contentType = null;
     let mediaUrls = [];
-    let cloudinaryDeletionResult = {
+    let bunnyDeletionResult = {
         totalDeleted: 0,
         totalSkipped: 0,
         errors: []
@@ -837,14 +829,14 @@ export const deleteContent = asyncHandler(async (req, res) => {
                 });
             }
 
-            // Delete media from Cloudinary
+            // Delete media from Bunny.net
             if (mediaUrls.length > 0) {
                 try {
-                    cloudinaryDeletionResult = await deleteMultipleFromCloudinary(mediaUrls);
+                    bunnyDeletionResult = await deleteMultipleFromBunny(mediaUrls);
                 } catch (error) {
-                    console.error("Cloudinary deletion error:", error);
-                    cloudinaryDeletionResult.errors.push({
-                        error: `Cloudinary deletion failed: ${error.message}`
+                    console.error("Bunny.net deletion error:", error);
+                    bunnyDeletionResult.errors.push({
+                        error: `Bunny.net deletion failed: ${error.message}`
                     });
                 }
             }
@@ -882,15 +874,15 @@ export const deleteContent = asyncHandler(async (req, res) => {
                     mediaUrls.push(content.mediaUrl);
                 }
 
-                // Delete media from Cloudinary
+                // Delete media from Bunny.net
                 if (mediaUrls.length > 0) {
                     try {
-                        const result = await deleteFromCloudinary(content.mediaUrl);
-                        cloudinaryDeletionResult.totalDeleted = 1;
+                        const result = await deleteFromBunny(content.mediaUrl);
+                        bunnyDeletionResult.totalDeleted = 1;
                     } catch (error) {
-                        console.error("Cloudinary deletion error:", error);
-                        cloudinaryDeletionResult.errors.push({
-                            error: `Cloudinary deletion failed: ${error.message}`
+                        console.error("Bunny.net deletion error:", error);
+                        bunnyDeletionResult.errors.push({
+                            error: `Bunny.net deletion failed: ${error.message}`
                         });
                     }
                 }
@@ -915,14 +907,14 @@ export const deleteContent = asyncHandler(async (req, res) => {
                 if (content.videoUrl) mediaUrls.push(content.videoUrl);
                 if (content.thumbnailUrl) mediaUrls.push(content.thumbnailUrl);
 
-                // Delete media from Cloudinary
+                // Delete media from Bunny.net
                 if (mediaUrls.length > 0) {
                     try {
-                        cloudinaryDeletionResult = await deleteMultipleFromCloudinary(mediaUrls);
+                        bunnyDeletionResult = await deleteMultipleFromBunny(mediaUrls);
                     } catch (error) {
-                        console.error("Cloudinary deletion error:", error);
-                        cloudinaryDeletionResult.errors.push({
-                            error: `Cloudinary deletion failed: ${error.message}`
+                        console.error("Bunny.net deletion error:", error);
+                        bunnyDeletionResult.errors.push({
+                            error: `Bunny.net deletion failed: ${error.message}`
                         });
                     }
                 }
@@ -948,10 +940,10 @@ export const deleteContent = asyncHandler(async (req, res) => {
             postId: postId,
             contentType: contentType,
             mediaCleanup: {
-                filesDeleted: cloudinaryDeletionResult.totalDeleted,
-                filesSkipped: cloudinaryDeletionResult.totalSkipped || 0,
+                filesDeleted: bunnyDeletionResult.totalDeleted,
+                filesSkipped: bunnyDeletionResult.totalSkipped || 0,
                 totalMediaFiles: mediaUrls.length,
-                errors: cloudinaryDeletionResult.errors
+                errors: bunnyDeletionResult.errors
             }
         };
 
@@ -959,7 +951,7 @@ export const deleteContent = asyncHandler(async (req, res) => {
             new ApiResponse(
                 200,
                 responseData,
-                cloudinaryDeletionResult.errors.length > 0
+                bunnyDeletionResult.errors.length > 0
                     ? `${contentType.charAt(0).toUpperCase() + contentType.slice(1)} deleted successfully, but some media files could not be removed from cloud storage`
                     : `${contentType.charAt(0).toUpperCase() + contentType.slice(1)} and all associated media deleted successfully`
             )

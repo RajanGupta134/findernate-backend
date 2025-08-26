@@ -1,7 +1,7 @@
 import Story from "../models/story.models.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import { ApiError } from "../utlis/ApiError.js";
-import { uploadBufferToCloudinary } from "../utlis/cloudinary.js";
+import { uploadBufferToBunny } from "../utlis/bunny.js";
 import { asyncHandler } from "../utlis/asyncHandler.js";
 import { User } from "../models/user.models.js";
 
@@ -10,7 +10,7 @@ export const uploadStory = asyncHandler(async (req, res) => {
     const userId = req.user._id;
     if (!req.file) throw new ApiError(400, "Media file is required");
 
-    const result = await uploadBufferToCloudinary(req.file.buffer, "stories");
+    const result = await uploadBufferToBunny(req.file.buffer, "stories");
     if (!result.secure_url) throw new ApiError(500, "Failed to upload story media");
 
     const story = await Story.create({
