@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { verifyJWT, optionalVerifyJWT } from "../middlewares/auth.middleware.js";
 import {
-    switchToBusinessProfile,
+    switchTobusinessprofile,
     switchToPersonalAccount,
     createBusinessProfile,
     deleteBusinessProfile,
@@ -23,7 +23,7 @@ import {
 const router = Router();
 
 // Switch to business profile (checks if business exists or needs registration)
-router.route("/switch-to-business").post(optionalVerifyJWT, switchToBusinessProfile);
+router.route("/switch-to-business").post(optionalVerifyJWT, switchTobusinessprofile);
 
 // Switch to personal account from business account
 router.route("/switch-to-personal").post(optionalVerifyJWT, switchToPersonalAccount);

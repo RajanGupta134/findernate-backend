@@ -40,7 +40,7 @@ function extractTagsFromText(...fields) {
 }
 
 // ✅ POST /api/v1/users/switch-to-business
-export const switchToBusinessProfile = asyncHandler(async (req, res) => {
+export const switchTobusinessprofile = asyncHandler(async (req, res) => {
     const userId = req.user._id;
 
     const user = await User.findById(userId);
@@ -71,46 +71,18 @@ export const switchToBusinessProfile = asyncHandler(async (req, res) => {
         );
     }
 
-    // No business profile exists, create a basic one automatically
-    business = await Business.create({
-        userId,
-        businessName: user.fullName || user.username, // Use user's name as default business name
-        businessType: '',
-        description: '',
-        category: '',
-        contact: {
-            email: user.email || '',
-            phone: user.phoneNumber || ''
-        },
-        location: {
-            address: user.address || '',
-            city: '',
-            state: '',
-            country: ''
-        },
-        tags: [],
-        plan: 'plan1',
-        subscriptionStatus: 'pending'
-    });
-
-    // Update user profile to business mode
+    // No business profile exists, just switch to business mode
     user.isBusinessProfile = true;
-    user.businessProfileId = business._id;
+    user.businessProfileId = null; // No business profile created yet
     await user.save();
 
-    // Remove rating from response
-    const businessObj = business.toObject();
-    if (businessObj.rating !== undefined) {
-        delete businessObj.rating;
-    }
-
-    return res.status(201).json(
-        new ApiResponse(201, {
+    return res.status(200).json(
+        new ApiResponse(200, {
             alreadyBusiness: false,
-            businessProfile: businessObj,
-            businessId: business._id,
-            message: "Business profile created and switched successfully"
-        }, "Business profile created and switched to business mode")
+            businessProfile: null,
+            businessId: null,
+            message: "Switched to business account mode. Create your business profile to get started."
+        }, "Switched to business account mode")
     );
 });
 
