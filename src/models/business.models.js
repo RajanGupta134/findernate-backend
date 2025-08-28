@@ -83,7 +83,16 @@ const BusinessSchema = new mongoose.Schema({
     verifiedAt: { type: Date },
     verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
     rejectedAt: { type: Date },
-    rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' }
+    rejectedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
+
+    // Document-specific verification fields
+    gstVerified: { type: Boolean, default: false },
+    gstVerifiedAt: { type: Date },
+    gstVerifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
+
+    aadhaarVerified: { type: Boolean, default: false },
+    aadhaarVerifiedAt: { type: Date },
+    aadhaarVerifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' }
 }, { timestamps: true });
 
 // 🚀 Auto-verify business when subscription becomes active

@@ -566,6 +566,276 @@ export const getAllBusinesses = asyncHandler(async (req, res) => {
     );
 });
 
+// GET /api/v1/admin/businesses/pending-verification
+export const getPendingBusinessVerifications = asyncHandler(async (req, res) => {
+    if (!req.admin.permissions.manageBusiness) {
+        throw new ApiError(403, "Insufficient permissions to manage businesses");
+    }
+
+    const { page = 1, limit = 20, search } = req.query;
+
+    let filter = {
+        verificationStatus: 'pending',
+        $or: [
+            { businessName: { $exists: true, $ne: null, $ne: "" } },
+            { aadhaarNumber: { $exists: true, $ne: null, $ne: "" } },
+            { gstNumber: { $exists: true, $ne: null, $ne: "" } }
+        ]
+    };
+
+    if (search) {
+        filter.$and = [
+            filter,
+            {
+                $or: [
+                    { businessName: { $regex: search, $options: 'i' } },
+                    { category: { $regex: search, $options: 'i' } },
+                    { aadhaarNumber: { $regex: search, $options: 'i' } },
+                    { gstNumber: { $regex: search, $options: 'i' } }
+                ]
+            }
+        ];
+        delete filter.$or; // Remove the original $or since we're using $and now
+    }
+
+    const businesses = await Business.find(filter)
+        .populate('userId', 'username fullName email phoneNumber')
+        .select('businessName businessType description category subcategory contact location aadhaarNumber gstNumber website plan subscriptionStatus createdAt verificationStatus')
+        .sort({ createdAt: -1 })
+        .limit(limit * 1)
+        .skip((page - 1) * limit);
+
+    const totalBusinesses = await Business.countDocuments(filter);
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            businesses,
+            pagination: {
+                currentPage: parseInt(page),
+                totalPages: Math.ceil(totalBusinesses / limit),
+                totalBusinesses,
+                hasNext: page < Math.ceil(totalBusinesses / limit),
+                hasPrev: page > 1
+            }
+        }, "Pending business verifications fetched successfully")
+    );
+});
+
+// POST /api/v1/admin/businesses/:businessId/verify
+export const verifyBusinessAccount = asyncHandler(async (req, res) => {
+    if (!req.admin.permissions.manageBusiness) {
+        throw new ApiError(403, "Insufficient permissions to manage businesses");
+    }
+
+    const { businessId } = req.params;
+    const { status, remarks, approveGst = false, approveAadhaar = false } = req.body;
+
+    if (!['approved', 'rejected'].includes(status)) {
+        throw new ApiError(400, "Status must be either 'approved' or 'rejected'");
+    }
+
+    const business = await Business.findById(businessId).populate('userId', 'username fullName email');
+    if (!business) {
+        throw new ApiError(404, "Business not found");
+    }
+
+    if (business.verificationStatus !== 'pending') {
+        throw new ApiError(400, `Business verification is already ${business.verificationStatus}`);
+    }
+
+    if (status === 'approved') {
+        // Approve the business
+        business.isVerified = true;
+        business.verificationStatus = 'approved';
+        business.verificationRemarks = remarks || 'Business account and details verified and approved';
+        business.verifiedAt = new Date();
+        business.verifiedBy = req.admin._id;
+
+        // Set subscription to active if approved
+        business.subscriptionStatus = 'active';
+
+        // Add approval details for specific documents
+        if (business.gstNumber && approveGst) {
+            business.gstVerified = true;
+            business.gstVerifiedAt = new Date();
+            business.gstVerifiedBy = req.admin._id;
+        }
+
+        if (business.aadhaarNumber && approveAadhaar) {
+            business.aadhaarVerified = true;
+            business.aadhaarVerifiedAt = new Date();
+            business.aadhaarVerifiedBy = req.admin._id;
+        }
+
+    } else {
+        // Reject the business
+        business.isVerified = false;
+        business.verificationStatus = 'rejected';
+        business.verificationRemarks = remarks || 'Business account verification rejected';
+        business.rejectedAt = new Date();
+        business.rejectedBy = req.admin._id;
+
+        // Keep subscription as pending if rejected
+        business.subscriptionStatus = 'pending';
+    }
+
+    await business.save();
+
+    // Log admin activity
+    await req.admin.logActivity(
+        `business_verification_${status}`,
+        'business',
+        businessId,
+        `Business verification ${status} for: ${business.businessName} (${business.userId.username}). GST: ${approveGst ? 'Approved' : 'N/A'}, Aadhaar: ${approveAadhaar ? 'Approved' : 'N/A'}`
+    );
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            business: {
+                _id: business._id,
+                businessName: business.businessName,
+                isVerified: business.isVerified,
+                verificationStatus: business.verificationStatus,
+                verificationRemarks: business.verificationRemarks,
+                subscriptionStatus: business.subscriptionStatus,
+                gstVerified: business.gstVerified || false,
+                aadhaarVerified: business.aadhaarVerified || false
+            },
+            owner: {
+                username: business.userId.username,
+                fullName: business.userId.fullName,
+                email: business.userId.email
+            }
+        }, `Business verification ${status} successfully`)
+    );
+});
+
+// GET /api/v1/admin/businesses/:businessId/details
+export const getBusinessVerificationDetails = asyncHandler(async (req, res) => {
+    if (!req.admin.permissions.manageBusiness) {
+        throw new ApiError(403, "Insufficient permissions to manage businesses");
+    }
+
+    const { businessId } = req.params;
+
+    const business = await Business.findById(businessId)
+        .populate('userId', 'username fullName email phoneNumber profileImageUrl')
+        .populate('verifiedBy', 'username fullName')
+        .populate('rejectedBy', 'username fullName');
+
+    if (!business) {
+        throw new ApiError(404, "Business not found");
+    }
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            business,
+            verificationHistory: {
+                verifiedAt: business.verifiedAt,
+                verifiedBy: business.verifiedBy,
+                rejectedAt: business.rejectedAt,
+                rejectedBy: business.rejectedBy,
+                gstVerifiedAt: business.gstVerifiedAt,
+                gstVerifiedBy: business.gstVerifiedBy,
+                aadhaarVerifiedAt: business.aadhaarVerifiedAt,
+                aadhaarVerifiedBy: business.aadhaarVerifiedBy
+            }
+        }, "Business verification details fetched successfully")
+    );
+});
+
+// GET /api/v1/admin/businesses/verification-history
+export const getBusinessVerificationHistory = asyncHandler(async (req, res) => {
+    if (!req.admin.permissions.manageBusiness) {
+        throw new ApiError(403, "Insufficient permissions to manage businesses");
+    }
+
+    const { page = 1, limit = 20, status } = req.query;
+
+    let filter = {
+        verificationStatus: { $exists: true, $ne: 'pending' }
+    };
+
+    if (status && ['approved', 'rejected'].includes(status)) {
+        filter.verificationStatus = status;
+    }
+
+    const businesses = await Business.aggregate([
+        { $match: filter },
+        {
+            $addFields: {
+                lastVerificationDate: {
+                    $max: ['$verifiedAt', '$rejectedAt']
+                }
+            }
+        },
+        { $sort: { lastVerificationDate: -1 } },
+        { $skip: (page - 1) * limit },
+        { $limit: limit * 1 },
+        {
+            $lookup: {
+                from: 'users',
+                localField: 'userId',
+                foreignField: '_id',
+                as: 'userId',
+                pipeline: [{ $project: { username: 1, fullName: 1, email: 1 } }]
+            }
+        },
+        {
+            $lookup: {
+                from: 'admins',
+                localField: 'verifiedBy',
+                foreignField: '_id',
+                as: 'verifiedBy',
+                pipeline: [{ $project: { fullName: 1, username: 1 } }]
+            }
+        },
+        {
+            $lookup: {
+                from: 'admins',
+                localField: 'rejectedBy',
+                foreignField: '_id',
+                as: 'rejectedBy',
+                pipeline: [{ $project: { fullName: 1, username: 1 } }]
+            }
+        },
+        {
+            $project: {
+                businessName: 1,
+                businessType: 1,
+                category: 1,
+                verificationStatus: 1,
+                verificationRemarks: 1,
+                isVerified: 1,
+                subscriptionStatus: 1,
+                gstVerified: 1,
+                aadhaarVerified: 1,
+                verifiedAt: 1,
+                rejectedAt: 1,
+                createdAt: 1,
+                userId: { $arrayElemAt: ['$userId', 0] },
+                verifiedBy: { $arrayElemAt: ['$verifiedBy', 0] },
+                rejectedBy: { $arrayElemAt: ['$rejectedBy', 0] }
+            }
+        }
+    ]);
+
+    const totalBusinesses = await Business.countDocuments(filter);
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            businesses,
+            pagination: {
+                currentPage: parseInt(page),
+                totalPages: Math.ceil(totalBusinesses / limit),
+                totalBusinesses,
+                hasNext: page < Math.ceil(totalBusinesses / limit),
+                hasPrev: page > 1
+            }
+        }, "Business verification history fetched successfully")
+    );
+});
+
 // ===============================
 // ANALYTICS & DASHBOARD
 // ===============================
@@ -581,7 +851,8 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
         totalBusinesses,
         totalReports,
         pendingReports,
-        pendingVerifications,
+        pendingAadhaarVerifications,
+        pendingBusinessVerifications,
         activeUsers,
         verifiedBusinesses
     ] = await Promise.all([
@@ -592,6 +863,14 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
         Business.countDocuments({
             aadhaarNumber: { $exists: true, $ne: null, $ne: "" },
             isVerified: false
+        }),
+        Business.countDocuments({
+            verificationStatus: 'pending',
+            $or: [
+                { businessName: { $exists: true, $ne: null, $ne: "" } },
+                { aadhaarNumber: { $exists: true, $ne: null, $ne: "" } },
+                { gstNumber: { $exists: true, $ne: null, $ne: "" } }
+            ]
         }),
         User.countDocuments({ accountStatus: 'active' }),
         Business.countDocuments({ isVerified: true })
@@ -618,7 +897,8 @@ export const getDashboardStats = asyncHandler(async (req, res) => {
             },
             pending: {
                 reports: pendingReports,
-                verifications: pendingVerifications
+                aadhaarVerifications: pendingAadhaarVerifications,
+                businessVerifications: pendingBusinessVerifications
             },
             recent: {
                 newUsers,

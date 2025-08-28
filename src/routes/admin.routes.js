@@ -20,6 +20,10 @@ import {
 
     // Business Management
     getAllBusinesses,
+    getPendingBusinessVerifications,
+    verifyBusinessAccount,
+    getBusinessVerificationDetails,
+    getBusinessVerificationHistory,
 
     // Analytics & Dashboard
     getDashboardStats,
@@ -111,6 +115,26 @@ router.route("/users/:userId/status").put(
 router.route("/businesses").get(
     requirePermission('manageBusiness'),
     getAllBusinesses
+);
+
+router.route("/businesses/pending-verification").get(
+    requirePermission('manageBusiness'),
+    getPendingBusinessVerifications
+);
+
+router.route("/businesses/:businessId/verify").post(
+    requirePermission('manageBusiness'),
+    verifyBusinessAccount
+);
+
+router.route("/businesses/:businessId/details").get(
+    requirePermission('manageBusiness'),
+    getBusinessVerificationDetails
+);
+
+router.route("/businesses/verification-history").get(
+    requirePermission('manageBusiness'),
+    getBusinessVerificationHistory
 );
 
 // ===============================
