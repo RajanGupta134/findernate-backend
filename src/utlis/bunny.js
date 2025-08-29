@@ -2,7 +2,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 
 import axios from 'axios';
-import FormData from 'form-data';
+
 import { v4 as uuidv4 } from 'uuid';
 
 // Bunny.net configuration
