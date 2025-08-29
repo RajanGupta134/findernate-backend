@@ -3,7 +3,6 @@ import {
     createProduct,
     getProductById,
     getProducts,
-    searchProducts,
     updateProduct,
     deleteProduct,
     toggleProductStatus,
@@ -34,8 +33,7 @@ import { upload } from "../middlewares/multerConfig.js";
 const router = Router();
 
 // Public routes
-router.route("/").get(getProducts);
-router.route("/search").get(searchProducts);
+router.route("/").get(getProducts); // Now handles both listing and search with optional 'q' parameter
 router.route("/:id").get(getProductById);
 
 // Protected routes (Vendor/Admin)

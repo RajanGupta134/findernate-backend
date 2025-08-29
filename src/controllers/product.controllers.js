@@ -75,22 +75,45 @@ const createProduct = asyncHandler(async (req, res) => {
         throw new ApiError(400, "Name, price, and category are required");
     }
 
-    // Validate category exists
-    const categoryDoc = await Category.findById(category);
+    // Find category by name or ID
+    let categoryDoc;
+    if (mongoose.Types.ObjectId.isValid(category)) {
+        // If it's a valid ObjectId, search by ID
+        categoryDoc = await Category.findById(category);
+    } else {
+        // If it's not an ObjectId, search by name (case-insensitive)
+        categoryDoc = await Category.findOne({
+            name: { $regex: new RegExp(`^${category}$`, 'i') },
+            isActive: true
+        });
+    }
+
     if (!categoryDoc) {
-        throw new ApiError(404, "Category not found");
+        throw new ApiError(404, `Category '${category}' not found`);
     }
 
     // Validate subcategory if provided
+    let subcategoryDoc = null;
     if (subcategory) {
-        const subcategoryDoc = await Category.findById(subcategory);
-        if (!subcategoryDoc) {
-            throw new ApiError(404, "Subcategory not found");
+        if (mongoose.Types.ObjectId.isValid(subcategory)) {
+            // Search by ID
+            subcategoryDoc = await Category.findById(subcategory);
+        } else {
+            // Search by name, and it should be a child of the main category
+            subcategoryDoc = await Category.findOne({
+                name: { $regex: new RegExp(`^${subcategory}$`, 'i') },
+                parentCategory: categoryDoc._id,
+                isActive: true
+            });
         }
 
-        // Check if subcategory is actually a child of the main category
-        if (subcategoryDoc.parentCategory?.toString() !== category) {
-            throw new ApiError(400, "Subcategory must belong to the selected category");
+        if (!subcategoryDoc) {
+            throw new ApiError(404, `Subcategory '${subcategory}' not found under category '${categoryDoc.name}'`);
+        }
+
+        // Ensure subcategory belongs to the main category
+        if (subcategoryDoc.parentCategory?.toString() !== categoryDoc._id.toString()) {
+            throw new ApiError(400, `Subcategory '${subcategory}' must belong to category '${categoryDoc.name}'`);
         }
     }
 
@@ -111,8 +134,8 @@ const createProduct = asyncHandler(async (req, res) => {
         minStock: minStock || 5,
         trackStock: trackStock !== false,
         allowBackorder: allowBackorder || false,
-        category,
-        subcategory,
+        category: categoryDoc._id, // Use the found category's ObjectId
+        subcategory: subcategoryDoc?._id, // Use the found subcategory's ObjectId
         brand,
         images: images || [],
         variants: variants || [],
@@ -202,9 +225,10 @@ const getProductById = asyncHandler(async (req, res) => {
     );
 });
 
-// ✅ GET /api/v1/products - Product listing with pagination, sorting, filtering
+// ✅ GET /api/v1/products - Unified product listing with search, pagination, sorting, filtering
 const getProducts = asyncHandler(async (req, res) => {
     const {
+        q, // search query (optional)
         page = 1,
         limit = 12,
         category,
@@ -220,6 +244,9 @@ const getProducts = asyncHandler(async (req, res) => {
         status = 'active'
     } = req.query;
 
+    // Check if this is a search request
+    const isSearchRequest = q && q.trim().length >= 2;
+
     // Build filter object
     const filter = {
         isActive: true
@@ -230,6 +257,11 @@ const getProducts = asyncHandler(async (req, res) => {
         filter.status = status;
     } else {
         filter.status = 'active';
+    }
+
+    // Search filter (if search query provided)
+    if (isSearchRequest) {
+        filter.$text = { $search: q.trim() };
     }
 
     // Seller filter (for vendor's own products)
@@ -274,14 +306,19 @@ const getProducts = asyncHandler(async (req, res) => {
         filter.isFeatured = true;
     }
 
-    // Sorting
+    // Sorting - handle search relevance
     const sortOptions = {};
     const allowedSortFields = [
         'createdAt', 'price', 'name', 'averageRating',
-        'salesCount', 'viewCount', 'totalReviews'
+        'salesCount', 'viewCount', 'totalReviews', 'relevance'
     ];
 
-    if (allowedSortFields.includes(sortBy)) {
+    if (isSearchRequest && sortBy === 'relevance') {
+        sortOptions.score = { $meta: 'textScore' };
+    } else if (isSearchRequest && sortBy === 'createdAt' && !req.query.sortBy) {
+        // Default to relevance for search when no sortBy specified
+        sortOptions.score = { $meta: 'textScore' };
+    } else if (allowedSortFields.includes(sortBy)) {
         sortOptions[sortBy] = sortOrder === 'asc' ? 1 : -1;
     } else {
         sortOptions.createdAt = -1;
@@ -304,113 +341,9 @@ const getProducts = asyncHandler(async (req, res) => {
     const totalProducts = await Product.countDocuments(filter);
     const totalPages = Math.ceil(totalProducts / parseInt(limit));
 
-    // Pagination info
-    const pagination = {
-        page: parseInt(page),
-        limit: parseInt(limit),
-        total: totalProducts,
-        totalPages,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1
-    };
-
-    return res.status(200).json(
-        new ApiResponse(200, {
-            products,
-            pagination,
-            filters: {
-                category,
-                subcategory,
-                brand,
-                minPrice,
-                maxPrice,
-                inStock,
-                featured,
-                sortBy,
-                sortOrder
-            }
-        }, "Products retrieved successfully")
-    );
-});
-
-// ✅ GET /api/v1/products/search - Search products
-const searchProducts = asyncHandler(async (req, res) => {
-    const {
-        q, // search query
-        page = 1,
-        limit = 12,
-        category,
-        minPrice,
-        maxPrice,
-        sortBy = 'relevance'
-    } = req.query;
-
-    if (!q || q.trim().length < 2) {
-        throw new ApiError(400, "Search query must be at least 2 characters long");
-    }
-
-    // Build search filter
-    const filter = {
-        status: 'active',
-        isActive: true,
-        $text: { $search: q }
-    };
-
-    // Additional filters
-    if (category) {
-        filter.category = category;
-    }
-
-    if (minPrice || maxPrice) {
-        filter.price = {};
-        if (minPrice) filter.price.$gte = parseFloat(minPrice);
-        if (maxPrice) filter.price.$lte = parseFloat(maxPrice);
-    }
-
-    // Sorting options
-    let sortOptions = {};
-    switch (sortBy) {
-        case 'relevance':
-            sortOptions = { score: { $meta: 'textScore' } };
-            break;
-        case 'price_low':
-            sortOptions = { price: 1 };
-            break;
-        case 'price_high':
-            sortOptions = { price: -1 };
-            break;
-        case 'rating':
-            sortOptions = { averageRating: -1, totalReviews: -1 };
-            break;
-        case 'newest':
-            sortOptions = { createdAt: -1 };
-            break;
-        case 'popular':
-            sortOptions = { salesCount: -1, viewCount: -1 };
-            break;
-        default:
-            sortOptions = { score: { $meta: 'textScore' } };
-    }
-
-    const skip = (parseInt(page) - 1) * parseInt(limit);
-
-    // Execute search
-    const products = await Product.find(filter)
-        .populate('category', 'name slug')
-        .populate('subcategory', 'name slug')
-        .populate('sellerId', 'username firstName lastName')
-        .select('-reviews')
-        .sort(sortOptions)
-        .limit(parseInt(limit))
-        .skip(skip);
-
-    const totalProducts = await Product.countDocuments(filter);
-    const totalPages = Math.ceil(totalProducts / parseInt(limit));
-
-    // Search suggestions (if few results found)
+    // Search suggestions (if search request with few results)
     let suggestions = [];
-    if (totalProducts < 5) {
-        // Find similar products by partial name match
+    if (isSearchRequest && totalProducts < 5) {
         const suggestionProducts = await Product.find({
             status: 'active',
             isActive: true,
@@ -422,23 +355,48 @@ const searchProducts = asyncHandler(async (req, res) => {
         suggestions = suggestionProducts.map(p => p.name);
     }
 
+    // Pagination info
+    const pagination = {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: totalProducts,
+        totalPages,
+        hasNextPage: page < totalPages,
+        hasPrevPage: page > 1
+    };
+
+    // Response data
+    const responseData = {
+        products,
+        pagination,
+        filters: {
+            category,
+            subcategory,
+            brand,
+            minPrice,
+            maxPrice,
+            inStock,
+            featured,
+            sortBy,
+            sortOrder
+        }
+    };
+
+    // Add search-specific data if this was a search request
+    if (isSearchRequest) {
+        responseData.searchQuery = q;
+        responseData.suggestions = suggestions;
+        responseData.resultsFound = totalProducts;
+    }
+
+    const message = isSearchRequest ? "Search completed successfully" : "Products retrieved successfully";
+
     return res.status(200).json(
-        new ApiResponse(200, {
-            products,
-            pagination: {
-                page: parseInt(page),
-                limit: parseInt(limit),
-                total: totalProducts,
-                totalPages,
-                hasNextPage: page < totalPages,
-                hasPrevPage: page > 1
-            },
-            searchQuery: q,
-            suggestions,
-            resultsFound: totalProducts
-        }, "Search completed successfully")
+        new ApiResponse(200, responseData, message)
     );
 });
+
+
 
 // ✅ PUT /api/v1/products/:id - Update product (Admin/Vendor)
 const updateProduct = asyncHandler(async (req, res) => {
@@ -455,18 +413,50 @@ const updateProduct = asyncHandler(async (req, res) => {
 
     // Validate category if being updated
     if (updates.category) {
-        const categoryDoc = await Category.findById(updates.category);
-        if (!categoryDoc) {
-            throw new ApiError(404, "Category not found");
+        let categoryDoc;
+        if (mongoose.Types.ObjectId.isValid(updates.category)) {
+            categoryDoc = await Category.findById(updates.category);
+        } else {
+            categoryDoc = await Category.findOne({
+                name: { $regex: new RegExp(`^${updates.category}$`, 'i') },
+                isActive: true
+            });
         }
+
+        if (!categoryDoc) {
+            throw new ApiError(404, `Category '${updates.category}' not found`);
+        }
+
+        // Replace category name with ObjectId
+        updates.category = categoryDoc._id;
     }
 
     // Validate subcategory if being updated
     if (updates.subcategory) {
-        const subcategoryDoc = await Category.findById(updates.subcategory);
-        if (!subcategoryDoc) {
-            throw new ApiError(404, "Subcategory not found");
+        let subcategoryDoc;
+        if (mongoose.Types.ObjectId.isValid(updates.subcategory)) {
+            subcategoryDoc = await Category.findById(updates.subcategory);
+        } else {
+            // If category is also being updated, use the new category, otherwise get current product's category
+            let parentCategoryId = updates.category;
+            if (!parentCategoryId) {
+                const currentProduct = await Product.findById(id).select('category');
+                parentCategoryId = currentProduct.category;
+            }
+
+            subcategoryDoc = await Category.findOne({
+                name: { $regex: new RegExp(`^${updates.subcategory}$`, 'i') },
+                parentCategory: parentCategoryId,
+                isActive: true
+            });
         }
+
+        if (!subcategoryDoc) {
+            throw new ApiError(404, `Subcategory '${updates.subcategory}' not found`);
+        }
+
+        // Replace subcategory name with ObjectId
+        updates.subcategory = subcategoryDoc._id;
     }
 
     // Validate price fields
@@ -668,7 +658,6 @@ export {
     createProduct,
     getProductById,
     getProducts,
-    searchProducts,
     updateProduct,
     deleteProduct,
     toggleProductStatus,
