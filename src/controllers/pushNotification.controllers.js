@@ -56,9 +56,9 @@ export const unsubscribeFromPush = asyncHandler(async (req, res) => {
   const userId = req.user._id;
 
   try {
-    const result = await PushSubscription.deleteOne({ 
+    const result = await PushSubscription.deleteOne({
       userId,
-      endpoint: subscription.endpoint 
+      endpoint: subscription.endpoint
     });
 
     return res.status(200).json(
@@ -78,9 +78,9 @@ export const sendPushNotification = async (userIds, notificationData) => {
     }
 
     // Get all subscriptions for the target users
-    const subscriptions = await PushSubscription.find({ 
+    const subscriptions = await PushSubscription.find({
       userId: { $in: userIds },
-      isActive: true 
+      isActive: true
     });
 
     if (subscriptions.length === 0) {
@@ -115,7 +115,7 @@ export const sendPushNotification = async (userIds, notificationData) => {
         await webpush.sendNotification(pushSubscription, payload);
       } catch (error) {
         console.error(`Failed to send push notification to user ${sub.userId}:`, error);
-        
+
         // If subscription is invalid, mark it as inactive
         if (error.statusCode === 410 || error.statusCode === 404) {
           await PushSubscription.updateOne(

@@ -7,7 +7,7 @@ const CallSchema = new mongoose.Schema({
         ref: 'User',
         required: true
     }],
-    
+
     // 👤 Who initiated the call
     initiator: {
         type: mongoose.Schema.Types.ObjectId,
@@ -15,7 +15,7 @@ const CallSchema = new mongoose.Schema({
         required: true,
         index: true
     },
-    
+
     // 💬 Associated chat for the call
     chatId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -23,14 +23,14 @@ const CallSchema = new mongoose.Schema({
         required: true,
         index: true
     },
-    
+
     // 🎯 Call type
     callType: {
         type: String,
         enum: ['voice', 'video'],
         required: true
     },
-    
+
     // 📊 Call status
     status: {
         type: String,
@@ -38,7 +38,7 @@ const CallSchema = new mongoose.Schema({
         default: 'initiated',
         index: true
     },
-    
+
     // 🕒 Call timing
     initiatedAt: {
         type: Date,
@@ -53,20 +53,20 @@ const CallSchema = new mongoose.Schema({
         type: Date,
         index: true
     },
-    
+
     // ⏱️ Call duration in seconds
     duration: {
         type: Number,
         default: 0
     },
-    
+
     // 🔌 End reason
     endReason: {
         type: String,
         enum: ['normal', 'declined', 'missed', 'failed', 'network_error', 'cancelled'],
         default: 'normal'
     },
-    
+
     // 📱 Device/quality information
     metadata: {
         initiatorDevice: String,
@@ -82,13 +82,47 @@ const CallSchema = new mongoose.Schema({
             default: 'unknown'
         }
     },
-    
+
     // 🔧 WebRTC session info (for debugging)
     sessionData: {
         offer: mongoose.Schema.Types.Mixed,
         answer: mongoose.Schema.Types.Mixed,
         iceCandidates: [mongoose.Schema.Types.Mixed]
-    }
+    },
+
+    // 🏠 100ms Room Information
+    hmsRoom: {
+        roomId: {
+            type: String,
+            index: true
+        },
+        roomCode: String,
+        enabled: {
+            type: Boolean,
+            default: true
+        },
+        createdAt: Date,
+        endedAt: Date
+    },
+
+    // 🔑 100ms Auth Tokens (for participants)
+    hmsTokens: [{
+        userId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User'
+        },
+        token: String,
+        role: {
+            type: String,
+            enum: ['host', 'guest'],
+            default: 'guest'
+        },
+        generatedAt: {
+            type: Date,
+            default: Date.now
+        },
+        expiresAt: Date
+    }]
 }, {
     timestamps: true,
     toJSON: { virtuals: true },
@@ -104,7 +138,7 @@ CallSchema.index({ status: 1, initiatedAt: -1 });
 // Virtual for call duration in readable format
 CallSchema.virtual('formattedDuration').get(function () {
     if (!this.duration) return '0:00';
-    
+
     const minutes = Math.floor(this.duration / 60);
     const seconds = this.duration % 60;
     return `${minutes}:${seconds.toString().padStart(2, '0')}`;
@@ -121,7 +155,7 @@ CallSchema.virtual('isOngoing').get(function () {
 });
 
 // Pre-save middleware to calculate duration
-CallSchema.pre('save', function(next) {
+CallSchema.pre('save', function (next) {
     if (this.startedAt && this.endedAt) {
         this.duration = Math.floor((this.endedAt - this.startedAt) / 1000);
     }
@@ -129,33 +163,33 @@ CallSchema.pre('save', function(next) {
 });
 
 // Static methods
-CallSchema.statics.getCallHistory = function(userId, limit = 20, page = 1) {
+CallSchema.statics.getCallHistory = function (userId, limit = 20, page = 1) {
     const skip = (page - 1) * limit;
-    
+
     return this.find({
         participants: userId,
         status: { $in: ['ended', 'declined', 'missed'] }
     })
-    .populate('participants', 'username fullName profileImageUrl')
-    .populate('initiator', 'username fullName profileImageUrl')
-    .sort({ initiatedAt: -1 })
-    .skip(skip)
-    .limit(limit);
+        .populate('participants', 'username fullName profileImageUrl')
+        .populate('initiator', 'username fullName profileImageUrl')
+        .sort({ initiatedAt: -1 })
+        .skip(skip)
+        .limit(limit);
 };
 
-CallSchema.statics.getActiveCall = function(userId) {
+CallSchema.statics.getActiveCall = function (userId) {
     return this.findOne({
         participants: userId,
         status: { $in: ['initiated', 'ringing', 'connecting', 'active'] }
     })
-    .populate('participants', 'username fullName profileImageUrl')
-    .populate('initiator', 'username fullName profileImageUrl');
+        .populate('participants', 'username fullName profileImageUrl')
+        .populate('initiator', 'username fullName profileImageUrl');
 };
 
-CallSchema.statics.getCallStats = function(userId, days = 30) {
+CallSchema.statics.getCallStats = function (userId, days = 30) {
     const startDate = new Date();
     startDate.setDate(startDate.getDate() - days);
-    
+
     return this.aggregate([
         {
             $match: {
@@ -180,6 +214,39 @@ CallSchema.statics.getCallStats = function(userId, days = 30) {
             }
         }
     ]);
+};
+
+// Get call by HMS room ID
+CallSchema.statics.getCallByRoomId = function (roomId) {
+    return this.findOne({ 'hmsRoom.roomId': roomId })
+        .populate('participants', 'username fullName profileImageUrl')
+        .populate('initiator', 'username fullName profileImageUrl');
+};
+
+// Get HMS token for user in a call
+CallSchema.methods.getHMSTokenForUser = function (userId) {
+    return this.hmsTokens.find(token =>
+        token.userId.toString() === userId.toString()
+    );
+};
+
+// Add HMS token for user
+CallSchema.methods.addHMSToken = function (userId, token, role = 'guest') {
+    // Remove existing token for user
+    this.hmsTokens = this.hmsTokens.filter(t =>
+        t.userId.toString() !== userId.toString()
+    );
+
+    // Add new token
+    this.hmsTokens.push({
+        userId,
+        token,
+        role,
+        generatedAt: new Date(),
+        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
+    });
+
+    return this.save();
 };
 
 export default mongoose.model('Call', CallSchema);
