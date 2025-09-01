@@ -3,9 +3,9 @@ module.exports = {
     {
       name: 'findernate-backend',
       script: 'src/index.js',
-      instances: 'max', // Uses all available CPU cores
+      instances: 2, // Further reduced for Render 512MB limit
       exec_mode: 'cluster',
-      
+
       // Environment variables
       env: {
         NODE_ENV: 'development',
@@ -15,42 +15,42 @@ module.exports = {
         NODE_ENV: 'production',
         PORT: 8000
       },
-      
-      // Performance optimizations
-      max_memory_restart: '1G',
-      node_args: '--max-old-space-size=1024',
-      
+
+      // Performance optimizations - adjusted for 512MB limit
+      max_memory_restart: '450M', // Reduced from 1G
+      node_args: '--max-old-space-size=450', // Reduced from 1024
+
       // Logs
       log_file: 'logs/combined.log',
       out_file: 'logs/out.log',
       error_file: 'logs/error.log',
       log_date_format: 'YYYY-MM-DD HH:mm:ss',
       merge_logs: true,
-      
+
       // Auto restart configuration
       autorestart: true,
       watch: false, // Set to true for development if you want auto-reload
       max_restarts: 10,
       min_uptime: '10s',
-      
+
       // Cluster settings
       kill_timeout: 5000,
       listen_timeout: 3000,
-      
+
       // Health monitoring
       health_check_path: '/health',
       health_check_grace_period: 10000,
-      
+
       // Advanced PM2 features
       pmx: false,
       automation: false,
       treekill: true,
-      
+
       // For Socket.IO sticky sessions (if needed)
       instance_var: 'INSTANCE_ID'
     }
   ],
-  
+
   // Deploy configuration (optional)
   deploy: {
     production: {

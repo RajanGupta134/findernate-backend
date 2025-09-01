@@ -9,7 +9,8 @@
   },
   "scripts": {
     "dev": "nodemon src/index.js",
-    "start": "pm2-runtime start ecosystem.config.cjs --env production",
+    "start": "node src/index.js",
+    "start:cluster": "pm2-runtime start ecosystem.config.cjs --env production",
     "build": "echo 'Build completed - Node.js project ready for deployment'",
     "pm2:start": "pm2 start ecosystem.config.cjs",
     "pm2:start:prod": "pm2 start ecosystem.config.cjs --env production",
@@ -45,12 +46,12 @@
     "multer": "^2.0.1",
     "node-fetch": "^3.3.2",
     "nodemailer": "^7.0.5",
-    "pm2": "^6.0.8",
     "socket.io": "^4.8.1",
     "uuid": "^11.1.0",
     "web-push": "^3.6.7"
   },
   "devDependencies": {
-    "nodemon": "^3.1.10"
+    "nodemon": "^3.1.10",
+    "pm2": "^6.0.8"
   }
 }
