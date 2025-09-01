@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import { errorHandler } from './middlewares/errorHandler.js';
+import { redisHealthCheck } from './config/redis.config.js';
 
 const app = express();
 
@@ -34,11 +35,15 @@ app.get('/', (req, res) => {
         });
 });
 
-app.get('/health', (req, res) => {
+app.get('/health', async (req, res) => {
+        const redisStatus = await redisHealthCheck();
         res.status(200).json({
                 status: 'healthy',
                 uptime: process.uptime(),
-                timestamp: new Date().toISOString()
+                timestamp: new Date().toISOString(),
+                services: {
+                        redis: redisStatus ? 'connected' : 'disconnected'
+                }
         });
 });
 
