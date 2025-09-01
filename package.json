@@ -10,7 +10,16 @@
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "build": "npm install"
+    "build": "npm install",
+    "pm2:start": "pm2 start ecosystem.config.cjs",
+    "pm2:start:prod": "pm2 start ecosystem.config.cjs --env production",
+    "pm2:stop": "pm2 stop ecosystem.config.cjs",
+    "pm2:restart": "pm2 restart ecosystem.config.cjs",
+    "pm2:reload": "pm2 reload ecosystem.config.cjs",
+    "pm2:delete": "pm2 delete ecosystem.config.cjs",
+    "pm2:logs": "pm2 logs findernate-backend",
+    "pm2:status": "pm2 status",
+    "pm2:monit": "pm2 monit"
   },
   "author": "",
   "license": "ISC",
@@ -40,5 +49,8 @@
     "socket.io": "^4.8.1",
     "uuid": "^11.1.0",
     "web-push": "^3.6.7"
+  },
+  "devDependencies": {
+    "pm2": "^6.0.8"
   }
 }
