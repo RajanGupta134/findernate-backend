@@ -1,3 +1,4 @@
+import mongoose from 'mongoose';
 import { asyncHandler } from "../utlis/asyncHandler.js";
 import { ApiError } from "../utlis/ApiError.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
@@ -1134,6 +1135,11 @@ export const getUserProfilePosts = asyncHandler(async (req, res) => {
 
     if (!userId) {
         throw new ApiError(400, "User ID is required");
+    }
+
+    // Validate ObjectId format
+    if (!mongoose.Types.ObjectId.isValid(userId)) {
+        throw new ApiError(400, "Invalid User ID format");
     }
 
     // Parse pagination values or use defaults
