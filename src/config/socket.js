@@ -1,12 +1,132 @@
 import { Server } from 'socket.io';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/user.models.js';
+import { 
+    ChatPubSub, 
+    NotificationPubSub, 
+    LiveFeaturesPubSub,
+    pubSubManager,
+    CHANNELS
+} from '../utlis/pubsub.utils.js';
 
 class SocketManager {
     constructor() {
         this.io = null;
         this.connectedUsers = new Map(); // userId -> socketId
         this.userSockets = new Map(); // socketId -> userId
+        this.chatRooms = new Map(); // chatId -> Set of socketIds
+        this.setupPubSubListeners();
+    }
+
+    /**
+     * Setup Redis PubSub listeners for real-time features
+     */
+    setupPubSubListeners() {
+        // Chat messages
+        pubSubManager.on('message', ({ channel, data }) => {
+            if (channel.startsWith('fn:chat:')) {
+                this.handleChatMessage(data);
+            } else if (channel.includes(':notifications')) {
+                this.handleNotification(data);
+            } else if (channel.startsWith('fn:live:')) {
+                this.handleLiveFeature(data);
+            }
+        });
+
+        // Pattern-based messages for user-specific events
+        pubSubManager.on('pmessage', ({ pattern, channel, data }) => {
+            if (pattern.includes('fn:user:*')) {
+                this.handleUserSpecificEvent(channel, data);
+            }
+        });
+    }
+
+    /**
+     * Handle incoming chat messages from Redis
+     */
+    handleChatMessage(data) {
+        if (!this.io || !data.chatId) return;
+        
+        // Broadcast to all users in the chat room
+        this.io.to(`chat:${data.chatId}`).emit('new_message', {
+            id: data.message?.id,
+            chatId: data.chatId,
+            senderId: data.senderId,
+            message: data.message?.message || data.message,
+            timestamp: data.timestamp,
+            type: data.type || 'message'
+        });
+        
+        console.log(`📨 Chat message broadcasted to room: chat:${data.chatId}`);
+    }
+
+    /**
+     * Handle real-time notifications
+     */
+    handleNotification(data) {
+        if (!this.io || !data.userId) return;
+        
+        const socketId = this.connectedUsers.get(data.userId);
+        if (socketId) {
+            this.io.to(socketId).emit('notification', {
+                type: data.notification?.type || data.type,
+                message: data.notification?.message || data.message,
+                data: data.notification || data,
+                timestamp: data.timestamp
+            });
+            
+            console.log(`🔔 Notification sent to user: ${data.userId}`);
+        }
+    }
+
+    /**
+     * Handle live features (typing, online status, etc.)
+     */
+    handleLiveFeature(data) {
+        if (!this.io) return;
+        
+        switch (data.type) {
+            case 'typing':
+                this.io.to(`chat:${data.chatId}`).emit('typing_indicator', {
+                    userId: data.userId,
+                    isTyping: data.isTyping,
+                    chatId: data.chatId
+                });
+                break;
+                
+            case 'online_status':
+                this.io.emit('user_online_status', {
+                    userId: data.userId,
+                    isOnline: data.isOnline,
+                    timestamp: data.timestamp
+                });
+                break;
+                
+            case 'call_event':
+                this.io.to(`call:${data.callId}`).emit('call_event', data.event);
+                break;
+        }
+    }
+
+    /**
+     * Handle user-specific events from Redis patterns
+     */
+    handleUserSpecificEvent(channel, data) {
+        const userIdMatch = channel.match(/fn:user:([^:]+)/);
+        if (!userIdMatch) return;
+        
+        const userId = userIdMatch[1];
+        const socketId = this.connectedUsers.get(userId);
+        
+        if (socketId) {
+            if (channel.includes(':notifications')) {
+                this.io.to(socketId).emit('notification', data);
+            } else if (channel.includes(':activity')) {
+                this.io.to(socketId).emit('user_activity', data);
+            } else if (channel.includes(':messages')) {
+                this.io.to(socketId).emit('private_message', data);
+            }
+        }
     }
 
     initialize(server) {
@@ -65,21 +185,38 @@ class SocketManager {
             // Join user to their personal room
             socket.join(`user_${socket.userId}`);
 
+            // Subscribe to user-specific Redis channels
+            this.subscribeUserToRedisChannels(socket.userId);
+
+            // Publish user online status
+            LiveFeaturesPubSub.publishOnlineStatus(socket.userId, true);
+
             // Handle joining chat rooms
             socket.on('join_chat', (chatId) => {
-                socket.join(`chat_${chatId}`);
+                socket.join(`chat:${chatId}`);
+                
+                // Subscribe to Redis channel for this chat
+                ChatPubSub.subscribeToChat(chatId, (message) => {
+                    console.log(`📨 Redis message received for chat ${chatId}`);
+                });
+                
                 console.log(`User ${socket.userId} joined chat ${chatId}`);
             });
 
             // Handle leaving chat rooms
             socket.on('leave_chat', (chatId) => {
-                socket.leave(`chat_${chatId}`);
+                socket.leave(`chat:${chatId}`);
             });
 
-            // Handle typing events
+            // Handle typing events with Redis broadcasting
             socket.on('typing_start', (data) => {
                 const { chatId } = data;
-                socket.to(`chat_${chatId}`).emit('user_typing', {
+                
+                // Publish typing status to Redis for cross-process sync
+                ChatPubSub.publishTyping(chatId, socket.userId, true);
+                
+                // Also emit locally for immediate feedback
+                socket.to(`chat:${chatId}`).emit('user_typing', {
                     userId: socket.userId,
                     username: socket.user.username,
                     fullName: socket.user.fullName,
@@ -89,7 +226,7 @@ class SocketManager {
 
             socket.on('typing_stop', (data) => {
                 const { chatId } = data;
-                socket.to(`chat_${chatId}`).emit('user_stopped_typing', {
+                socket.to(`chat:${chatId}`).emit('user_stopped_typing', {
                     userId: socket.userId,
                     chatId
                 });
@@ -100,7 +237,7 @@ class SocketManager {
                 const { chatId, message, messageType = 'text', replyTo } = data;
 
                 // Emit to all users in the chat (except sender)
-                socket.to(`chat_${chatId}`).emit('new_message', {
+                socket.to(`chat:${chatId}`).emit('new_message', {
                     chatId,
                     message: {
                         sender: {
@@ -122,7 +259,7 @@ class SocketManager {
                 const { chatId, messageIds } = data;
 
                 // Emit to message senders that their messages were read
-                socket.to(`chat_${chatId}`).emit('messages_read', {
+                socket.to(`chat:${chatId}`).emit('messages_read', {
                     chatId,
                     readBy: {
                         _id: socket.userId,
@@ -137,7 +274,7 @@ class SocketManager {
             socket.on('delete_message', (data) => {
                 const { chatId, messageId } = data;
 
-                socket.to(`chat_${chatId}`).emit('message_deleted', {
+                socket.to(`chat:${chatId}`).emit('message_deleted', {
                     chatId,
                     messageId,
                     deletedBy: {
@@ -152,7 +289,7 @@ class SocketManager {
             socket.on('restore_message', (data) => {
                 const { chatId, messageId, restoredMessage } = data;
 
-                socket.to(`chat_${chatId}`).emit('message_restored', {
+                socket.to(`chat:${chatId}`).emit('message_restored', {
                     chatId,
                     messageId,
                     restoredMessage,
@@ -316,6 +453,12 @@ class SocketManager {
                 this.connectedUsers.delete(socket.userId);
                 this.userSockets.delete(socket.id);
 
+                // Unsubscribe from user-specific Redis channels
+                this.unsubscribeUserFromRedisChannels(socket.userId);
+
+                // Publish user offline status
+                LiveFeaturesPubSub.publishOnlineStatus(socket.userId, false);
+
                 // Emit offline status to relevant users
                 this.emitUserOffline(socket.userId);
             });
@@ -336,7 +479,7 @@ class SocketManager {
 
     emitToChat(chatId, event, data) {
         if (this.io) {
-            this.io.to(`chat_${chatId}`).emit(event, data);
+            this.io.to(`chat:${chatId}`).emit(event, data);
         } else {
             console.warn(`Socket.IO not initialized, skipping emitToChat for chat ${chatId}, event: ${event}`);
         }
@@ -374,6 +517,50 @@ class SocketManager {
 
     isReady() {
         return this.io !== null;
+    }
+
+    /**
+     * Subscribe user to their Redis channels
+     * @param {string} userId - User ID to subscribe
+     */
+    async subscribeUserToRedisChannels(userId) {
+        try {
+            // Subscribe to user-specific notifications
+            await NotificationPubSub.subscribeToNotifications(userId);
+            
+            // Subscribe to user activity updates
+            const activityChannel = `fn:user:${userId}:activity`;
+            await pubSubManager.subscribe(activityChannel);
+            
+            // Subscribe to pattern-based channels for this user
+            const userPattern = `fn:user:${userId}:*`;
+            await pubSubManager.psubscribe(userPattern);
+            
+            console.log(`🔔 User ${userId} subscribed to Redis channels`);
+        } catch (error) {
+            console.error(`Failed to subscribe user ${userId} to Redis channels:`, error);
+        }
+    }
+
+    /**
+     * Unsubscribe user from their Redis channels
+     * @param {string} userId - User ID to unsubscribe
+     */
+    async unsubscribeUserFromRedisChannels(userId) {
+        try {
+            // Unsubscribe from user-specific channels
+            const notificationChannel = `fn:user:${userId}:notifications`;
+            const activityChannel = `fn:user:${userId}:activity`;
+            const userPattern = `fn:user:${userId}:*`;
+            
+            await pubSubManager.unsubscribe(notificationChannel);
+            await pubSubManager.unsubscribe(activityChannel);
+            await pubSubManager.punsubscribe(userPattern);
+            
+            console.log(`🔕 User ${userId} unsubscribed from Redis channels`);
+        } catch (error) {
+            console.error(`Failed to unsubscribe user ${userId} from Redis channels:`, error);
+        }
     }
 }
 

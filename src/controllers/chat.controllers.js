@@ -9,6 +9,7 @@ import mongoose from 'mongoose';
 import socketManager from '../config/socket.js';
 import { sendPushNotification } from './pushNotification.controllers.js';
 import { User } from '../models/user.models.js';
+import { ChatPubSub, NotificationPubSub, LiveFeaturesPubSub } from '../utlis/pubsub.utils.js';
 
 // Helper function to safely emit socket events
 const safeEmitToChat = (chatId, event, data) => {
