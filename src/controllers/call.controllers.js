@@ -201,8 +201,29 @@ export const acceptCall = asyncHandler(async (req, res) => {
         });
     });
 
+    // Prepare response data with roomID
+    const responseData = {
+        ...call.toObject(),
+        roomID: call.hmsRoom?.roomId || null, // Include roomID from HMS room
+        hmsRoom: call.hmsRoom ? {
+            roomId: call.hmsRoom.roomId,
+            roomCode: call.hmsRoom.roomCode,
+            enabled: call.hmsRoom.enabled,
+            createdAt: call.hmsRoom.createdAt
+        } : null
+    };
+
+    // Include user's auth token if available
+    if (call.hmsRoom?.roomId) {
+        const userToken = call.getHMSTokenForUser(currentUserId);
+        if (userToken) {
+            responseData.authToken = userToken.token;
+            responseData.userRole = userToken.role;
+        }
+    }
+
     res.status(200).json(
-        new ApiResponse(200, call, 'Call accepted successfully')
+        new ApiResponse(200, responseData, 'Call accepted successfully')
     );
 });
 
