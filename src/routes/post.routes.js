@@ -15,7 +15,6 @@ import {
     deleteContent,
 } from "../controllers/post.controllers.js";
 import { getHomeFeed } from "../controllers/homeFeed.controllers.js";
-import { getHomeFeedOptimized } from "../controllers/homeFeedOptimized.controllers.js";
 import { likePost, unlikePost, likeComment, unlikeComment } from "../controllers/like.controllers.js";
 import { createComment, getCommentsByPost, getCommentById, updateComment, deleteComment } from "../controllers/comment.controllers.js";
 import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, deleteNotification } from "../controllers/notification.controllers.js";
