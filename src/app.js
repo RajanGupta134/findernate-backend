@@ -1,14 +1,27 @@
 import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import compression from 'compression';
 import { errorHandler } from './middlewares/errorHandler.js';
 import { redisHealthCheck } from './config/redis.config.js';
 
 const app = express();
 
+// Performance middleware - Enable gzip compression
+app.use(compression({
+    filter: (req, res) => {
+        if (req.headers['x-no-compression']) {
+            return false;
+        }
+        return compression.filter(req, res);
+    },
+    level: 6, // Compression level 1-9 (6 is good balance)
+    threshold: 1024, // Only compress responses > 1KB
+}));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Request parsing middleware
+app.use(express.json({ limit: '10mb' })); // Limit JSON payload size
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 app.use(cors({
         origin: [
