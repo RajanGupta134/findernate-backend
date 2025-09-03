@@ -8,21 +8,51 @@ dotenv.config({
     path: './.env'
 });
 
+console.log('🚀 Starting FinderNate Backend...');
+console.log('📊 Environment:', process.env.NODE_ENV);
+console.log('🔌 Port:', process.env.PORT);
+
+// Global error handlers to catch unhandled errors
+process.on('uncaughtException', (error) => {
+    console.error('💥 Uncaught Exception:', error);
+    process.exit(1);
+});
+
+process.on('unhandledRejection', (error) => {
+    console.error('🚫 Unhandled Rejection:', error);
+    process.exit(1);
+});
+
 const server = http.createServer(app);
 
-// 5. Connect to MongoDB, then start the server
+// Connect to MongoDB, then start the server
 connectDB()
     .then(() => {
-
+        console.log('✅ Database connected successfully');
 
         // Initialize Socket.IO with our enhanced manager after DB connection
-        socketManager.initialize(server);
+        try {
+            console.log('🔄 Initializing Socket.IO...');
+            socketManager.initialize(server);
+            console.log('✅ Socket.IO initialized successfully');
+        } catch (error) {
+            console.error('❌ Socket.IO initialization error:', error);
+            throw error;
+        }
 
         const PORT = process.env.PORT || 8000;
-        server.listen(PORT, () => {
+        server.listen(PORT, '0.0.0.0', () => {
+            console.log(`🎉 Server is running on port ${PORT}`);
+            console.log(`🌐 Health check: http://localhost:${PORT}/health`);
+            console.log('🎯 FinderNate Backend is ready to accept connections!');
+        });
 
+        server.on('error', (error) => {
+            console.error('❌ Server error:', error);
+            process.exit(1);
         });
     })
     .catch((err) => {
         console.error("❌ MONGODB connection error:", err);
+        process.exit(1);
     });
