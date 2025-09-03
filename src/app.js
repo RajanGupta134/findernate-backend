@@ -36,15 +36,40 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', async (req, res) => {
-        const redisStatus = await redisHealthCheck();
-        res.status(200).json({
-                status: 'healthy',
-                uptime: process.uptime(),
-                timestamp: new Date().toISOString(),
-                services: {
-                        redis: redisStatus ? 'connected' : 'disconnected'
-                }
-        });
+        try {
+                const redisStatus = await redisHealthCheck();
+                const memoryUsage = process.memoryUsage();
+                const cpuUsage = process.cpuUsage();
+                
+                res.status(200).json({
+                        status: 'healthy',
+                        uptime: process.uptime(),
+                        timestamp: new Date().toISOString(),
+                        services: {
+                                redis: redisStatus ? 'connected' : 'disconnected'
+                        },
+                        system: {
+                                memory: {
+                                        used: Math.round(memoryUsage.heapUsed / 1024 / 1024) + 'MB',
+                                        total: Math.round(memoryUsage.heapTotal / 1024 / 1024) + 'MB',
+                                        external: Math.round(memoryUsage.external / 1024 / 1024) + 'MB'
+                                },
+                                cpu: {
+                                        user: cpuUsage.user,
+                                        system: cpuUsage.system
+                                },
+                                platform: process.platform,
+                                nodeVersion: process.version,
+                                pid: process.pid
+                        }
+                });
+        } catch (error) {
+                res.status(503).json({
+                        status: 'unhealthy',
+                        error: error.message,
+                        timestamp: new Date().toISOString()
+                });
+        }
 });
 
 //import route

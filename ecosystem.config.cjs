@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'findernate-backend',
       script: 'src/index.js',
-      instances: process.env.NODE_ENV === 'production' ? 4 : 'max', // Production: 4, Local: all cores
+      instances: process.env.PM2_INSTANCES || (process.env.NODE_ENV === 'production' ? 2 : 'max'), // Render Standard: 2, Local: all cores
       exec_mode: 'cluster',
 
       // Environment variables
@@ -13,12 +13,12 @@ module.exports = {
       },
       env_production: {
         NODE_ENV: 'production',
-        PORT: 8000
+        PORT: process.env.PORT || 10000  // Use Render's PORT
       },
 
-      // Performance optimizations - adjusted for 2GB RAM
-      max_memory_restart: '400M', // Allow 400MB per process (4 * 400MB = 1.6GB)
-      node_args: '--max-old-space-size=400', // V8 heap size per process
+      // Performance optimizations - adjusted for Render Standard (2GB RAM)
+      max_memory_restart: process.env.MAX_MEMORY_RESTART || '800M', // Allow 800MB per process (2 * 800MB = 1.6GB)
+      node_args: '--max-old-space-size=800', // V8 heap size per process - increased for Standard plan
 
       // Logs
       log_file: 'logs/combined.log',

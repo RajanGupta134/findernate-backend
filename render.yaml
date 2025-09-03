@@ -2,13 +2,41 @@ services:
   - type: web
     name: findernate-backend
     env: node
-    plan: free
+    plan: standard
+    region: oregon  # Choose closest to your users
     buildCommand: npm ci --only=production
     startCommand: npm start
+    
+    # Scaling configuration for Standard plan
+    scaling:
+      minInstances: 1      # Always keep 1 instance running
+      maxInstances: 4      # Scale up to 4 instances during traffic spikes
+      targetCPU: 70        # Scale when CPU usage exceeds 70%
+      targetMemory: 80     # Scale when memory usage exceeds 80%
+    
+    # Health and monitoring
+    healthCheckPath: /health
+    healthCheckInterval: 30s
+    healthCheckTimeout: 10s
+    healthCheckThreshold: 3
+    
+    # Environment variables
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
         value: 10000
+      - key: PM2_INSTANCES
+        value: 2  # Reduced instances for Standard plan
+      - key: MAX_MEMORY_RESTART
+        value: 800M  # Adjusted for 2GB RAM
+        
+    # Deployment settings
     autoDeploy: true
-    healthCheckPath: /
+    branch: main
+    
+    # Disk storage (if needed for logs/temp files)
+    disk:
+      name: findernate-disk
+      size: 1GB
+      mount: /opt/render/project/storage
