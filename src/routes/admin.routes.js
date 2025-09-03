@@ -37,7 +37,6 @@ import {
 
 import {
     verifyAdminJWT,
-    requireAdmin,
     requirePermission
 } from "../middlewares/adminAuth.middleware.js";
 

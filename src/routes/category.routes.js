@@ -9,7 +9,6 @@ import {
     getCategoryTree,
     getCategoryBreadcrumb
 } from "../controllers/category.controllers.js";
-import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { verifyAdminJWT } from "../middlewares/adminAuth.middleware.js";
 
 const router = Router();

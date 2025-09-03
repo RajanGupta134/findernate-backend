@@ -54,11 +54,7 @@ export const invalidateCache = async (pattern) => {
     }
 };
 
-// Specific cache middleware for common patterns
-export const cacheUserProfile = cacheMiddleware(
-    (req) => RedisKeys.userProfile(req.params.userId || req.user?.id),
-    RedisTTL.USER_PROFILE
-);
+
 
 export const cacheUserFeed = cacheMiddleware(
     (req) => RedisKeys.userFeed(req.user?.id, req.query.page || 1),

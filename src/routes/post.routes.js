@@ -3,7 +3,7 @@ import { Router } from "express";
 import { upload } from "../middlewares/multerConfig.js";
 import { verifyJWT, optionalVerifyJWT } from "../middlewares/auth.middleware.js";
 import { getBlockedUsers as getBlockedUsersMiddleware } from "../middlewares/blocking.middleware.js";
-import { cacheUserFeed, cacheUserProfile } from "../middlewares/cache.middleware.js";
+import { cacheUserFeed } from "../middlewares/cache.middleware.js";
 import {
     createNormalPost,
     createProductPost,

@@ -1,5 +1,4 @@
 import { Router } from "express";
-import { verifyJWT } from "../middlewares/auth.middleware.js";
 import { getBlockedUsers as getBlockedUsersMiddleware } from "../middlewares/blocking.middleware.js";
 import { getTrendingBusinessOwners } from "../controllers/trendingBusinessOwners.controllers.js";
 
