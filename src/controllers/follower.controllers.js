@@ -27,7 +27,19 @@ export const followUser = asyncHandler(async (req, res) => {
     // Create notification
     await createFollowNotification({ recipientId: userId, sourceUserId: followerId });
 
-    res.status(200).json(new ApiResponse(200, {}, "Followed successfully"));
+    // Get the followed user's info to return in response
+    const followedUser = await User.findById(userId).select('username fullName profileImageUrl');
+
+    res.status(200).json(new ApiResponse(200, {
+        followedUser: {
+            _id: userId,
+            username: followedUser.username,
+            fullName: followedUser.fullName,
+            profileImageUrl: followedUser.profileImageUrl
+        },
+        isFollowing: true,
+        timestamp: new Date()
+    }, "Followed successfully"));
 });
 
 // Unfollow a user
@@ -41,7 +53,19 @@ export const unfollowUser = asyncHandler(async (req, res) => {
     await User.findByIdAndUpdate(userId, { $pull: { followers: followerId } });
     await User.findByIdAndUpdate(followerId, { $pull: { following: userId } });
 
-    res.status(200).json(new ApiResponse(200, {}, "Unfollowed successfully"));
+    // Get the unfollowed user's info to return in response
+    const unfollowedUser = await User.findById(userId).select('username fullName profileImageUrl');
+
+    res.status(200).json(new ApiResponse(200, {
+        unfollowedUser: {
+            _id: userId,
+            username: unfollowedUser.username,
+            fullName: unfollowedUser.fullName,
+            profileImageUrl: unfollowedUser.profileImageUrl
+        },
+        isFollowing: false,
+        timestamp: new Date()
+    }, "Unfollowed successfully"));
 });
 
 // Get followers of a user
