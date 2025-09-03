@@ -7,7 +7,8 @@ import Comment from '../models/comment.models.js';
 import { asyncHandler } from '../utlis/asyncHandler.js';
 import Like from '../models/like.models.js';
 import PostInteraction from '../models/postInteraction.models.js';
-import { setCache, redisClient } from '../middlewares/cache.middleware.js';
+import { setCache } from '../middlewares/cache.middleware.js';
+import { redisClient } from '../config/redis.config.js';
 
 export const getHomeFeed = asyncHandler(async (req, res) => {
     try {

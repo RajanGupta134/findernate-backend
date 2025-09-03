@@ -1,5 +1,8 @@
 import { redisClient, RedisKeys, RedisTTL } from '../config/redis.config.js';
 
+// Re-export redisClient for controllers that need direct access
+export { redisClient };
+
 // Generic Redis caching middleware
 export const cacheMiddleware = (keyGenerator, ttl = RedisTTL.USER_FEED) => {
     return async (req, res, next) => {
