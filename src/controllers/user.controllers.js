@@ -5,6 +5,7 @@ import { ApiResponse } from "../utlis/ApiResponse.js";
 import { v4 as uuidv4 } from "uuid";
 import { sendEmail } from "../utlis/sendEmail.js"
 import { uploadBufferToBunny } from "../utlis/bunny.js";
+import { setCache } from "../middlewares/cache.middleware.js";
 import Follower from "../models/follower.models.js";
 import Post from "../models/userPost.models.js";
 import Reel from "../models/reels.models.js";
@@ -222,6 +223,15 @@ const getUserProfile = asyncHandler(async (req, res) => {
             postsCount
         }
     };
+
+    // Cache the response if caching is available
+    if (res.locals.cacheKey && res.locals.cacheTTL) {
+        await setCache(res.locals.cacheKey, { 
+            success: true,
+            data: userProfile,
+            message: "User profile retrieved successfully"
+        }, res.locals.cacheTTL);
+    }
 
     return res.status(200).json(
         new ApiResponse(200, userProfile, "User profile retrieved successfully")

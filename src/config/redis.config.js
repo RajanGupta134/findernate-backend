@@ -13,20 +13,23 @@ const REDIS_CONFIG = {
     // Connection options
     connectTimeout: 10000,
     commandTimeout: 5000,
-    lazyConnect: true,
-    maxRetriesPerRequest: 3,
-    retryDelayOnFailover: 100,
+    lazyConnect: false,
     
     // Pool settings optimized for 2GB RAM
     family: 4,
     keepAlive: true,
-    maxRetriesPerRequest: 3,
     
     // Memory optimization
-    maxMemoryPolicy: 'allkeys-lru', // Evict least recently used keys when memory full
+    maxMemoryPolicy: 'allkeys-lru',
     
     // Error handling
-    enableOfflineQueue: false,
+    enableOfflineQueue: true,
+    
+    // Retry configuration
+    retryDelayOnFailover: 1000,
+    maxRetriesPerRequest: 5,
+    
+    // Remove TLS for Redis Cloud - it's not needed for this endpoint
 };
 
 // Primary Redis instance for caching

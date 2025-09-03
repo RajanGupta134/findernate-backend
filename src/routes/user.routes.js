@@ -2,6 +2,7 @@ import { Router } from "express";
 import { upload } from "../middlewares/multerConfig.js";
 import { verifyJWT, optionalVerifyJWT } from "../middlewares/auth.middleware.js";
 import { getBlockedUsers as getBlockedUsersMiddleware, filterBlockedUsers } from "../middlewares/blocking.middleware.js";
+import { cacheUserProfile, cacheSearchResults } from "../middlewares/cache.middleware.js";
 import { loginUser, logOutUser, registerUser, getUserProfile, updateUserProfile, changePassword, deleteAccount, searchUsers, verifyEmailWithOTP, uploadProfileImage, sendVerificationOTPForEmail, sendPasswordResetOTP, resetPasswordWithOTP, getOtherUserProfile, checkTokenExpiry, togglePhoneNumberVisibility, toggleAddressVisibility, trackSearch, getPopularSearches, blockUser, unblockUser, getBlockedUsers, checkIfUserBlocked } from "../controllers/user.controllers.js";
 import { searchAllContent } from "../controllers/searchAllContent.controllers.js";
 import { followUser, unfollowUser, getFollowers, getFollowing } from "../controllers/follower.controllers.js";
@@ -12,28 +13,28 @@ const router = Router();
 router.route("/register").post(registerUser);
 router.route("/login").post(loginUser);
 router.route("/logout").post(verifyJWT, logOutUser);
-router.route("/profile").get(verifyJWT, getUserProfile);
+router.route("/profile").get(verifyJWT, cacheUserProfile, getUserProfile);
 router.route("/profile").put(verifyJWT, updateUserProfile);
 router.route("/profile/change-password").put(verifyJWT, changePassword);
 router.route("/profile").delete(verifyJWT, deleteAccount);
-router.route("/profile/search").get(verifyJWT, getBlockedUsersMiddleware, searchUsers);
+router.route("/profile/search").get(verifyJWT, getBlockedUsersMiddleware, cacheSearchResults, searchUsers);
 router.route("/verify-email-otp").post(verifyEmailWithOTP);
 router.route("/send-verification-otp").post(sendVerificationOTPForEmail);
 router.route("/profile/upload-image").post(verifyJWT, upload.single("profileImage"), uploadProfileImage);
 router.route("/send-reset-otp").post(sendPasswordResetOTP);
 router.route("/reset-password").post(resetPasswordWithOTP);
 router.route("/check-token").post(checkTokenExpiry);
-router.route("/searchAllContent").get(optionalVerifyJWT, getBlockedUsersMiddleware, searchAllContent);
-router.route("/profile/other").get(verifyJWT, getBlockedUsersMiddleware, getOtherUserProfile);
+router.route("/searchAllContent").get(optionalVerifyJWT, getBlockedUsersMiddleware, cacheSearchResults, searchAllContent);
+router.route("/profile/other").get(verifyJWT, getBlockedUsersMiddleware, cacheUserProfile, getOtherUserProfile);
 
 // Follower routes
 router.post("/follow", verifyJWT, followUser);
 router.post("/unfollow", verifyJWT, unfollowUser);
-router.get("/followers/:userId", verifyJWT, getFollowers);
-router.get("/following/:userId", verifyJWT, getFollowing);
+router.get("/followers/:userId", verifyJWT, cacheUserProfile, getFollowers);
+router.get("/following/:userId", verifyJWT, cacheUserProfile, getFollowing);
 
 // Search suggestion routes
-router.get("/search-suggestions", verifyJWT, getSearchSuggestions);
+router.get("/search-suggestions", verifyJWT, cacheSearchResults, getSearchSuggestions);
 
 // Search tracking routes
 router.post("/track-search", trackSearch);

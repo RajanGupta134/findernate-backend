@@ -3,6 +3,7 @@ import { Router } from "express";
 import { upload } from "../middlewares/multerConfig.js";
 import { verifyJWT, optionalVerifyJWT } from "../middlewares/auth.middleware.js";
 import { getBlockedUsers as getBlockedUsersMiddleware } from "../middlewares/blocking.middleware.js";
+import { cacheUserFeed, cacheUserProfile } from "../middlewares/cache.middleware.js";
 import {
     createNormalPost,
     createProductPost,
@@ -38,10 +39,10 @@ router.route("/create/normal").post(mediaUpload, verifyJWT, createNormalPost);
 router.route("/create/service").post(mediaUpload, verifyJWT, createServicePost);
 router.route("/create/product").post(mediaUpload, verifyJWT, createProductPost);
 router.route("/create/business").post(mediaUpload, verifyJWT, createBusinessPost);
-router.route("/user/:userId/profile").get(verifyJWT, getUserProfilePosts);
-router.route("/switch/profile/:userId").get(verifyJWT, getProfileTabContent);
-router.route("/home-feed").get(optionalVerifyJWT, getBlockedUsersMiddleware, getHomeFeed);
-router.route("/myPosts").get(verifyJWT, getMyPosts);
+router.route("/user/:userId/profile").get(verifyJWT, cacheUserProfile, getUserProfilePosts);
+router.route("/switch/profile/:userId").get(verifyJWT, cacheUserProfile, getProfileTabContent);
+router.route("/home-feed").get(optionalVerifyJWT, getBlockedUsersMiddleware, cacheUserFeed, getHomeFeed);
+router.route("/myPosts").get(verifyJWT, cacheUserProfile, getMyPosts);
 router.route("/notifications").get(verifyJWT, getNotifications);
 
 
