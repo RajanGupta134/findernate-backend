@@ -1,4 +1,4 @@
-import { redisPubSub } from '../config/redis.config.js';
+import { redisPubSub, redisPublisher } from '../config/redis.config.js';
 import { EventEmitter } from 'events';
 
 /**
@@ -193,7 +193,7 @@ class PubSubManager extends EventEmitter {
                 channel
             });
             
-            const result = await redisPubSub.publish(channel, message);
+            const result = await redisPublisher.publish(channel, message);
             return result;
             
         } catch (error) {

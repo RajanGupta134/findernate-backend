@@ -35,8 +35,11 @@ const REDIS_CONFIG = {
 // Primary Redis instance for caching
 export const redisClient = new Redis(REDIS_CONFIG);
 
-// Secondary Redis instance for pub/sub (separate connection recommended)
+// Secondary Redis instance for pub/sub subscribing only
 export const redisPubSub = new Redis(REDIS_CONFIG);
+
+// Third Redis instance for publishing only (separate from subscriber)
+export const redisPublisher = new Redis(REDIS_CONFIG);
 
 // Redis connection event handlers
 redisClient.on('connect', () => {
