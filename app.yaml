@@ -1,0 +1,63 @@
+runtime: nodejs20
+# instance_class: F4_HIGHMEM
+
+env_variables:
+  NODE_ENV: production
+  PORT: 8080
+  MONGODB_URI: mongodb+srv://BLX:Blx**2025y@cluster0.bm1ejjh.mongodb.net/FinderNate?retryWrites=true&w=majority&appName=Cluster0
+  ACCESS_TOKEN_SECRET: OTUCkcyqgZAaM0ogRHVIg9GG_Gzh9zMocyO3UtN1kBfLRn3Dmkx08MCFRSLHVTUkcyqgZAK7fdO
+  ACCESS_TOKEN_EXPIRY: 365d
+  REFRESH_TOKEN_SECRET: CJ0X0-5aMdDNtowD9cv0OVIg9GG_OGzh9zMocyO3UtN1kBfLRn3Dmkx08MCFRSLHVTUkcyqgZAK7fdO
+  REFRESH_TOKEN_EXPIRY: 365d
+  BUNNY_STORAGE_ZONE_NAME: findernate-media
+  BUNNY_ACCESS_KEY: d2e47483-c5e5-4fc8-b08fbc0f9688-104f-4393
+  BUNNY_STORAGE_API_URL: https://storage.bunnycdn.com/findernate-media
+  BUNNY_CDN_URL: https://findernate-media.b-cdn.net
+  EMAIL_HOST: FindeNate
+  EMAIL_PORT: 587
+  EMAIL_USER: no-reply@onebrowsing.com
+  EMAIL_PASS: WnRYzTZNDqhg
+  VAPID_PUBLIC_KEY: BF170K8hTlM8MT3pQXUN_4ME-eEzSUvycTGqWvHzS8uEccvx99-si8b7BVj9i7ern_HotqaAh4-CMXCCFfnhruI
+  VAPID_PRIVATE_KEY: pMfnzfJUlUUnJZOyVKRbIoBho8MSnvRLn6sbeqH64hU
+  VAPID_EMAIL: no-reply@onebrowsing.com
+  FRONTEND_URL: https://your-frontend-domain.com
+  HMS_ACCESS_KEY: 68b330a4145cb4e8449b0ce7
+  HMS_SECRET: zjFZZe4FkKLYNaoM8510XGC6KwtM6G2qfYIyzP96yJktOOXN0OYl5eQ3Kfxm9qFVOypjER-kF62vZjXCtJLqI1AUB3uLFao10tC7dukRdAIh04P_mBHiDYUJfKSwuuDpVdxKKbnxH7lAzR8URjTGJn4ZIeIpOOjUOnT-wG7ZvtQ=
+  HMS_VOICE_TEMPLATE_ID: 68b3313e033903926e61e059
+  HMS_VIDEO_TEMPLATE_ID: 68b331ff033903926e61e05b
+  REDIS_HOST: redis-12992.c212.ap-south-1-1.ec2.redns.redis-cloud.com
+  REDIS_PORT: 12992
+  REDIS_PASSWORD: TYyF6iYf8DAVIVJKgbfHMSQkfGhyXIT3
+  REDIS_DB: 0
+
+automatic_scaling:
+  min_instances: 0
+  max_instances: 1
+  target_cpu_utilization: 0.6
+
+readiness_check:
+  path: "/health"
+  check_interval_sec: 5
+  timeout_sec: 4
+  failure_threshold: 2
+  success_threshold: 2
+  app_start_timeout_sec: 300
+
+liveness_check:
+  path: "/health"
+  check_interval_sec: 30
+  timeout_sec: 10
+  failure_threshold: 4
+  success_threshold: 2
+
+skip_files:
+  - ^(.*/)?#.*#$
+  - ^(.*/)?.*~$
+  - ^(.*/)?.*\.py[co]$
+  - ^(.*/)?.*/RCS/.*$
+  - ^(.*/)?\..*$
+  - ^(.*/)?node_modules/.*$
+  - ^(.*/)?logs/.*$
+  - ^(.*/)?\.git/.*$
+  - ^(.*/)?render\.yaml$
+  - ^(.*/)?\.env$

@@ -1,6 +1,8 @@
 import { Server } from 'socket.io';
+import { createAdapter } from '@socket.io/redis-adapter';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/user.models.js';
+import { redisPubSub, redisPublisher } from './redis.config.js';
 import { 
     ChatPubSub, 
     NotificationPubSub, 
@@ -138,6 +140,9 @@ class SocketManager {
                     credentials: true
                 }
             });
+
+            // Setup Redis adapter for multi-instance scaling
+            this.io.adapter(createAdapter(redisPubSub, redisPublisher));
 
             // Make socket.io and onlineUsers globally available for notifications
             global.io = this.io;
