@@ -97,6 +97,10 @@ const toggleSavedPostVisibility = asyncHandler(async (req, res) => {
         }
 
         // Toggle: private -> public, public -> private
+        // Handle undefined/null privacy by defaulting to 'private' first
+        if (!user.privacy) {
+            user.privacy = 'private';
+        }
         user.privacy =
             user.privacy === "private" ? "public" : "private";
         await user.save();
