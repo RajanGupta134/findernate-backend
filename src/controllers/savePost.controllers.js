@@ -168,6 +168,48 @@ const getPublicSavedPosts = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Toggle privacy of a saved post between private and public
+ * @route PATCH /api/posts/saved/toggle/:postId
+ * @access Private
+ */
+const toggleSavedPostPrivacy = asyncHandler(async (req, res) => {
+    const { postId } = req.params;
+    const userId = req.user._id;
+
+    if (!postId) {
+        throw new ApiError(400, "Post ID is required");
+    }
+
+    try {
+        const savedPost = await SavedPost.findOne({ userId, postId });
+
+        if (!savedPost) {
+            return res.status(404).json(
+                new ApiResponse(404, null, "Saved post not found")
+            );
+        }
+
+        // Toggle privacy: private -> public, public -> private
+        const newPrivacy = savedPost.privacy === 'private' ? 'public' : 'private';
+        
+        savedPost.privacy = newPrivacy;
+        await savedPost.save();
+
+        return res.status(200).json(
+            new ApiResponse(200, {
+                postId: savedPost.postId,
+                privacy: savedPost.privacy
+            }, `Saved post is now ${newPrivacy}`)
+        );
+    } catch (error) {
+        if (error.name === 'CastError') {
+            throw new ApiError(400, "Invalid post ID format");
+        }
+        throw new ApiError(500, "Error toggling saved post privacy", [error.message]);
+    }
+});
+
+/**
  * Check if a post is saved by the current user
  * @route GET /api/posts/saved/check/:postId
  * @access Private
@@ -199,5 +241,6 @@ export {
     unsavePost,
     getPrivateSavedPosts,
     getPublicSavedPosts,
+    toggleSavedPostPrivacy,
     checkPostSaved
 };

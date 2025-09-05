@@ -19,7 +19,7 @@ import { likePost, unlikePost, likeComment, unlikeComment } from "../controllers
 import { createComment, getCommentsByPost, getCommentById, updateComment, deleteComment } from "../controllers/comment.controllers.js";
 import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, deleteNotification } from "../controllers/notification.controllers.js";
 import { getProfileTabContent } from "../controllers/switch.controllers.js";
-import { savePost, unsavePost, checkPostSaved, getPrivateSavedPosts, getPublicSavedPosts } from "../controllers/savePost.controllers.js";
+import { savePost, unsavePost, checkPostSaved, getPrivateSavedPosts, getPublicSavedPosts, toggleSavedPostPrivacy } from "../controllers/savePost.controllers.js";
 import { reportContent, getReports, updateReportStatus } from "../controllers/report.controllers.js";
 import { trackPostInteraction, hidePost, batchTrackInteractions, getUserInteractionHistory } from "../controllers/postInteraction.controllers.js";
 
@@ -66,6 +66,7 @@ router.route("/save").post(verifyJWT, savePost);
 router.route("/save/:postId").delete(verifyJWT, unsavePost);
 router.route("/saved/private").get(verifyJWT, getPrivateSavedPosts);
 router.route("/saved/public").get(verifyJWT, getPublicSavedPosts);
+router.route("/saved/toggle/:postId").patch(verifyJWT, toggleSavedPostPrivacy);
 router.route("/saved/check/:postId").get(verifyJWT, checkPostSaved);
 
 // Report routes
