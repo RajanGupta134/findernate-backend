@@ -85,7 +85,7 @@ const unsavePost = asyncHandler(async (req, res) => {
 });
 
 
-export const toggleSavedPostVisibility = asyncHandler(async (req, res) => {
+const toggleSavedPostVisibility = asyncHandler(async (req, res) => {
     const userId = req.user._id;
 
     try {
