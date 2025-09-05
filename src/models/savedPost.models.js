@@ -13,6 +13,11 @@ const SavedPostSchema = new mongoose.Schema({
         required: true,
         index: true
     },
+    privacy: {
+        type: String,
+        enum : ['public', 'private'],
+        default: 'private'
+    },
     savedAt: {
         type: Date,
         default: Date.now

@@ -748,6 +748,50 @@ export const markMessagesRead = asyncHandler(async (req, res) => {
     );
 });
 
+// Mark all messages in a chat as read
+export const markChatAsRead = asyncHandler(async (req, res) => {
+    const currentUserId = req.user._id;
+    const { chatId } = req.params;
+
+    // Verify user is participant in the chat
+    const chat = await Chat.findOne({
+        _id: chatId,
+        participants: currentUserId
+    });
+
+    if (!chat) {
+        throw new ApiError(404, 'Chat not found or access denied');
+    }
+
+    // Update all unread messages in the chat to include current user in readBy array
+    const result = await Message.updateMany(
+        {
+            chatId,
+            readBy: { $ne: currentUserId },
+            isDeleted: { $ne: true }
+        },
+        {
+            $addToSet: { readBy: currentUserId }
+        }
+    );
+
+    // Emit real-time event for chat marked as read
+    safeEmitToChat(chatId, 'chat_marked_as_read', {
+        chatId,
+        readBy: {
+            _id: currentUserId,
+            username: req.user.username,
+            fullName: req.user.fullName
+        }
+    });
+
+    return res.status(200).json(
+        new ApiResponse(200, { 
+            updatedCount: result.modifiedCount 
+        }, 'Chat marked as read')
+    );
+});
+
 // Delete a message
 export const deleteMessage = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;

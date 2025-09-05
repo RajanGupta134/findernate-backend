@@ -10,7 +10,7 @@ import SavedPost from '../models/savedPost.models.js';
  * @access Private
  */
 const savePost = asyncHandler(async (req, res) => {
-    const { postId } = req.body;
+    const { postId, privacy = "private" } = req.body;
     const userId = req.user._id;
 
     if (!postId) {
@@ -19,7 +19,7 @@ const savePost = asyncHandler(async (req, res) => {
 
     try {
         // Check if post is already saved
-        const existingSave = await SavedPost.findOne({ userId, postId });
+        const existingSave = await SavedPost.findOne({ userId, postId, privacy });
 
         if (existingSave) {
             return res.status(200).json(
@@ -30,7 +30,8 @@ const savePost = asyncHandler(async (req, res) => {
         // Save post
         const savedPost = await SavedPost.create({
             userId,
-            postId
+            postId,
+            privacy
         });
 
         // Update save count in the post (optional)
@@ -88,14 +89,14 @@ const unsavePost = asyncHandler(async (req, res) => {
  * @route GET /api/posts/saved
  * @access Private
  */
-const getSavedPosts = asyncHandler(async (req, res) => {
+const getPrivateSavedPosts = asyncHandler(async (req, res) => {
     const userId = req.user._id;
     const { page = 1, limit = 10 } = req.query;
     const skip = (page - 1) * limit;
 
     try {
         // Find all saved posts and populate the post details
-        const savedPosts = await SavedPost.find({ userId })
+        const savedPosts = await SavedPost.find({ userId, privacy:'private' })
             .sort({ savedAt: -1 })
             .skip(skip)
             .limit(parseInt(limit))
@@ -109,7 +110,7 @@ const getSavedPosts = asyncHandler(async (req, res) => {
             });
 
         // Get total count for pagination
-        const totalSavedPosts = await SavedPost.countDocuments({ userId });
+        const totalSavedPosts = await SavedPost.countDocuments({ userId, privacy:'private'});
 
         return res.status(200).json(
             new ApiResponse(200, {
@@ -120,7 +121,46 @@ const getSavedPosts = asyncHandler(async (req, res) => {
                     totalPages: Math.ceil(totalSavedPosts / limit),
                     postsPerPage: parseInt(limit)
                 }
-            }, "Saved posts retrieved successfully")
+            }, "Private Saved posts retrieved successfully")
+        );
+    } catch (error) {
+        throw new ApiError(500, "Error retrieving saved posts", [error.message]);
+    }
+});
+
+const getPublicSavedPosts = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+    const { page = 1, limit = 10 } = req.query;
+    const skip = (page - 1) * limit;
+
+    try {
+        // Find all saved posts and populate the post details
+        const savedPosts = await SavedPost.find({ userId, privacy: 'public' })
+            .sort({ savedAt: -1 })
+            .skip(skip)
+            .limit(parseInt(limit))
+            .populate({
+                path: 'postId',
+                select: 'caption media customization userId createdAt engagement',
+                populate: {
+                    path: 'userId',
+                    select: 'username fullName profileImageUrl'
+                }
+            });
+
+        // Get total count for pagination
+        const totalSavedPosts = await SavedPost.countDocuments({ userId, privacy: 'public' });
+
+        return res.status(200).json(
+            new ApiResponse(200, {
+                savedPosts,
+                pagination: {
+                    totalPosts: totalSavedPosts,
+                    currentPage: parseInt(page),
+                    totalPages: Math.ceil(totalSavedPosts / limit),
+                    postsPerPage: parseInt(limit)
+                }
+            }, "Public Saved posts retrieved successfully")
         );
     } catch (error) {
         throw new ApiError(500, "Error retrieving saved posts", [error.message]);
@@ -157,6 +197,7 @@ const checkPostSaved = asyncHandler(async (req, res) => {
 export {
     savePost,
     unsavePost,
-    getSavedPosts,
+    getPrivateSavedPosts,
+    getPublicSavedPosts,
     checkPostSaved
 };

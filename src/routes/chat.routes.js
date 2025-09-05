@@ -7,6 +7,7 @@ import {
     getChatMessages,
     addMessage,
     markMessagesRead,
+    markChatAsRead,
     deleteMessage,
     restoreMessage,
     startTyping,
@@ -43,6 +44,9 @@ router.post('/:chatId/messages/text', addMessage);
 
 // Mark messages as read
 router.patch('/:chatId/read', markMessagesRead);
+
+// Mark all messages in a chat as read
+router.patch('/:chatId/read-all', markChatAsRead);
 
 // Delete a message
 router.delete('/:chatId/messages/:messageId', deleteMessage);
