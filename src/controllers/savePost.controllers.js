@@ -203,6 +203,48 @@ const getPublicSavedPosts = asyncHandler(async (req, res) => {
 });
 
 
+
+// Get public saved posts of a specific user (by userId)
+const getOtherUserPublicSavedPosts = asyncHandler(async (req, res) => {
+    const { userId } = req.params; // the profile we are visiting
+    const { page = 1, limit = 10 } = req.query;
+    const skip = (page - 1) * limit;
+
+    try {
+        // Find saved posts of that user where privacy is public
+        const savedPosts = await SavedPost.find({ userId, privacy: 'public' })
+            .sort({ savedAt: -1 })
+            .skip(skip)
+            .limit(parseInt(limit))
+            .populate({
+                path: 'postId',
+                select: 'caption media customization userId createdAt engagement',
+                populate: {
+                    path: 'userId',
+                    select: 'username fullName profileImageUrl'
+                }
+            });
+
+        const totalSavedPosts = await SavedPost.countDocuments({ userId, privacy: 'public' });
+
+        return res.status(200).json(
+            new ApiResponse(200, {
+                savedPosts,
+                pagination: {
+                    totalPosts: totalSavedPosts,
+                    currentPage: parseInt(page),
+                    totalPages: Math.ceil(totalSavedPosts / limit),
+                    postsPerPage: parseInt(limit)
+                }
+            }, "Public saved posts retrieved successfully")
+        );
+
+    } catch (error) {
+        throw new ApiError(500, "Error retrieving public saved posts", [error.message]);
+    }
+});
+
+
 /**
  * Check if a post is saved by the current user
  * @route GET /api/posts/saved/check/:postId
@@ -236,5 +278,6 @@ export {
     toggleSavedPostVisibility,
     getPrivateSavedPosts,
     getPublicSavedPosts,
+    getOtherUserPublicSavedPosts,
     checkPostSaved
 };
