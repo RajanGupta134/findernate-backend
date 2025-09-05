@@ -64,8 +64,8 @@ router.route("/comment/:commentId").delete(verifyJWT, deleteComment);
 // Save post routes
 router.route("/save").post(verifyJWT, savePost);
 router.route("/save/:postId").delete(verifyJWT, unsavePost);
-router.route("/saved.private").get(verifyJWT, getPrivateSavedPosts);
-router.route("/saved.public").get(verifyJWT, getPublicSavedPosts);
+router.route("/saved/private").get(verifyJWT, getPrivateSavedPosts);
+router.route("/saved/public").get(verifyJWT, getPublicSavedPosts);
 router.route("/saved/check/:postId").get(verifyJWT, checkPostSaved);
 
 // Report routes
