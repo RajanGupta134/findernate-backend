@@ -103,6 +103,7 @@ import callRouter from "./routes/call.routes.js";
 import adminRouter from "./routes/admin.routes.js";
 import productRouter from "./routes/product.routes.js";
 import categoryRouter from "./routes/category.routes.js";
+import feedbackRouter from "./routes/feedback.routes.js";
 
 
 app.use("/api/v1/users", userRouter);
@@ -122,6 +123,7 @@ app.use("/api/v1/calls", callRouter);
 app.use("/api/v1/admin", adminRouter);
 app.use("/api/v1/products", productRouter);
 app.use("/api/v1/categories", categoryRouter);
+app.use("/api/v1/feedback", feedbackRouter);
 
 app.use(errorHandler);
 

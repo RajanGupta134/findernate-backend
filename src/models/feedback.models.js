@@ -9,27 +9,21 @@ const FeedbackSchema = new mongoose.Schema({
     },
     message: {
         type: String,
+        required: true,
         trim: true,
         maxlength: 1000
     },
-    rating: {
-        type: Number,
-        min: 1,
-        max: 5
-    },
-    context: {
-        type: String,
-        enum: ['app', 'order', 'product', 'subscription', 'other'],
-        default: 'app'
-    },
     submittedAt: {
         type: Date,
-        default: Date.now
-    },
-    isResolved: {
-        type: Boolean,
-        default: false
+        default: Date.now,
+        index: true
     }
+}, {
+    timestamps: true
 });
 
-export default mongoose.model('Feedback', FeedbackSchema);
+// Index for better query performance
+FeedbackSchema.index({ submittedAt: -1 });
+
+const Feedback = mongoose.model('Feedback', FeedbackSchema);
+export default Feedback;
