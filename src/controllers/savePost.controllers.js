@@ -3,6 +3,7 @@ import { asyncHandler } from '../utlis/asyncHandler.js';
 import { ApiError } from '../utlis/ApiError.js';
 import { ApiResponse } from '../utlis/ApiResponse.js';
 import SavedPost from '../models/savedPost.models.js';
+import { User } from '../models/user.models.js';
 
 /**
  * Save a post to the user's saved posts collection
