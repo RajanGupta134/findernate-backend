@@ -19,6 +19,11 @@ import SearchHistory from "../models/searchHistory.models.js";
 import Media from "../models/mediaUser.models.js";
 import Block from "../models/block.models.js";
 import jwt from "jsonwebtoken";
+import { 
+    generateRealtimeUsernameSuggestions, 
+    isUsernameAvailable, 
+    validateUsername 
+} from "../utlis/usernameSuggestions.js";
 
 
 const generateAcessAndRefreshToken = async (userId) => {
@@ -1175,6 +1180,72 @@ const checkIfUserBlocked = asyncHandler(async (req, res) => {
     );
 });
 
+// Real-time username suggestions (as user types)
+const getUsernameSuggestions = asyncHandler(async (req, res) => {
+    const { username } = req.query;
+
+    if (!username) {
+        throw new ApiError(400, "Username query parameter is required");
+    }
+
+    if (username.length < 3) {
+        return res.status(200).json(
+            new ApiResponse(200, {
+                suggestions: [],
+                isAvailable: false,
+                message: "Username must be at least 3 characters"
+            }, "Username too short")
+        );
+    }
+
+    try {
+        const result = await generateRealtimeUsernameSuggestions(username, 8);
+        
+        return res.status(200).json(
+            new ApiResponse(200, result, "Username suggestions generated successfully")
+        );
+    } catch (error) {
+        console.error('Error generating username suggestions:', error);
+        throw new ApiError(500, "Failed to generate username suggestions");
+    }
+});
+
+// Check username availability
+const checkUsernameAvailability = asyncHandler(async (req, res) => {
+    const { username } = req.query;
+
+    if (!username) {
+        throw new ApiError(400, "Username query parameter is required");
+    }
+
+    // Validate username format
+    const validation = validateUsername(username);
+    if (!validation.isValid) {
+        return res.status(200).json(
+            new ApiResponse(200, {
+                isAvailable: false,
+                isValid: false,
+                errors: validation.errors
+            }, "Username validation failed")
+        );
+    }
+
+    try {
+        const isAvailable = await isUsernameAvailable(username);
+        
+        return res.status(200).json(
+            new ApiResponse(200, {
+                isAvailable,
+                isValid: true,
+                username: username.toLowerCase()
+            }, isAvailable ? "Username is available" : "Username is already taken")
+        );
+    } catch (error) {
+        console.error('Error checking username availability:', error);
+        throw new ApiError(500, "Failed to check username availability");
+    }
+});
+
 export {
     registerUser,
     loginUser,
@@ -1198,5 +1269,7 @@ export {
     blockUser,
     unblockUser,
     getBlockedUsers,
-    checkIfUserBlocked
+    checkIfUserBlocked,
+    getUsernameSuggestions,
+    checkUsernameAvailability
 };
