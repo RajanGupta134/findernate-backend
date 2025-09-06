@@ -25,8 +25,11 @@ const submitFeedback = asyncHandler(async (req, res) => {
             message: message.trim()
         });
 
+        const populatedFeedback = await Feedback.findById(feedback._id)
+            .populate('userId', 'username fullName email profileImageUrl');
+
         return res.status(201).json(
-            new ApiResponse(201, { id: feedback._id }, "Feedback submitted successfully")
+            new ApiResponse(201, populatedFeedback, "Feedback submitted successfully")
         );
     } catch (error) {
         console.error('Error submitting feedback:', error);
