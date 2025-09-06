@@ -39,7 +39,7 @@ const uploadSingleMedia = asyncHandler(async (req, res) => {
         const folder = isVideo ? "videos" : "images";
 
         // Upload to Bunny.net
-        const result = await uploadBufferToBunny(file.buffer, folder);
+        const result = await uploadBufferToBunny(file.buffer, folder, file.originalname);
 
         // Get user details
         const user = await User.findById(userId).select("-password -refreshToken");
@@ -120,7 +120,7 @@ const uploadMultipleMedia = asyncHandler(async (req, res) => {
             const folder = isVideo ? "videos" : "images";
 
             // Upload to Bunny.net
-            const result = await uploadBufferToBunny(file.buffer, folder);
+            const result = await uploadBufferToBunny(file.buffer, folder, file.originalname);
 
             uploadedFiles.push({
                 public_id: result.public_id,

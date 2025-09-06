@@ -24,15 +24,36 @@ const validateConfig = () => {
 };
 
 // Helper function to generate file path
-const generateFilePath = (folder = "posts", originalName = null) => {
+const generateFilePath = (folder = "posts", originalName = null, fileType = null) => {
     const timestamp = Date.now();
     const uuid = uuidv4();
-    const extension = originalName ? originalName.split('.').pop() : 'jpg';
+    
+    let extension = 'jpg'; // default
+    
+    if (originalName) {
+        extension = originalName.split('.').pop();
+    } else if (fileType) {
+        // If no original name but we have file type, use appropriate extension
+        const mimeToExtension = {
+            'image/jpeg': 'jpg',
+            'image/png': 'png',
+            'image/gif': 'gif',
+            'image/webp': 'webp',
+            'video/mp4': 'mp4',
+            'video/webm': 'webm',
+            'video/avi': 'avi',
+            'video/quicktime': 'mov',
+            'video/x-ms-wmv': 'wmv',
+            'video/x-flv': 'flv'
+        };
+        extension = mimeToExtension[fileType.mimeType] || 'bin';
+    }
+    
     return `${folder}/${timestamp}-${uuid}.${extension}`;
 };
 
 // Helper function to determine file type
-const getFileType = (buffer) => {
+const getFileType = (buffer, originalName = null) => {
     const signatures = {
         'image/jpeg': [0xFF, 0xD8, 0xFF],
         'image/png': [0x89, 0x50, 0x4E, 0x47],
@@ -43,8 +64,36 @@ const getFileType = (buffer) => {
         'video/avi': [0x52, 0x49, 0x46, 0x46]
     };
 
+    // First try to detect by file signature
     for (const [mimeType, signature] of Object.entries(signatures)) {
         if (signature.every((byte, index) => byte === null || buffer[index] === byte)) {
+            return {
+                mimeType,
+                isVideo: mimeType.startsWith('video/'),
+                isImage: mimeType.startsWith('image/')
+            };
+        }
+    }
+
+    // Fallback to file extension if signature detection fails
+    if (originalName) {
+        const extension = originalName.toLowerCase().split('.').pop();
+        const extensionMimeTypes = {
+            'jpg': 'image/jpeg',
+            'jpeg': 'image/jpeg',
+            'png': 'image/png',
+            'gif': 'image/gif',
+            'webp': 'image/webp',
+            'mp4': 'video/mp4',
+            'webm': 'video/webm',
+            'avi': 'video/avi',
+            'mov': 'video/quicktime',
+            'wmv': 'video/x-ms-wmv',
+            'flv': 'video/x-flv'
+        };
+
+        const mimeType = extensionMimeTypes[extension];
+        if (mimeType) {
             return {
                 mimeType,
                 isVideo: mimeType.startsWith('video/'),
@@ -65,11 +114,18 @@ export const uploadBufferToBunny = async (fileBuffer, folder = "posts", original
     try {
         validateConfig();
 
-        const filePath = generateFilePath(folder, originalName);
-        const fileType = getFileType(fileBuffer);
+        const fileType = getFileType(fileBuffer, originalName);
+        const filePath = generateFilePath(folder, originalName, fileType);
+
+        console.log('Upload Debug Info:');
+        console.log('- File path:', filePath);
+        console.log('- File type detected:', fileType);
+        console.log('- Buffer size:', fileBuffer.length);
+        console.log('- Original name:', originalName);
 
         // Upload to Bunny.net Storage API
         const uploadUrl = `${BUNNY_CONFIG.storageApiUrl}/${filePath}`;
+        console.log('- Upload URL:', uploadUrl);
 
         const response = await axios.put(uploadUrl, fileBuffer, {
             headers: {
@@ -78,6 +134,8 @@ export const uploadBufferToBunny = async (fileBuffer, folder = "posts", original
                 'Content-Length': fileBuffer.length
             }
         });
+
+        console.log('- Upload response status:', response.status);
 
         if (response.status !== 201) {
             throw new Error(`Upload failed with status: ${response.status}`);
@@ -107,6 +165,12 @@ export const uploadBufferToBunny = async (fileBuffer, folder = "posts", original
         };
 
     } catch (error) {
+        console.error('Bunny.net Upload Error:', error);
+        if (error.response) {
+            console.error('- Response status:', error.response.status);
+            console.error('- Response data:', error.response.data);
+            console.error('- Response headers:', error.response.headers);
+        }
         throw new Error(`Failed to upload to Bunny.net: ${error.message}`);
     }
 };
