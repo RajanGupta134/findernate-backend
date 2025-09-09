@@ -131,7 +131,7 @@ class SocketManager {
         }
     }
 
-    initialize(server) {
+    async initialize(server) {
         try {
             this.io = new Server(server, {
                 cors: {
@@ -140,6 +140,12 @@ class SocketManager {
                     credentials: true
                 }
             });
+
+            // Wait for Redis connections to be ready before setting up adapter
+            await Promise.all([
+                this.waitForRedisReady(redisPubSub),
+                this.waitForRedisReady(redisPublisher)
+            ]);
 
             // Setup Redis adapter for multi-instance scaling
             this.io.adapter(createAdapter(redisPubSub, redisPublisher));
@@ -522,6 +528,33 @@ class SocketManager {
 
     isReady() {
         return this.io !== null;
+    }
+
+    /**
+     * Wait for a Redis instance to be ready
+     * @param {Redis} redisInstance - Redis instance to wait for
+     * @returns {Promise} - Promise that resolves when Redis is ready
+     */
+    async waitForRedisReady(redisInstance) {
+        if (redisInstance.status === 'ready') {
+            return Promise.resolve();
+        }
+        
+        return new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => {
+                reject(new Error('Redis connection timeout'));
+            }, 10000); // 10 second timeout
+
+            redisInstance.once('ready', () => {
+                clearTimeout(timeout);
+                resolve();
+            });
+
+            redisInstance.once('error', (error) => {
+                clearTimeout(timeout);
+                reject(error);
+            });
+        });
     }
 
     /**

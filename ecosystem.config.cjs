@@ -3,7 +3,7 @@ module.exports = {
     {
       name: 'findernate-backend',
       script: 'src/index.js',
-      instances: process.env.PM2_INSTANCES || (process.env.NODE_ENV === 'production' ? 2 : 'max'), // Render Standard: 2, Local: all cores
+      instances: process.env.PM2_INSTANCES || (process.env.NODE_ENV === 'production' ? 2 : 2), // Limited to 2 instances for Redis limits
       exec_mode: 'cluster',
 
       // Environment variables

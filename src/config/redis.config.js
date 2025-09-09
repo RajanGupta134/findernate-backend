@@ -13,33 +13,39 @@ const REDIS_CONFIG = {
     // Connection options
     connectTimeout: 10000,
     commandTimeout: 5000,
-    lazyConnect: false,
+    lazyConnect: true, // Changed to true to reduce connections
     
-    // Pool settings optimized for 2GB RAM
+    // Pool settings optimized for limited connections
     family: 4,
     keepAlive: true,
+    maxLoadingTimeout: 10000,
     
-    // Memory optimization
-    maxMemoryPolicy: 'allkeys-lru',
+    // Connection pooling to limit connections
+    enableAutoPipelining: true,
+    maxRetriesPerRequest: 3, // Reduced retries
     
     // Error handling
-    enableOfflineQueue: true,
+    enableOfflineQueue: false, // Disable to prevent memory issues
     
     // Retry configuration
     retryDelayOnFailover: 1000,
-    maxRetriesPerRequest: 5,
-    
-    // Remove TLS for Redis Cloud - it's not needed for this endpoint
 };
 
+// Create Redis instances for this process
+const createRedisInstance = () => new Redis(REDIS_CONFIG);
+
 // Primary Redis instance for caching
-export const redisClient = new Redis(REDIS_CONFIG);
+export const redisClient = createRedisInstance();
 
-// Secondary Redis instance for pub/sub subscribing only
-export const redisPubSub = new Redis(REDIS_CONFIG);
+// For Socket.IO, we need separate pub/sub instances with different config
+const PUBSUB_CONFIG = {
+    ...REDIS_CONFIG,
+    enableOfflineQueue: true, // Enable for pubsub
+    lazyConnect: false // Connect immediately for pubsub
+};
 
-// Third Redis instance for publishing only (separate from subscriber)
-export const redisPublisher = new Redis(REDIS_CONFIG);
+export const redisPubSub = new Redis(PUBSUB_CONFIG);
+export const redisPublisher = new Redis(PUBSUB_CONFIG); // Dedicated publisher for Socket.IO
 
 // Redis connection event handlers
 redisClient.on('connect', () => {
@@ -63,8 +69,25 @@ redisPubSub.on('connect', () => {
     console.log(' Redis PubSub: Connected');
 });
 
+redisPubSub.on('ready', () => {
+    console.log('🔄 Redis PubSub: Ready');
+});
+
 redisPubSub.on('error', (err) => {
     console.error('L Redis PubSub Error:', err);
+});
+
+// Publisher Redis event handlers
+redisPublisher.on('connect', () => {
+    console.log(' Redis Publisher: Connected');
+});
+
+redisPublisher.on('ready', () => {
+    console.log('🔄 Redis Publisher: Ready');
+});
+
+redisPublisher.on('error', (err) => {
+    console.error('L Redis Publisher Error:', err);
 });
 
 // Graceful shutdown
@@ -72,6 +95,7 @@ process.on('SIGINT', async () => {
     console.log('=� Closing Redis connections...');
     await redisClient.quit();
     await redisPubSub.quit();
+    await redisPublisher.quit();
     process.exit(0);
 });
 

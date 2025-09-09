@@ -27,13 +27,13 @@ const server = http.createServer(app);
 
 // Connect to MongoDB, then start the server
 connectDB()
-    .then(() => {
+    .then(async () => {
         console.log('✅ Database connected successfully');
 
         // Initialize Socket.IO with our enhanced manager after DB connection
         try {
             console.log('🔄 Initializing Socket.IO...');
-            socketManager.initialize(server);
+            await socketManager.initialize(server);
             console.log('✅ Socket.IO initialized successfully');
         } catch (error) {
             console.error('❌ Socket.IO initialization error:', error);
