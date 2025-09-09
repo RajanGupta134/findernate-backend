@@ -852,9 +852,9 @@ export const updateBusinessCategory = asyncHandler(async (req, res) => {
     }
 
     // Check if user has business profile enabled
-    if (!req.user.isBusinessProfile) {
-        throw new ApiError(403, "Only business accounts can update category");
-    }
+    // if (!req.user.isBusinessProfile) {
+    //     throw new ApiError(403, "Only business accounts can update category");
+    // }
 
     // Update the category
     business.category = category.trim();
