@@ -1246,6 +1246,32 @@ const checkUsernameAvailability = asyncHandler(async (req, res) => {
     }
 });
 
+// Toggle Account Privacy (Private/Public)
+const toggleAccountPrivacy = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+
+    try {
+        const user = await User.findById(userId);
+
+        if (!user) {
+            throw new ApiError(404, "User not found");
+        }
+
+        // Toggle: private -> public, public -> private
+        user.privacy = user.privacy === "private" ? "public" : "private";
+        await user.save();
+
+        return res.status(200).json(
+            new ApiResponse(200, {
+                privacy: user.privacy,
+                isPrivate: user.privacy === "private"
+            }, `Account is now ${user.privacy}`)
+        );
+    } catch (error) {
+        throw new ApiError(500, "Error toggling account privacy", [error.message]);
+    }
+});
+
 export {
     registerUser,
     loginUser,
@@ -1264,6 +1290,7 @@ export {
     checkTokenExpiry,
     togglePhoneNumberVisibility,
     toggleAddressVisibility,
+    toggleAccountPrivacy,
     trackSearch,
     getPopularSearches,
     blockUser,

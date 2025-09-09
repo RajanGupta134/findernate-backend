@@ -9,6 +9,7 @@ import Like from '../models/like.models.js';
 import PostInteraction from '../models/postInteraction.models.js';
 import { setCache } from '../middlewares/cache.middleware.js';
 import { redisClient } from '../config/redis.config.js';
+import { getViewableUserIds } from '../middlewares/privacy.middleware.js';
 
 export const getHomeFeed = asyncHandler(async (req, res) => {
     try {
@@ -30,7 +31,10 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         const now = new Date();
         const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-        // ✅ 1. Get following and followers (only if user is authenticated) - OPTIMIZED
+        // ✅ 1. Get viewable user IDs based on privacy settings and following relationships
+        const viewableUserIds = await getViewableUserIds(userId);
+        
+        // ✅ 2. Get following and followers for prioritization (only if user is authenticated)
         let feedUserIds = [];
         if (userId) {
             const user = await User.findById(userId)
@@ -45,12 +49,12 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
             ])];
         }
 
-        // ✅ 2. OPTIMIZED: Single aggregation query instead of multiple queries
+        // ✅ 3. OPTIMIZED: Single aggregation query with privacy filtering
         const aggregationPipeline = [
             {
                 $match: {
                     contentType: { $in: ['normal', 'service', 'product', 'business'] },
-                    userId: { $nin: blockedUsers }
+                    userId: { $in: viewableUserIds, $nin: blockedUsers }
                 }
             },
             {

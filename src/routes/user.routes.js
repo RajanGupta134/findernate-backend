@@ -3,9 +3,9 @@ import { upload } from "../middlewares/multerConfig.js";
 import { verifyJWT, optionalVerifyJWT } from "../middlewares/auth.middleware.js";
 import { getBlockedUsers as getBlockedUsersMiddleware} from "../middlewares/blocking.middleware.js";
 import { cacheSearchResults } from "../middlewares/cache.middleware.js";
-import { loginUser, logOutUser, registerUser, getUserProfile, updateUserProfile, changePassword, deleteAccount, searchUsers, verifyEmailWithOTP, uploadProfileImage, sendVerificationOTPForEmail, sendPasswordResetOTP, resetPasswordWithOTP, getOtherUserProfile, checkTokenExpiry, togglePhoneNumberVisibility, toggleAddressVisibility, trackSearch, getPopularSearches, blockUser, unblockUser, getBlockedUsers, checkIfUserBlocked, getUsernameSuggestions, checkUsernameAvailability } from "../controllers/user.controllers.js";
+import { loginUser, logOutUser, registerUser, getUserProfile, updateUserProfile, changePassword, deleteAccount, searchUsers, verifyEmailWithOTP, uploadProfileImage, sendVerificationOTPForEmail, sendPasswordResetOTP, resetPasswordWithOTP, getOtherUserProfile, checkTokenExpiry, togglePhoneNumberVisibility, toggleAddressVisibility, toggleAccountPrivacy, trackSearch, getPopularSearches, blockUser, unblockUser, getBlockedUsers, checkIfUserBlocked, getUsernameSuggestions, checkUsernameAvailability } from "../controllers/user.controllers.js";
 import { searchAllContent } from "../controllers/searchAllContent.controllers.js";
-import { followUser, unfollowUser, getFollowers, getFollowing } from "../controllers/follower.controllers.js";
+import { followUser, unfollowUser, getFollowers, getFollowing, approveFollowRequest, rejectFollowRequest, getPendingFollowRequests, getSentFollowRequests } from "../controllers/follower.controllers.js";
 import { getSearchSuggestions } from "../controllers/searchSuggestion.controllers.js";
 
 const router = Router();
@@ -33,6 +33,12 @@ router.post("/unfollow", verifyJWT, unfollowUser);
 router.get("/followers/:userId", verifyJWT, getFollowers);
 router.get("/following/:userId", verifyJWT, getFollowing);
 
+// Follow request routes
+router.post("/follow-request/approve", verifyJWT, approveFollowRequest);
+router.post("/follow-request/reject", verifyJWT, rejectFollowRequest);
+router.get("/follow-requests/pending", verifyJWT, getPendingFollowRequests);
+router.get("/follow-requests/sent", verifyJWT, getSentFollowRequests);
+
 // Search suggestion routes
 router.get("/search-suggestions", verifyJWT, getSearchSuggestions);
 
@@ -47,6 +53,7 @@ router.get("/profile/other", verifyJWT, getOtherUserProfile);
 // Privacy settings routes
 router.put("/privacy/phone-number", verifyJWT, togglePhoneNumberVisibility);
 router.put("/privacy/address", verifyJWT, toggleAddressVisibility);
+router.put("/privacy/account", verifyJWT, toggleAccountPrivacy);
 
 // Block user routes
 router.post("/block", verifyJWT, blockUser);

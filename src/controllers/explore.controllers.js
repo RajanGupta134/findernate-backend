@@ -3,6 +3,7 @@ import Reel from "../models/reels.models.js";
 import { User } from "../models/user.models.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import { asyncHandler } from "../utlis/asyncHandler.js";
+import { getViewableUserIds } from "../middlewares/privacy.middleware.js";
 import mongoose from "mongoose";
 
 export const getExploreFeed = asyncHandler(async (req, res) => {
@@ -12,6 +13,10 @@ export const getExploreFeed = asyncHandler(async (req, res) => {
 
     // Get blocked users from middleware
     const blockedUsers = req.blockedUsers || [];
+    
+    // Get viewable user IDs based on privacy settings
+    const viewerId = req.user?._id;
+    const viewableUserIds = await getViewableUserIds(viewerId);
 
     // Calculate how many reels and posts per page (default: 2 reels, rest posts)
     const reelsPerPage = Math.min(2, limit);
@@ -37,7 +42,12 @@ export const getExploreFeed = asyncHandler(async (req, res) => {
     if (types === "all") {
         // For types=all, get reels separately to avoid duplication
         const legacyReels = await Reel.aggregate([
-            { $match: { isPublic: true } },
+            { 
+                $match: { 
+                    isPublic: true,
+                    userId: { $in: viewableUserIds, $nin: blockedUsers }
+                } 
+            },
             { $sample: { size: reelsPerPage } },
             {
                 $project: {
@@ -55,10 +65,10 @@ export const getExploreFeed = asyncHandler(async (req, res) => {
     // 2. Get posts using reliable find() method like homeFeed (not aggregation)
     const EXPLORE_LIMIT = 100;
 
-    // Get all posts matching the criteria using the same reliable approach as homeFeed (excluding blocked users)
+    // Get all posts matching the criteria using the same reliable approach as homeFeed (excluding blocked users and respecting privacy)
     const allPosts = await Post.find({
         ...postMatch,
-        userId: { $nin: blockedUsers }
+        userId: { $in: viewableUserIds, $nin: blockedUsers }
     })
         .sort({ createdAt: -1 })
         .limit(EXPLORE_LIMIT)

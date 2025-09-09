@@ -19,7 +19,7 @@ const UserSchema = new mongoose.Schema({
     // Privacy settings
     isPhoneNumberHidden: { type: Boolean, default: false },
     isAddressHidden: { type: Boolean, default: false },
-    privacy: { type: String, enum: ['private', 'public'], default: 'private' },
+    privacy: { type: String, enum: ['private', 'public'], default: 'public' },
     link: String,
     followers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     following: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
