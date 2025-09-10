@@ -64,10 +64,11 @@ export const generateStyledQR = async (username, styling = {}) => {
             backgroundColor = '#FFFFFF',
             frameStyle = 'none',
             profileImageUrl = null,
-            baseUrl = process.env.FRONTEND_URL,
+            baseUrl = process.env.FRONTEND_URL || 'https://findernate-frontend-pq94.vercel.app'
         } = styling;
 
         const profileUrl = `${baseUrl}/profile/${username}?utm_source=qr_styled`;
+        console.log('🔗 QR Code URL generated:', profileUrl);
         
         // Apply different styling based on frameStyle
         let qrColor = primaryColor;
