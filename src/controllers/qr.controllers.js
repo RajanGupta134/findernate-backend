@@ -35,7 +35,7 @@ const getStyledQRCode = asyncHandler(async (req, res) => {
         'Content-Type': 'image/png',
         'Cache-Control': 'public, max-age=1800', // Cache for 30 minutes
         'Content-Disposition': `inline; filename="qr-styled-${username}.png"`,
-        'X-Style': style || 'instagram',
+        'X-Style': 'instagram',
         'X-Generated-At': new Date().toISOString()
     });
     
@@ -61,7 +61,7 @@ const getMyQRCode = asyncHandler(async (req, res) => {
         'Content-Type': 'image/png',
         'Cache-Control': 'private, max-age=1800', // Private cache for authenticated user
         'Content-Disposition': `inline; filename="my-qr-${username}.png"`,
-        'X-Style': style || 'instagram',
+        'X-Style': 'instagram',
         'X-Generated-At': new Date().toISOString()
     });
     
