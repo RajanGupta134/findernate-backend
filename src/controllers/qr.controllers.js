@@ -1,10 +1,8 @@
 import { asyncHandler } from "../utlis/asyncHandler.js";
 import { ApiError } from "../utlis/ApiError.js";
 import { User } from "../models/user.models.js";
-import {
-    generateStyledQR,
-    isValidUsername
-} from "../utlis/dynamicQR.js";
+import dynamicQR from "../utlis/dynamicQR.js";
+const { generateStyledQR, isValidUsername } = dynamicQR;
 
 
 const getStyledQRCode = asyncHandler(async (req, res) => {
