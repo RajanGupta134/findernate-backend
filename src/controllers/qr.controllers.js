@@ -59,7 +59,7 @@ const getMyQRCode = asyncHandler(async (req, res) => {
     
     res.set({
         'Content-Type': 'image/png',
-        'Cache-Control': 'private, max-age=1800', // Private cache for authenticated user
+        'Cache-Control': 'private, max-age=1800', 
         'Content-Disposition': `inline; filename="my-qr-${username}.png"`,
         'X-Style': 'instagram',
         'X-Generated-At': new Date().toISOString()
