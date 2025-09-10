@@ -9,7 +9,7 @@ import { ApiError } from './ApiError.js';
  * @param {Object} styling - Styling options
  * @returns {Buffer} Styled QR code image buffer
  */
-export const generateStyledQR = async (username, styling = {}) => {
+const generateStyledQR = async (username, styling = {}) => {
     try {
         const {
             size = 512,
@@ -55,119 +55,13 @@ export const generateStyledQR = async (username, styling = {}) => {
     }
 };
 
-/**
- * Generate QR code with deep linking for mobile apps
- * @param {string} username - Username to generate QR for
- * @param {string} platform - Platform type (ios, android, universal)
- * @param {Object} options - Additional options
- * @returns {Buffer} Deep link QR code buffer
- */
-export const generateDeepLinkQR = async (username, platform = 'universal', options = {}) => {
-    try {
-        const {
-            size = 512,
-            primaryColor = '#000000',
-            backgroundColor = '#FFFFFF',
-            baseUrl = process.env.FRONTEND_URL || 'https://findernate.com'
-        } = options;
-
-        let deepLinkUrl;
-        
-        switch (platform.toLowerCase()) {
-            case 'ios':
-                // iOS Universal Links - will open app if installed, web if not
-                deepLinkUrl = `${baseUrl}/u/${username}?platform=ios&utm_source=qr_deeplink`;
-                break;
-            case 'android':
-                // Android App Links - will open app if installed, web if not
-                deepLinkUrl = `${baseUrl}/u/${username}?platform=android&utm_source=qr_deeplink`;
-                break;
-            case 'universal':
-            default:
-                // Universal deep link that works for both platforms
-                deepLinkUrl = `${baseUrl}/u/${username}?utm_source=qr_deeplink`;
-                break;
-        }
-        
-        const qrBuffer = await QRCode.toBuffer(deepLinkUrl, {
-            width: size,
-            margin: 2,
-            color: {
-                dark: primaryColor,
-                light: backgroundColor
-            },
-            errorCorrectionLevel: 'M'
-        });
-        
-        return qrBuffer;
-
-    } catch (error) {
-        console.error('Deep link QR generation error:', error);
-        throw new ApiError(500, `Failed to generate deep link QR code: ${error.message}`);
-    }
-};
-
-/**
- * Generate QR code data URL (base64) for JSON responses
- * @param {string} username - Username
- * @param {Object} options - Options
- * @returns {string} Base64 data URL
- */
-export const generateQRDataURL = async (username, options = {}) => {
-    try {
-        const {
-            size = 256,
-            primaryColor = '#000000',
-            backgroundColor = '#FFFFFF',
-            baseUrl = process.env.FRONTEND_URL || 'https://findernate.com'
-        } = options;
-
-        const profileUrl = `${baseUrl}/profile/${username}?utm_source=qr_dataurl`;
-        
-        const dataURL = await QRCode.toDataURL(profileUrl, {
-            width: size,
-            margin: 2,
-            color: {
-                dark: primaryColor,
-                light: backgroundColor
-            },
-            errorCorrectionLevel: 'M'
-        });
-        
-        return dataURL;
-
-    } catch (error) {
-        console.error('QR data URL generation error:', error);
-        throw new ApiError(500, `Failed to generate QR data URL: ${error.message}`);
-    }
-};
-
-/**
- * Get QR code analytics/metadata without storing in DB
- * @param {string} username - Username
- * @returns {Object} QR code metadata
- */
-export const getQRMetadata = (username) => {
-    const baseUrl = process.env.FRONTEND_URL || 'https://findernate.com';
-    const profileUrl = `${baseUrl}/profile/${username}`;
-    
-    return {
-        username,
-        profileUrl,
-        qrUrl: `${baseUrl}/api/v1/qr/${username}`,
-        styledQrUrl: `${baseUrl}/api/v1/qr/${username}/styled`,
-        deepLinkUrl: `${baseUrl}/api/v1/qr/${username}/mobile`,
-        generatedAt: new Date().toISOString(),
-        validationUrl: `${baseUrl}/api/v1/users/profile/${username}` // For QR scanners to validate
-    };
-};
 
 /**
  * Validate username for QR generation
  * @param {string} username - Username to validate
  * @returns {boolean} Is valid
  */
-export const isValidUsername = (username) => {
+const isValidUsername = (username) => {
     if (!username || typeof username !== 'string') return false;
     if (username.length < 3 || username.length > 30) return false;
     
@@ -177,10 +71,6 @@ export const isValidUsername = (username) => {
 };
 
 export default {
-    generateDynamicQR,
     generateStyledQR,
-    generateDeepLinkQR,
-    generateQRDataURL,
-    getQRMetadata,
     isValidUsername
 };
