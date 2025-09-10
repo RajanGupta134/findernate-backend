@@ -2,7 +2,7 @@ import { asyncHandler } from "../utlis/asyncHandler.js";
 import { ApiError } from "../utlis/ApiError.js";
 import { User } from "../models/user.models.js";
 import dynamicQR from "../utlis/dynamicQR.js";
-const { generateStyledQR, generateOwnStyledQR,isValidUsername } = dynamicQR;
+const { generateStyledQR, generateOwnStyledQR, isValidUsername } = dynamicQR;
 
 
 const getStyledQRCode = asyncHandler(async (req, res) => {
@@ -66,7 +66,90 @@ const getMyQRCode = asyncHandler(async (req, res) => {
     res.send(styledQRBuffer);
 });
 
+// Share QR code as base64 data URL for easy sharing
+const shareQRCode = asyncHandler(async (req, res) => {
+    const { username } = req.params;
+    const { targetUsername } = req.user; // User who is sharing
+    
+    if (!isValidUsername(username)) {
+        throw new ApiError(400, "Invalid username format");
+    }
+    
+    // Verify target user exists
+    const targetUser = await User.findOne({ username }).select('_id username fullName');
+    if (!targetUser) {
+        throw new ApiError(404, "User not found");
+    }
+    
+    // Generate QR code as base64 data URL for sharing
+    const styling = {
+        size: 256,
+        frameStyle: 'findernate',
+        primaryColor: '#FFD700',
+        backgroundColor: '#FFFEF7'
+    };
+    
+    const qrBuffer = await generateStyledQR(username, styling);
+    const qrDataURL = `data:image/png;base64,${qrBuffer.toString('base64')}`;
+    
+    res.status(200).json({
+        success: true,
+        data: {
+            targetUser: {
+                username: targetUser.username,
+                fullName: targetUser.fullName
+            },
+            qrCode: {
+                dataURL: qrDataURL,
+                shareableURL: `https://findernate-frontend-pq94.vercel.app/userprofile/${username}`,
+                size: 256,
+                style: 'gold-yellow'
+            },
+            sharedBy: targetUsername,
+            generatedAt: new Date().toISOString()
+        },
+        message: "QR code ready for sharing"
+    });
+});
+
+// Share your own QR code
+const shareMyQRCode = asyncHandler(async (req, res) => {
+    const { username } = req.user;
+    
+    // Generate own QR code as base64 for sharing
+    const styling = {
+        size: 256,
+        frameStyle: 'findernate',
+        primaryColor: '#FFD700',
+        backgroundColor: '#FFFEF7'
+    };
+    
+    const qrBuffer = await generateOwnStyledQR(styling);
+    const qrDataURL = `data:image/png;base64,${qrBuffer.toString('base64')}`;
+    
+    res.status(200).json({
+        success: true,
+        data: {
+            qrCode: {
+                dataURL: qrDataURL,
+                shareableURL: `https://findernate-frontend-pq94.vercel.app/profile`,
+                size: 256,
+                style: 'gold-yellow'
+            },
+            owner: username,
+            generatedAt: new Date().toISOString(),
+            sharing: {
+                message: `Check out my FINDERNATE profile!`,
+                hashtags: ['#FINDERNATE', '#Profile', '#Connect']
+            }
+        },
+        message: "Your QR code is ready for sharing"
+    });
+});
+
 export {
     getStyledQRCode,
-    getMyQRCode
+    getMyQRCode,
+    shareQRCode,
+    shareMyQRCode
 };
