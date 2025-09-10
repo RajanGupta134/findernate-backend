@@ -70,8 +70,19 @@ const ProductDetailsSchema = new mongoose.Schema({
         height: Number,
         unit: String
     },
+    // 🚚 Delivery Options
+    deliveryOptions: {
+        type: String,
+        enum: ['online', 'offline', 'both'],
+        required: true,
+        default: 'online'
+    },
     location: {
         name: String,
+        address: String,
+        city: String,
+        state: String,
+        country: String,
         coordinates: GeoJSONPointSchema
     },
     link: { type: String }
@@ -109,6 +120,13 @@ const ServiceDetailsSchema = new mongoose.Schema({
     subcategory: String,
     duration: Number,
     serviceType: String,
+    // 🚚 Delivery Options
+    deliveryOptions: {
+        type: String,
+        enum: ['online', 'offline', 'both'],
+        required: true,
+        default: 'online'
+    },
     availability: ServiceAvailabilitySchema,
     location: ServiceLocationSchema,
     requirements: [String],
@@ -158,6 +176,13 @@ const BusinessDetailsSchema = new mongoose.Schema({
     description: String,
     category: String,
     subcategory: String,
+    // 🚚 Delivery Options
+    deliveryOptions: {
+        type: String,
+        enum: ['online', 'offline', 'both'],
+        required: true,
+        default: 'online'
+    },
     contact: BusinessContactSchema,
     location: BusinessLocationSchema,
     hours: [BusinessHoursSchema],

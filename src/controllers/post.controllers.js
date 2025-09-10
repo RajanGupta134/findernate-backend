@@ -7,6 +7,7 @@ import Story from "../models/story.models.js";
 import Reel from "../models/reels.models.js";
 import { uploadBufferToBunny, deleteMultipleFromBunny, deleteFromBunny, generateOptimizedImageUrl } from "../utlis/bunny.js";
 import { getCoordinates } from "../utlis/getCoordinates.js";
+import { validateDeliveryAndLocation } from "../utlis/deliveryValidation.js";
 import Like from "../models/like.models.js";
 // import Comment from "../models/comment.models.mjs";
 
@@ -178,6 +179,9 @@ export const createProductPost = asyncHandler(async (req, res) => {
     const parsedSettings = typeof settings === "string" ? JSON.parse(settings) : settings;
     const parsedLocation = typeof location === "string" ? JSON.parse(location) : location;
 
+    // Validate delivery options and location requirements
+    const validatedProduct = await validateDeliveryAndLocation(parsedProduct, "product");
+
     let resolvedLocation = parsedLocation || {};
     if (resolvedLocation.name && !resolvedLocation.coordinates) {
         const coords = await getCoordinates(resolvedLocation.name);
@@ -242,7 +246,7 @@ export const createProductPost = asyncHandler(async (req, res) => {
             throw new ApiError(500, "Bunny.net upload failed");
         }
     }
-    if (!parsedProduct?.link) {
+    if (!validatedProduct?.link) {
         throw new ApiError(400, "Product post must include a product link");
     }
 
@@ -255,7 +259,7 @@ export const createProductPost = asyncHandler(async (req, res) => {
         mentions: parsedMentions || [],
         media: uploadedMedia,
         customization: {
-            product: parsedProduct,
+            product: validatedProduct,
             normal: {
                 mood,
                 activity,
@@ -312,6 +316,9 @@ export const createServicePost = asyncHandler(async (req, res) => {
     const parsedService = typeof service === "string" ? JSON.parse(service) : service;
     const parsedSettings = typeof settings === "string" ? JSON.parse(settings) : settings;
     const parsedLocation = typeof location === "string" ? JSON.parse(location) : location;
+
+    // Validate delivery options and location requirements
+    const validatedService = await validateDeliveryAndLocation(parsedService, "service");
 
     let resolvedLocation = parsedLocation || {};
     if (resolvedLocation.name && !resolvedLocation.coordinates) {
@@ -384,7 +391,7 @@ export const createServicePost = asyncHandler(async (req, res) => {
         mentions: parsedMentions || [],
         media: uploadedMedia,
         customization: {
-            service: parsedService,
+            service: validatedService,
             normal: {
                 mood,
                 activity,
@@ -441,6 +448,9 @@ export const createBusinessPost = asyncHandler(async (req, res) => {
     const parsedBusiness = typeof business === "string" ? JSON.parse(business) : business;
     const parsedSettings = typeof settings === "string" ? JSON.parse(settings) : settings;
     const parsedLocation = typeof location === "string" ? JSON.parse(location) : location;
+
+    // Validate delivery options and location requirements
+    const validatedBusiness = await validateDeliveryAndLocation(parsedBusiness, "business");
 
     let resolvedLocation = parsedLocation || {};
     if (resolvedLocation.name && !resolvedLocation.coordinates) {
@@ -504,7 +514,7 @@ export const createBusinessPost = asyncHandler(async (req, res) => {
         }
     }
 
-    if (!parsedBusiness?.link) {
+    if (!validatedBusiness?.link) {
         throw new ApiError(400, "Business post must include a business link");
     }
 
@@ -517,7 +527,7 @@ export const createBusinessPost = asyncHandler(async (req, res) => {
         mentions: parsedMentions || [],
         media: uploadedMedia,
         customization: {
-            business: parsedBusiness,
+            business: validatedBusiness,
             normal: {
                 mood,
                 activity,
