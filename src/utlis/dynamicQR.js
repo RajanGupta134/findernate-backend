@@ -64,7 +64,7 @@ export const generateStyledQR = async (username, styling = {}) => {
             backgroundColor = '#FFFFFF',
             frameStyle = 'none',
             profileImageUrl = null,
-            baseUrl = process.env.FRONTEND_URL || 'https://findernate.com'
+            baseUrl = process.env.FRONTEND_URL,
         } = styling;
 
         const profileUrl = `${baseUrl}/profile/${username}?utm_source=qr_styled`;
