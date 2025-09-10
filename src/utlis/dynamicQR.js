@@ -2,53 +2,6 @@ import QRCode from 'qrcode';
 import { ApiError } from './ApiError.js';
 
 /**
- * Dynamic QR Code Generator - No Database Storage
- * Generates QR codes on-the-fly with Instagram-like features
- */
-
-/**
- * Generate basic dynamic QR code
- * @param {string} username - Username to generate QR for
- * @param {Object} options - Generation options
- * @returns {Buffer} QR code image buffer
- */
-export const generateDynamicQR = async (username, options = {}) => {
-    try {
-        const {
-            size = 512,
-            primaryColor = '#000000',
-            backgroundColor = '#FFFFFF',
-            errorCorrection = 'M',
-            margin = 2,
-            baseUrl = process.env.FRONTEND_URL || 'https://findernate.com'
-        } = options;
-
-        // Create profile URL for QR code
-        const profileUrl = `${baseUrl}/profile/${username}?utm_source=qr_code`;
-        
-        // Generate QR code options
-        const qrOptions = {
-            width: size,
-            margin: margin,
-            color: {
-                dark: primaryColor,
-                light: backgroundColor
-            },
-            errorCorrectionLevel: errorCorrection,
-            type: 'png'
-        };
-
-        // Generate QR code as buffer
-        const qrBuffer = await QRCode.toBuffer(profileUrl, qrOptions);
-        return qrBuffer;
-
-    } catch (error) {
-        console.error('Dynamic QR generation error:', error);
-        throw new ApiError(500, `Failed to generate QR code: ${error.message}`);
-    }
-};
-
-/**
  * Generate styled QR code with Instagram gold yellow colors
  * Note: Profile image embedding requires canvas which has Windows build issues
  * This version provides beautiful gold yellow QR codes without profile images
@@ -64,10 +17,10 @@ export const generateStyledQR = async (username, styling = {}) => {
             backgroundColor = '#FFFFFF',
             frameStyle = 'none',
             profileImageUrl = null,
-            baseUrl = process.env.FRONTEND_URL || 'https://findernate-frontend-pq94.vercel.app'
+            baseUrl = 'https://findernate-frontend-pq94.vercel.app',
         } = styling;
 
-        const profileUrl = `${baseUrl}/profile/${username}?utm_source=qr_styled`;
+        const profileUrl = `${baseUrl}/api/v1/users/profile/other?identifier=${username}?utm_source=qr_styled`;
         console.log('🔗 QR Code URL generated:', profileUrl);
         
         // Apply different styling based on frameStyle
@@ -75,16 +28,11 @@ export const generateStyledQR = async (username, styling = {}) => {
         let qrBackground = backgroundColor;
         let margin = 4;
         
-        if (frameStyle === 'instagram') {
+        if (frameStyle === 'findernate') {
             // Instagram gold yellow - premium look
             qrColor = '#FFD700';
             qrBackground = '#FFFEF7';
             margin = 6;
-        } else if (frameStyle === 'findernate') {
-            // FINDERNATE brand colors
-            qrColor = '#6C5CE7';
-            qrBackground = '#F8F9FA';
-            margin = 5;
         }
         
         // Generate premium styled QR code with enhanced error correction
