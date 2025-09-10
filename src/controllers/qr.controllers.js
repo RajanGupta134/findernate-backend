@@ -147,6 +147,7 @@ const shareMyQRCode = asyncHandler(async (req, res) => {
     });
 });
 
+
 export {
     getStyledQRCode,
     getMyQRCode,
