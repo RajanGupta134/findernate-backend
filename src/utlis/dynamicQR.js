@@ -20,7 +20,7 @@ const generateStyledQR = async (username, styling = {}) => {
             baseUrl = 'https://findernate-frontend-pq94.vercel.app',
         } = styling;
 
-        const profileUrl = `${baseUrl}/api/v1/users/profile/other?identifier=${username}?utm_source=qr_styled`;
+        const profileUrl = `${baseUrl}/userprofile/${username}?utm_source=qr_styled`;
         console.log('🔗 QR Code URL generated:', profileUrl);
         
         // Apply different styling based on frameStyle
@@ -55,6 +55,51 @@ const generateStyledQR = async (username, styling = {}) => {
     }
 };
 
+const generateOwnStyledQR = async (styling = {}) => {
+    try {
+        const {
+            size = 512,
+            primaryColor = '#000000',
+            backgroundColor = '#FFFFFF',
+            frameStyle = 'none',
+            profileImageUrl = null,
+            baseUrl = 'https://findernate-frontend-pq94.vercel.app',
+        } = styling;
+
+        const profileUrl = `${baseUrl}/profile?utm_source=qr_styled`;
+        console.log('🔗 QR Code URL generated:', profileUrl);
+
+        // Apply different styling based on frameStyle
+        let qrColor = primaryColor;
+        let qrBackground = backgroundColor;
+        let margin = 4;
+
+        if (frameStyle === 'findernate') {
+            // Instagram gold yellow - premium look
+            qrColor = '#FFD700';
+            qrBackground = '#FFFEF7';
+            margin = 6;
+        }
+
+        // Generate premium styled QR code with enhanced error correction
+        const qrBuffer = await QRCode.toBuffer(profileUrl, {
+            width: size,
+            margin: margin,
+            color: {
+                dark: qrColor,
+                light: qrBackground
+            },
+            errorCorrectionLevel: 'H', // High error correction for premium quality
+            type: 'png'
+        });
+
+        return qrBuffer;
+
+    } catch (error) {
+        console.error('Styled QR generation error:', error);
+        throw new ApiError(500, `Failed to generate styled QR code: ${error.message}`);
+    }
+};
 
 /**
  * Validate username for QR generation
@@ -72,5 +117,6 @@ const isValidUsername = (username) => {
 
 export default {
     generateStyledQR,
+    generateOwnStyledQR,
     isValidUsername
 };

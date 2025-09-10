@@ -2,7 +2,7 @@ import { asyncHandler } from "../utlis/asyncHandler.js";
 import { ApiError } from "../utlis/ApiError.js";
 import { User } from "../models/user.models.js";
 import dynamicQR from "../utlis/dynamicQR.js";
-const { generateStyledQR, isValidUsername } = dynamicQR;
+const { generateStyledQR, generateOwnStyledQR,isValidUsername } = dynamicQR;
 
 
 const getStyledQRCode = asyncHandler(async (req, res) => {
@@ -53,7 +53,7 @@ const getMyQRCode = asyncHandler(async (req, res) => {
         logoSize: 0.15               // Fixed logo size (15%)
     };
     
-    const styledQRBuffer = await generateStyledQR(username, styling);
+    const styledQRBuffer = await generateOwnStyledQR(styling);
     
     res.set({
         'Content-Type': 'image/png',
