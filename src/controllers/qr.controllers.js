@@ -147,10 +147,77 @@ const shareMyQRCode = asyncHandler(async (req, res) => {
     });
 });
 
+// Share QR code image for chat (returns PNG image)
+const shareQRForChat = asyncHandler(async (req, res) => {
+    const { username } = req.params;
+    const { username: senderUsername } = req.user;
+    
+    if (!isValidUsername(username)) {
+        throw new ApiError(400, "Invalid username format");
+    }
+    
+    // Verify target user exists
+    const targetUser = await User.findOne({ username }).select('_id username fullName');
+    if (!targetUser) {
+        throw new ApiError(404, "User not found");
+    }
+    
+    // Generate smaller QR code for chat (200px)
+    const styling = {
+        size: 200,
+        frameStyle: 'findernate',
+        primaryColor: '#FFD700',
+        backgroundColor: '#FFFEF7'
+    };
+    
+    const qrBuffer = await generateStyledQR(username, styling);
+    
+    // Set headers for chat image sharing
+    res.set({
+        'Content-Type': 'image/png',
+        'Cache-Control': 'private, max-age=300', // 5 minutes cache for chat
+        'Content-Disposition': `inline; filename="chat-qr-${username}.png"`,
+        'X-Chat-QR': 'true',
+        'X-Target-User': targetUser.username,
+        'X-Shared-By': senderUsername,
+        'X-Generated-At': new Date().toISOString()
+    });
+    
+    res.send(qrBuffer);
+});
+
+// Share your own QR code image for chat
+const shareMyQRForChat = asyncHandler(async (req, res) => {
+    const { username } = req.user;
+    
+    // Generate smaller QR code for chat (200px)
+    const styling = {
+        size: 200,
+        frameStyle: 'findernate',
+        primaryColor: '#FFD700',
+        backgroundColor: '#FFFEF7'
+    };
+    
+    const qrBuffer = await generateOwnStyledQR(styling);
+    
+    // Set headers for chat image sharing
+    res.set({
+        'Content-Type': 'image/png',
+        'Cache-Control': 'private, max-age=300', // 5 minutes cache for chat
+        'Content-Disposition': `inline; filename="chat-my-qr-${username}.png"`,
+        'X-Chat-QR': 'true',
+        'X-Owner': username,
+        'X-Generated-At': new Date().toISOString()
+    });
+    
+    res.send(qrBuffer);
+});
 
 export {
     getStyledQRCode,
     getMyQRCode,
     shareQRCode,
-    shareMyQRCode
+    shareMyQRCode,
+    shareQRForChat,
+    shareMyQRForChat
 };
