@@ -40,7 +40,7 @@ connectDB()
             throw error;
         }
 
-        const PORT = process.env.PORT || 8000;
+        const PORT = process.env.PORT || 3000;
         server.listen(PORT, '0.0.0.0', () => {
             console.log(`🎉 Server is running on port ${PORT}`);
             console.log(`🌐 Health check: http://localhost:${PORT}/health`);
