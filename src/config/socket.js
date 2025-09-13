@@ -321,6 +321,27 @@ class SocketManager {
                 });
             });
 
+            // 🚀 NEW: Handle request for initial unread counts (alternative to HTTP polling)
+            socket.on('request_unread_counts', async () => {
+                try {
+                    const notificationCache = (await import('../utlis/notificationCache.utils.js')).default;
+                    const counts = await notificationCache.getUnreadCounts(socket.userId);
+                    
+                    socket.emit('unread_counts_updated', {
+                        unreadNotifications: counts.unreadNotifications,
+                        unreadMessages: counts.unreadMessages,
+                        timestamp: new Date().toISOString(),
+                        fromCache: counts.fromCache
+                    });
+                } catch (error) {
+                    console.error('Error fetching unread counts via socket:', error);
+                    socket.emit('unread_counts_error', {
+                        error: 'Failed to fetch unread counts',
+                        timestamp: new Date().toISOString()
+                    });
+                }
+            });
+
             // ===== CALL SIGNALING EVENTS =====
             
             // Handle call initiation

@@ -10,6 +10,7 @@ import socketManager from '../config/socket.js';
 import { sendPushNotification } from './pushNotification.controllers.js';
 import { User } from '../models/user.models.js';
 import { ChatPubSub, NotificationPubSub, LiveFeaturesPubSub } from '../utlis/pubsub.utils.js';
+import notificationCache from '../utlis/notificationCache.utils.js';
 
 // Helper function to safely emit socket events
 const safeEmitToChat = (chatId, event, data) => {
@@ -687,6 +688,15 @@ export const addMessage = asyncHandler(async (req, res) => {
         // Don't block the response if push notification fails
     }
 
+    // Invalidate message cache for all chat participants
+    try {
+        const participantIds = chat.participants.map(p => p.toString());
+        await notificationCache.invalidateMultipleUsersCache(participantIds, 'message');
+    } catch (cacheError) {
+        console.error('Error invalidating message cache:', cacheError);
+        // Don't block response if cache invalidation fails
+    }
+
     return res.status(201).json(
         new ApiResponse(201, populatedMessage, 'Message sent successfully')
     );
@@ -743,6 +753,14 @@ export const markMessagesRead = asyncHandler(async (req, res) => {
         }
     });
 
+    // Invalidate message cache for the user who marked messages as read
+    try {
+        await notificationCache.invalidateMessageCache(currentUserId.toString());
+    } catch (cacheError) {
+        console.error('Error invalidating message cache:', cacheError);
+        // Don't block response if cache invalidation fails
+    }
+
     return res.status(200).json(
         new ApiResponse(200, {}, 'Messages marked as read')
     );
@@ -784,6 +802,14 @@ export const markChatAsRead = asyncHandler(async (req, res) => {
             fullName: req.user.fullName
         }
     });
+
+    // Invalidate message cache for the user who marked chat as read
+    try {
+        await notificationCache.invalidateMessageCache(currentUserId.toString());
+    } catch (cacheError) {
+        console.error('Error invalidating message cache:', cacheError);
+        // Don't block response if cache invalidation fails
+    }
 
     return res.status(200).json(
         new ApiResponse(200, { 

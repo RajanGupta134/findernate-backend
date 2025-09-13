@@ -1,6 +1,7 @@
 import express from 'express';
 import { verifyJWT } from '../middlewares/auth.middleware.js';
 import { upload } from '../middlewares/multerConfig.js';
+import { chatRateLimit } from '../middlewares/rateLimiter.middleware.js';
 import {
     createChat,
     getUserChats,
@@ -22,6 +23,9 @@ const router = express.Router();
 
 // Apply authentication middleware to all routes
 router.use(verifyJWT);
+
+// Apply rate limiting to all chat routes
+router.use(chatRateLimit);
 
 // Create a new chat (1-on-1 or group)
 router.post('/', createChat);

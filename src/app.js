@@ -4,6 +4,7 @@ import cookieParser from 'cookie-parser';
 import compression from 'compression';
 import { errorHandler } from './middlewares/errorHandler.js';
 import { redisHealthCheck } from './config/redis.config.js';
+import { generalRateLimit, healthCheckRateLimit } from './middlewares/rateLimiter.middleware.js';
 
 const app = express();
 
@@ -39,8 +40,11 @@ app.use(cors({
 
 app.use(cookieParser());
 
+// Apply general rate limiting to all routes
+app.use(generalRateLimit);
+
 // Health check endpoint for monitoring
-app.get('/', (req, res) => {
+app.get('/', healthCheckRateLimit, (req, res) => {
         res.status(200).json({
                 message: 'FinderNate Backend API is running!',
                 status: 'healthy',
@@ -48,7 +52,7 @@ app.get('/', (req, res) => {
         });
 });
 
-app.get('/health', async (req, res) => {
+app.get('/health', healthCheckRateLimit, async (req, res) => {
         try {
                 const redisStatus = await redisHealthCheck();
                 const memoryUsage = process.memoryUsage();

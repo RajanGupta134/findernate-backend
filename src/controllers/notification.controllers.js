@@ -4,6 +4,7 @@ import Chat from "../models/chat.models.js";
 import { asyncHandler } from "../utlis/asyncHandler.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import { ApiError } from "../utlis/ApiError.js";
+import notificationCache from "../utlis/notificationCache.utils.js";
 
 const sendRealTimeNotification = (recipientId, notification) => {
     const socketId = global.onlineUsers?.get(recipientId);
@@ -35,6 +36,9 @@ export const createLikeNotification = asyncHandler(async ({ recipientId, sourceU
     });
 
     sendRealTimeNotification(recipientId, notification);
+    
+    // Invalidate cache and emit real-time count update
+    await notificationCache.invalidateNotificationCache(recipientId);
 });
 
 // 🟡 Comment Notification
@@ -56,6 +60,9 @@ export const createCommentNotification = asyncHandler(async ({ recipientId, sour
     });
 
     sendRealTimeNotification(recipientId, notification);
+    
+    // Invalidate cache and emit real-time count update
+    await notificationCache.invalidateNotificationCache(recipientId);
 });
 
 //  Follow Notification
@@ -75,6 +82,9 @@ export const createFollowNotification = asyncHandler(async ({ recipientId, sourc
     });
 
     sendRealTimeNotification(recipientId, notification);
+    
+    // Invalidate cache and emit real-time count update
+    await notificationCache.invalidateNotificationCache(recipientId);
 });
 
 // 🔴 Unlike Notification
@@ -100,6 +110,9 @@ export const createUnlikeNotification = asyncHandler(async ({ recipientId, sourc
     });
 
     sendRealTimeNotification(recipientId, notification);
+    
+    // Invalidate cache and emit real-time count update
+    await notificationCache.invalidateNotificationCache(recipientId);
 });
 
 //  Get Logged-in User's Notifications
@@ -123,6 +136,9 @@ export const markNotificationAsRead = asyncHandler(async (req, res) => {
     notification.isRead = true;
     await notification.save();
 
+    // Invalidate cache and emit real-time count update
+    await notificationCache.invalidateNotificationCache(notification.receiverId);
+
     res.status(200).json(new ApiResponse(200, notification, "Notification marked as read"));
 });
 
@@ -131,6 +147,9 @@ export const markAllNotificationsAsRead = asyncHandler(async (req, res) => {
     const receiverId = req.user._id;
 
     await Notification.updateMany({ receiverId, isRead: false }, { $set: { isRead: true } });
+
+    // Invalidate cache and emit real-time count update
+    await notificationCache.invalidateNotificationCache(receiverId);
 
     res.status(200).json(new ApiResponse(200, {}, "All notifications marked as read"));
 });
@@ -147,44 +166,48 @@ export const deleteNotification = asyncHandler(async (req, res) => {
     res.status(200).json(new ApiResponse(200, {}, "Notification deleted successfully"));
 });
 
-// 📊 Get Unread Counts (Notifications & Messages)
+// 📊 Get Unread Counts (Notifications & Messages) - Now with caching and deprecation warning
 export const getUnreadCounts = asyncHandler(async (req, res) => {
     const userId = req.user._id;
     const userToken = req.headers.authorization?.split(" ")[1] || req.cookies?.accessToken;
 
     try {
-        // Get unread notifications count
-        const unreadNotificationsCount = await Notification.countDocuments({
-            receiverId: userId,
-            isRead: false
-        });
-
-        // Get user's chats
-        const userChats = await Chat.find({
-            participants: userId,
-            status: 'active'
-        }).select('_id');
-
-        const chatIds = userChats.map(chat => chat._id);
-
-        // Get unread messages count
-        // A message is unread if the user is not in the readBy array
-        const unreadMessagesCount = await Message.countDocuments({
-            chatId: { $in: chatIds },
-            sender: { $ne: userId }, // Exclude messages sent by the user
-            readBy: { $ne: userId }, // User hasn't read the message
-            isDeleted: false
-        });
+        // Get counts from cache first, then database if needed
+        const counts = await notificationCache.getUnreadCounts(userId);
 
         const response = {
-            unreadNotifications: unreadNotificationsCount,
-            unreadMessages: unreadMessagesCount,
+            unreadNotifications: counts.unreadNotifications,
+            unreadMessages: counts.unreadMessages,
             userToken: userToken,
-            timestamp: new Date().toISOString()
+            timestamp: new Date().toISOString(),
+            fromCache: counts.fromCache,
+            // Deprecation warning for polling
+            warning: "⚠️ Consider using WebSocket events instead of polling this endpoint. Listen to 'unread_counts_updated' event for real-time updates."
         };
 
         res.status(200).json(new ApiResponse(200, response, "Unread counts fetched successfully"));
     } catch (error) {
         throw new ApiError(500, "Error fetching unread counts: " + error.message);
+    }
+});
+
+// 🚀 NEW: Get Initial Unread Counts (for app startup only)
+export const getInitialUnreadCounts = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+
+    try {
+        const counts = await notificationCache.getUnreadCounts(userId);
+
+        const response = {
+            unreadNotifications: counts.unreadNotifications,
+            unreadMessages: counts.unreadMessages,
+            timestamp: new Date().toISOString(),
+            fromCache: counts.fromCache,
+            message: "Use Socket.IO 'unread_counts_updated' events for live updates instead of polling."
+        };
+
+        res.status(200).json(new ApiResponse(200, response, "Initial unread counts fetched successfully"));
+    } catch (error) {
+        throw new ApiError(500, "Error fetching initial unread counts: " + error.message);
     }
 });
