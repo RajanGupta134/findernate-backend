@@ -6,10 +6,10 @@ import { ApiResponse } from "../utlis/ApiResponse.js";
 import { ApiError } from "../utlis/ApiError.js";
 import notificationCache from "../utlis/notificationCache.utils.js";
 
-const sendRealTimeNotification = (recipientId, notification) => {
-    const socketId = global.onlineUsers?.get(recipientId);
-    if (socketId) {
-        global.io.to(socketId).emit("notification", notification);
+const sendRealTimeNotification = async (recipientId, notification) => {
+    // Use Socket.IO Redis adapter to emit to user across all processes
+    if (global.io) {
+        global.io.to(`user_${recipientId}`).emit("notification", notification);
     }
 };
 

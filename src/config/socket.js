@@ -150,9 +150,12 @@ class SocketManager {
             // Setup Redis adapter for multi-instance scaling
             this.io.adapter(createAdapter(redisPubSub, redisPublisher));
 
-            // Make socket.io and onlineUsers globally available for notifications
+            // Make socket.io globally available for notifications
             global.io = this.io;
-            global.onlineUsers = this.connectedUsers;
+
+            // Add process identification for debugging
+            const PROCESS_ID = process.env.INSTANCE_ID || process.env.pm_id || `process-${process.pid}`;
+            console.log(`🔧 Socket.IO initialized on process: ${PROCESS_ID}`);
 
             // Authentication middleware
             this.io.use(async (socket, next) => {
@@ -189,9 +192,17 @@ class SocketManager {
     setupEventHandlers() {
         this.io.on('connection', (socket) => {
 
-            // Store user connection
+            // Store user connection locally AND in Redis for cross-process access
             this.connectedUsers.set(socket.userId, socket.id);
             this.userSockets.set(socket.id, socket.userId);
+
+            // Store in Redis with process ID for clustering
+            const PROCESS_ID = process.env.INSTANCE_ID || process.env.pm_id || `process-${process.pid}`;
+            redisPublisher.hset('fn:online_users', socket.userId, JSON.stringify({
+                socketId: socket.id,
+                processId: PROCESS_ID,
+                connectedAt: new Date().toISOString()
+            })).catch(err => console.error('Redis user tracking error:', err));
 
             // Join user to their personal room
             socket.join(`user_${socket.userId}`);
@@ -485,6 +496,10 @@ class SocketManager {
                 this.connectedUsers.delete(socket.userId);
                 this.userSockets.delete(socket.id);
 
+                // Remove from Redis cross-process tracking
+                redisPublisher.hdel('fn:online_users', socket.userId)
+                    .catch(err => console.error('Redis user removal error:', err));
+
                 // Unsubscribe from user-specific Redis channels
                 this.unsubscribeUserFromRedisChannels(socket.userId);
 
@@ -498,6 +513,32 @@ class SocketManager {
     }
 
     // Utility methods
+
+    // Check if user is online across all PM2 processes
+    async isUserOnline(userId) {
+        try {
+            const userInfo = await redisPublisher.hget('fn:online_users', userId);
+            return userInfo !== null;
+        } catch (error) {
+            console.error('Error checking user online status:', error);
+            return false;
+        }
+    }
+
+    // Get all online users across processes
+    async getAllOnlineUsers() {
+        try {
+            const onlineUsers = await redisPublisher.hgetall('fn:online_users');
+            return Object.keys(onlineUsers).map(userId => ({
+                userId,
+                ...JSON.parse(onlineUsers[userId])
+            }));
+        } catch (error) {
+            console.error('Error getting online users:', error);
+            return [];
+        }
+    }
+
     emitToUser(userId, event, data) {
         if (!this.io) {
             console.warn('Socket.IO not initialized, skipping emitToUser');
@@ -539,7 +580,8 @@ class SocketManager {
         });
     }
 
-    isUserOnline(userId) {
+    // Check if user is online in current process only (legacy method)
+    isUserOnlineLocal(userId) {
         return this.connectedUsers.has(userId);
     }
 

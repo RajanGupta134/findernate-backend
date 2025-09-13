@@ -654,6 +654,17 @@ export const addMessage = asyncHandler(async (req, res) => {
         message: populatedMessage // This MUST include mediaUrl, fileName, etc.
     });
 
+    // ✅ Broadcast message across all PM2 processes via Redis PubSub
+    try {
+        await ChatPubSub.publishMessage(chatId, {
+            type: 'new_message',
+            chatId,
+            message: populatedMessage
+        });
+    } catch (error) {
+        console.error('Failed to publish message to Redis PubSub:', error);
+    }
+
     // Send push notifications to other participants
     try {
         const otherParticipants = chat.participants.filter(

@@ -25,7 +25,7 @@ const REDIS_CONFIG = {
     maxRetriesPerRequest: 3, // Reduced retries
     
     // Error handling
-    enableOfflineQueue: false, // Disable to prevent memory issues
+    enableOfflineQueue: true, // Enable for better connection handling
     
     // Retry configuration
     retryDelayOnFailover: 1000,

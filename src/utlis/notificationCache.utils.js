@@ -195,10 +195,10 @@ class NotificationCacheManager {
         try {
             await redisClient.del(this.getNotificationCacheKey(userId));
             
-            // Emit real-time update via Socket.IO
-            if (global.io && global.onlineUsers?.has(userId)) {
+            // Emit real-time update via Socket.IO to user room across all processes
+            if (global.io) {
                 const freshCounts = await this.getUnreadCounts(userId);
-                global.io.to(global.onlineUsers.get(userId)).emit('unread_counts_updated', {
+                global.io.to(`user_${userId}`).emit('unread_counts_updated', {
                     unreadNotifications: freshCounts.unreadNotifications,
                     unreadMessages: freshCounts.unreadMessages,
                     timestamp: new Date().toISOString()
@@ -216,10 +216,10 @@ class NotificationCacheManager {
         try {
             await redisClient.del(this.getMessageCacheKey(userId));
             
-            // Emit real-time update via Socket.IO
-            if (global.io && global.onlineUsers?.has(userId)) {
+            // Emit real-time update via Socket.IO to user room across all processes
+            if (global.io) {
                 const freshCounts = await this.getUnreadCounts(userId);
-                global.io.to(global.onlineUsers.get(userId)).emit('unread_counts_updated', {
+                global.io.to(`user_${userId}`).emit('unread_counts_updated', {
                     unreadNotifications: freshCounts.unreadNotifications,
                     unreadMessages: freshCounts.unreadMessages,
                     timestamp: new Date().toISOString()
