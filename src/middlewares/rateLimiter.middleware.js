@@ -1,24 +1,5 @@
 import rateLimit from 'express-rate-limit';
-import { redisClient } from '../config/redis.config.js';
-
-// Store for rate limiter using Redis
-const redisStore = {
-    async incr(key) {
-        const current = await redisClient.incr(key);
-        if (current === 1) {
-            await redisClient.expire(key, this.windowMs / 1000);
-        }
-        return { totalHits: current, resetTime: new Date(Date.now() + this.windowMs) };
-    },
-    
-    async decrement(key) {
-        return redisClient.decr(key);
-    },
-    
-    async resetKey(key) {
-        return redisClient.del(key);
-    }
-};
+// Temporarily disable Redis store to fix IPv6 issue
 
 // General rate limiter for most endpoints
 export const generalRateLimit = rateLimit({
@@ -30,7 +11,7 @@ export const generalRateLimit = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
-    store: process.env.NODE_ENV === 'production' ? redisStore : undefined
+    // Temporarily using memory store instead of Redis to fix IPv6 issue
 });
 
 // Strict rate limiter for notification endpoints
@@ -43,11 +24,7 @@ export const notificationRateLimit = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
-    store: process.env.NODE_ENV === 'production' ? redisStore : undefined,
-    keyGenerator: (req) => {
-        // Use user ID if authenticated, otherwise IP
-        return req.user?._id || req.ip;
-    }
+    // Temporarily using memory store instead of Redis to fix IPv6 issue
 });
 
 // Very strict rate limiter for unread counts endpoint
@@ -61,10 +38,7 @@ export const unreadCountsRateLimit = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
-    store: process.env.NODE_ENV === 'production' ? redisStore : undefined,
-    keyGenerator: (req) => {
-        return req.user?._id || req.ip;
-    }
+    // Temporarily using memory store instead of Redis to fix IPv6 issue
 });
 
 // Rate limiter for chat endpoints
@@ -77,10 +51,7 @@ export const chatRateLimit = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
-    store: process.env.NODE_ENV === 'production' ? redisStore : undefined,
-    keyGenerator: (req) => {
-        return req.user?._id || req.ip;
-    }
+    // Temporarily using memory store instead of Redis to fix IPv6 issue
 });
 
 // Health check rate limiter (more lenient)
@@ -93,5 +64,5 @@ export const healthCheckRateLimit = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
-    store: process.env.NODE_ENV === 'production' ? redisStore : undefined
+    // Temporarily using memory store instead of Redis to fix IPv6 issue
 });
