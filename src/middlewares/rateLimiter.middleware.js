@@ -27,10 +27,10 @@ export const notificationRateLimit = rateLimit({
     // Temporarily using memory store instead of Redis to fix IPv6 issue
 });
 
-// Very strict rate limiter for unread counts endpoint
+// Rate limiter for unread counts endpoint
 export const unreadCountsRateLimit = rateLimit({
     windowMs: 30 * 1000, // 30 seconds
-    max: 5, // Only 5 requests per 30 seconds
+    max: 30, // 30 requests per 30 seconds
     message: {
         error: 'Too many unread count requests. Consider using WebSocket events instead of polling.',
         retryAfter: 30,
