@@ -3,11 +3,11 @@ import rateLimit from 'express-rate-limit';
 
 // General rate limiter for most endpoints
 export const generalRateLimit = rateLimit({
-    windowMs: 15 * 60 * 1000, // 15 minutes
-    max: 500, // Limit each IP to 500 requests per windowMs
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 2500000, // Limit each IP to 2500000 requests per windowMs
     message: {
         error: 'Too many requests from this IP, please try again later.',
-        retryAfter: 15 * 60 // 15 minutes in seconds
+        retryAfter: 1 * 60 // 1 minute in seconds
     },
     standardHeaders: true,
     legacyHeaders: false,
@@ -17,7 +17,7 @@ export const generalRateLimit = rateLimit({
 // Strict rate limiter for notification endpoints
 export const notificationRateLimit = rateLimit({
     windowMs: 1 * 60 * 1000, // 1 minute
-    max: 20, // Limit to 20 requests per minute per IP
+    max: 20000, // Limit to 20 requests per minute per IP
     message: {
         error: 'Too many notification requests, please try again later.',
         retryAfter: 60
@@ -30,7 +30,7 @@ export const notificationRateLimit = rateLimit({
 // Rate limiter for unread counts endpoint
 export const unreadCountsRateLimit = rateLimit({
     windowMs: 30 * 1000, // 30 seconds
-    max: 30, // 30 requests per 30 seconds
+    max: 30000, // 30 requests per 30 seconds
     message: {
         error: 'Too many unread count requests. Consider using WebSocket events instead of polling.',
         retryAfter: 30,
@@ -44,7 +44,7 @@ export const unreadCountsRateLimit = rateLimit({
 // Rate limiter for chat endpoints
 export const chatRateLimit = rateLimit({
     windowMs: 1 * 60 * 1000, // 1 minute
-    max: 50, // 50 requests per minute
+    max: 50000, // 50 requests per minute
     message: {
         error: 'Too many chat requests, please try again later.',
         retryAfter: 60
@@ -57,7 +57,7 @@ export const chatRateLimit = rateLimit({
 // Health check rate limiter (more lenient)
 export const healthCheckRateLimit = rateLimit({
     windowMs: 5 * 60 * 1000, // 5 minutes
-    max: 10, // 10 health checks per 5 minutes
+    max: 1000, // 10 health checks per 5 minutes
     message: {
         error: 'Too many health check requests.',
         retryAfter: 300
