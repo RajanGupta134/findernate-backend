@@ -32,6 +32,8 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
         // ✅ 1. Get viewable user IDs based on privacy settings and following relationships
+        // For logged-out users (userId is null), this returns only users with public privacy
+        // For logged-in users, this returns their following + their own posts + public users
         const viewableUserIds = await getViewableUserIds(userId);
         
         // ✅ 2. Get following and followers for prioritization (only if user is authenticated)
@@ -54,7 +56,15 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
             {
                 $match: {
                     contentType: { $in: ['normal', 'service', 'product', 'business'] },
-                    userId: { $in: viewableUserIds, $nin: blockedUsers }
+                    userId: { $in: viewableUserIds, $nin: blockedUsers },
+                    // For logged-out users, only show posts with public visibility
+                    ...(userId ? {} : {
+                        $or: [
+                            { 'settings.visibility': 'public' },
+                            { 'settings.visibility': { $exists: false } }, // Default to public if no setting
+                            { 'settings.visibility': null } // Null means public
+                        ]
+                    })
                 }
             },
             {
