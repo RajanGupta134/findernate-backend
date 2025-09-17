@@ -27,11 +27,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cors({
         origin: [
                 "*",
-                "https://findernate-frontend-pq94.vercel.app",
-                "https://findernate.netlify.app/",
-                "https://findernate1.vercel.app",
-                "https://findernate-test.vercel.app",
-                "https://findernate.vercel.app",
+                "https://p0k804os4c4scowcg488800c.194.164.151.15.sslip.io",
                 "http://localhost:3000",
 
         ],
