@@ -1258,8 +1258,20 @@ const toggleAccountPrivacy = asyncHandler(async (req, res) => {
         }
 
         // Toggle: private -> public, public -> private
-        user.privacy = user.privacy === "private" ? "public" : "private";
+        const newPrivacy = user.privacy === "private" ? "public" : "private";
+        user.privacy = newPrivacy;
         await user.save();
+
+        // Update all posts that haven't been manually touched to match account privacy
+        await Post.updateMany(
+            {
+                userId: userId,
+                "settings.isPrivacyTouched": { $ne: true }
+            },
+            {
+                $set: { "settings.privacy": newPrivacy }
+            }
+        );
 
         return res.status(200).json(
             new ApiResponse(200, {

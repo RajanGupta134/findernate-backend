@@ -4,23 +4,23 @@ import rateLimit from 'express-rate-limit';
 // General rate limiter for most endpoints
 export const generalRateLimit = rateLimit({
     windowMs: 1 * 60 * 1000, // 1 minute
-    max: 2500000, // Limit each IP to 2500000 requests per windowMs
+    max: 10000000, // 10M requests per minute for high traffic
     message: {
         error: 'Too many requests from this IP, please try again later.',
-        retryAfter: 1 * 60 // 1 minute in seconds
+        retryAfter: 30 // 30 seconds
     },
     standardHeaders: true,
     legacyHeaders: false,
     // Temporarily using memory store instead of Redis to fix IPv6 issue
 });
 
-// Strict rate limiter for notification endpoints
+// Rate limiter for notification endpoints
 export const notificationRateLimit = rateLimit({
-    windowMs: 1 * 60 * 1000, // 1 minute
-    max: 20000, // Limit to 20 requests per minute per IP
+    windowMs: 30 * 1000, // 30 seconds
+    max: 100000, // 100k requests per 30 seconds
     message: {
         error: 'Too many notification requests, please try again later.',
-        retryAfter: 60
+        retryAfter: 30
     },
     standardHeaders: true,
     legacyHeaders: false,
@@ -29,11 +29,11 @@ export const notificationRateLimit = rateLimit({
 
 // Rate limiter for unread counts endpoint
 export const unreadCountsRateLimit = rateLimit({
-    windowMs: 30 * 1000, // 30 seconds
-    max: 30000, // 30 requests per 30 seconds
+    windowMs: 10 * 1000, // 10 seconds
+    max: 500000, // 500k requests per 10 seconds
     message: {
         error: 'Too many unread count requests. Consider using WebSocket events instead of polling.',
-        retryAfter: 30,
+        retryAfter: 10,
         suggestion: 'Use real-time Socket.IO events for live updates instead of frequent API calls.'
     },
     standardHeaders: true,
@@ -43,11 +43,11 @@ export const unreadCountsRateLimit = rateLimit({
 
 // Rate limiter for chat endpoints
 export const chatRateLimit = rateLimit({
-    windowMs: 1 * 60 * 1000, // 1 minute
-    max: 50000, // 50 requests per minute
+    windowMs: 30 * 1000, // 30 seconds
+    max: 1000000, // 1M requests per 30 seconds
     message: {
         error: 'Too many chat requests, please try again later.',
-        retryAfter: 60
+        retryAfter: 30
     },
     standardHeaders: true,
     legacyHeaders: false,
@@ -56,11 +56,11 @@ export const chatRateLimit = rateLimit({
 
 // Health check rate limiter (more lenient)
 export const healthCheckRateLimit = rateLimit({
-    windowMs: 5 * 60 * 1000, // 5 minutes
-    max: 1000, // 10 health checks per 5 minutes
+    windowMs: 1 * 60 * 1000, // 1 minute
+    max: 100000, // 100k health checks per minute
     message: {
         error: 'Too many health check requests.',
-        retryAfter: 300
+        retryAfter: 60
     },
     standardHeaders: true,
     legacyHeaders: false,

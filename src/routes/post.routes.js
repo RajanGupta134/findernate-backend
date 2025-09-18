@@ -13,6 +13,8 @@ import {
     getMyPosts,
     getPostById,
     deleteContent,
+    updatePostPrivacy,
+    getPostPrivacyStatus,
 } from "../controllers/post.controllers.js";
 import { getHomeFeed } from "../controllers/homeFeed.controllers.js";
 import { likePost, unlikePost, likeComment, unlikeComment } from "../controllers/like.controllers.js";
@@ -80,6 +82,10 @@ router.route("/interaction/track").post(verifyJWT, trackPostInteraction);
 router.route("/interaction/batch").post(verifyJWT, batchTrackInteractions);
 router.route("/interaction/hide").post(verifyJWT, hidePost);
 router.route("/interaction/history").get(verifyJWT, getUserInteractionHistory);
+// Post privacy routes
+router.route("/:postId/privacy").put(verifyJWT, updatePostPrivacy);
+router.route("/:postId/privacy").get(verifyJWT, getPostPrivacyStatus);
+
 // Common API - handles get and delete for posts, stories, and reels
 router.route("/:postId").get(verifyJWT, getPostById).delete(verifyJWT, deleteContent);
 

@@ -231,6 +231,15 @@ const EngagementSchema = new mongoose.Schema({
 // ⚙️ Settings
 const SettingsSchema = new mongoose.Schema({
     visibility: String,
+    privacy: {
+        type: String,
+        enum: ['public', 'private'],
+        default: 'public'
+    },
+    isPrivacyTouched: {
+        type: Boolean,
+        default: false
+    },
     allowComments: Boolean,
     allowLikes: Boolean,
     allowShares: Boolean,

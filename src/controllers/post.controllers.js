@@ -8,6 +8,9 @@ import Reel from "../models/reels.models.js";
 import { uploadBufferToBunny, deleteMultipleFromBunny, deleteFromBunny, generateOptimizedImageUrl } from "../utlis/bunny.js";
 import { getCoordinates } from "../utlis/getCoordinates.js";
 import { validateDeliveryAndLocation } from "../utlis/deliveryValidation.js";
+import { filterPostsByPrivacy, canViewPost } from "../utlis/postPrivacy.js";
+import { User } from "../models/user.models.js";
+import Follower from "../models/follower.models.js";
 import Like from "../models/like.models.js";
 // import Comment from "../models/comment.models.mjs";
 
@@ -129,7 +132,11 @@ export const createNormalPost = asyncHandler(async (req, res) => {
                 tags: parsedTags || [],
             },
         },
-        settings: parsedSettings || {},
+        settings: {
+            ...parsedSettings,
+            privacy: parsedSettings?.privacy || req.user?.privacy || 'public',
+            isPrivacyTouched: parsedSettings?.privacy ? true : false
+        },
         scheduledAt,
         publishedAt,
         status: status || (scheduledAt ? "scheduled" : "published"),
@@ -560,15 +567,58 @@ export const createBusinessPost = asyncHandler(async (req, res) => {
 // Get all posts
 export const getAllPosts = asyncHandler(async (req, res) => {
     const filter = { ...req.query };
-    const posts = await Post.find(filter).sort({ createdAt: -1 });
-    return res.status(200).json(new ApiResponse(200, posts, "Posts fetched successfully"));
+    const currentUser = req.user;
+
+    // Get all posts with user information
+    const posts = await Post.find(filter)
+        .populate('userId', 'username fullName profileImageUrl privacy')
+        .sort({ createdAt: -1 });
+
+    // Get viewer's following/followers for privacy filtering
+    let viewerFollowing = [];
+    let viewerFollowers = [];
+
+    if (currentUser) {
+        const followingRecords = await Follower.find({ followerId: currentUser._id });
+        const followerRecords = await Follower.find({ userId: currentUser._id });
+
+        viewerFollowing = followingRecords.map(f => f.userId.toString());
+        viewerFollowers = followerRecords.map(f => f.followerId.toString());
+    }
+
+    // Filter posts based on privacy settings
+    const visiblePosts = filterPostsByPrivacy(posts, currentUser, viewerFollowing, viewerFollowers);
+
+    return res.status(200).json(new ApiResponse(200, visiblePosts, "Posts fetched successfully"));
 });
 
 // Get post by ID
 export const getPostById = asyncHandler(async (req, res) => {
     const { postId } = req.params;
-    const post = await Post.findById(postId);
+    const currentUser = req.user;
+
+    const post = await Post.findById(postId)
+        .populate('userId', 'username fullName profileImageUrl privacy');
+
     if (!post) throw new ApiError(404, "Post not found");
+
+    // Get viewer's following/followers for privacy check
+    let viewerFollowing = [];
+    let viewerFollowers = [];
+
+    if (currentUser) {
+        const followingRecords = await Follower.find({ followerId: currentUser._id });
+        const followerRecords = await Follower.find({ userId: currentUser._id });
+
+        viewerFollowing = followingRecords.map(f => f.userId.toString());
+        viewerFollowers = followerRecords.map(f => f.followerId.toString());
+    }
+
+    // Check if user can view this post
+    if (!canViewPost(post, post.userId, currentUser, viewerFollowing, viewerFollowers)) {
+        throw new ApiError(403, "You don't have permission to view this post");
+    }
+
     return res.status(200).json(new ApiResponse(200, post, "Post fetched successfully"));
 });
 
@@ -1184,19 +1234,36 @@ export const getUserProfilePosts = asyncHandler(async (req, res) => {
 
     try {
         const posts = await Post.find(filter)
-            .populate('userId', 'username profileImageUrl fullName isVerified location bio')
+            .populate('userId', 'username profileImageUrl fullName isVerified location bio privacy')
             .populate('mentions', 'username fullName profileImageUrl')
             .sort(sortObj)
             .skip(skip)
             .limit(pageLimit)
             .lean();
 
+        // Get viewer's following/followers for privacy filtering
+        const currentUser = req.user;
+        let viewerFollowing = [];
+        let viewerFollowers = [];
+
+        if (currentUser) {
+            const followingRecords = await Follower.find({ followerId: currentUser._id });
+            const followerRecords = await Follower.find({ userId: currentUser._id });
+
+            viewerFollowing = followingRecords.map(f => f.userId.toString());
+            viewerFollowers = followerRecords.map(f => f.followerId.toString());
+        }
+
+        // Filter posts based on privacy settings
+        const visiblePosts = filterPostsByPrivacy(posts, currentUser, viewerFollowing, viewerFollowers);
+
         const totalPosts = await Post.countDocuments(filter);
         const totalPages = Math.ceil(totalPosts / pageLimit);
+        const visiblePostsCount = visiblePosts.length;
 
         // Enhancement: Add isLikedBy and likedBy fields
         const currentUserId = req.user?._id?.toString();
-        const postIds = posts.map(post => post._id);
+        const postIds = visiblePosts.map(post => post._id);
         // Fetch all likes for these posts
         const likes = await Like.find({ postId: { $in: postIds } }).lean();
         // Map postId to array of userIds who liked it
@@ -1220,7 +1287,7 @@ export const getUserProfilePosts = asyncHandler(async (req, res) => {
                 return acc;
             }, {});
         }
-        posts.forEach(post => {
+        visiblePosts.forEach(post => {
             const pid = post._id.toString();
             const likedByIds = likesByPost[pid] || [];
             post.likedBy = likedByIds.map(uid => likedUsersMap[uid]).filter(Boolean); // array of user details
@@ -1229,7 +1296,7 @@ export const getUserProfilePosts = asyncHandler(async (req, res) => {
 
         return res.status(200).json(
             new ApiResponse(200, {
-                posts,
+                posts: visiblePosts,
                 pagination: {
                     currentPage,
                     totalPages,
@@ -1248,4 +1315,71 @@ export const getUserProfilePosts = asyncHandler(async (req, res) => {
         console.error("Error fetching user profile posts:", error);
         throw new ApiError(500, "Failed to fetch user profile posts");
     }
+});
+
+// Update post privacy
+export const updatePostPrivacy = asyncHandler(async (req, res) => {
+    const { postId } = req.params;
+    const { privacy } = req.body;
+    const userId = req.user._id;
+
+    if (!privacy || !['public', 'private'].includes(privacy)) {
+        throw new ApiError(400, "Privacy must be either 'public' or 'private'");
+    }
+
+    const post = await Post.findById(postId);
+    if (!post) {
+        throw new ApiError(404, "Post not found");
+    }
+
+    if (post.userId.toString() !== userId.toString()) {
+        throw new ApiError(403, "You can only update your own posts");
+    }
+
+    const updatedPost = await Post.findByIdAndUpdate(
+        postId,
+        {
+            $set: {
+                "settings.privacy": privacy,
+                "settings.isPrivacyTouched": true,
+                updatedAt: new Date()
+            }
+        },
+        { new: true, runValidators: true }
+    );
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            postId: updatedPost._id,
+            privacy: updatedPost.settings.privacy,
+            isPrivacyTouched: updatedPost.settings.isPrivacyTouched
+        }, "Post privacy updated successfully")
+    );
+});
+
+// Get post privacy status
+export const getPostPrivacyStatus = asyncHandler(async (req, res) => {
+    const { postId } = req.params;
+    const userId = req.user._id;
+
+    const post = await Post.findById(postId)
+        .populate('userId', 'username privacy');
+
+    if (!post) {
+        throw new ApiError(404, "Post not found");
+    }
+
+    if (post.userId._id.toString() !== userId.toString()) {
+        throw new ApiError(403, "You can only view privacy status of your own posts");
+    }
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            postId: post._id,
+            privacy: post.settings?.privacy || 'public',
+            isPrivacyTouched: post.settings?.isPrivacyTouched || false,
+            accountPrivacy: post.userId.privacy,
+            effectivePrivacy: post.settings?.privacy || post.userId.privacy || 'public'
+        }, "Post privacy status retrieved successfully")
+    );
 });
