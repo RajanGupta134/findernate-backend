@@ -6,7 +6,7 @@
 /**
  * Determines who can view a post based on account privacy and post privacy
  * @param {Object} post - Post object with settings.privacy field
- * @param {Object} postOwner - User object (post owner) with privacy field
+ * @param {Object} postOwner - User object (post owner) with privacy and isFullPrivate fields
  * @param {Object} viewer - Current user viewing the post (null for anonymous)
  * @param {Array} viewerFollowing - Array of user IDs that the viewer is following
  * @param {Array} viewerFollowers - Array of user IDs that follow the viewer
@@ -20,8 +20,22 @@ export const canViewPost = (post, postOwner, viewer, viewerFollowing = [], viewe
         return true;
     }
 
+    // FULL PRIVATE MODE: Overrides all other privacy settings
+    if (postOwner.isFullPrivate) {
+        if (!viewer) return false; // Anonymous users cannot see any posts
+
+        const viewerId = viewer._id.toString();
+        const postOwnerId = postOwner._id.toString();
+
+        // Only followers/following can see posts from full private accounts
+        const isFollowing = viewerFollowing.includes(postOwnerId);
+        const isFollowedBy = viewerFollowers.includes(postOwnerId);
+
+        return isFollowing || isFollowedBy;
+    }
+
+    // NORMAL PRIVACY MODE: Use individual post privacy settings
     const postPrivacy = post.settings?.privacy || 'public';
-    const accountPrivacy = postOwner.privacy || 'public';
 
     // If post is explicitly public, everyone can see it regardless of account privacy
     if (postPrivacy === 'public') {
@@ -77,12 +91,20 @@ export const getDefaultPostPrivacy = (user, explicitPrivacy = null) => {
 /**
  * Determines post visibility level for UI display
  * @param {Object} post - Post object with settings.privacy field
- * @param {Object} postOwner - User object (post owner) with privacy field
+ * @param {Object} postOwner - User object (post owner) with privacy and isFullPrivate fields
  * @returns {Object} - Visibility info for UI
  */
 export const getPostVisibilityInfo = (post, postOwner) => {
+    // Full private mode overrides everything
+    if (postOwner?.isFullPrivate) {
+        return {
+            level: 'full-private',
+            description: 'Full private account - visible to followers/following only',
+            icon: '🔒'
+        };
+    }
+
     const postPrivacy = post.settings?.privacy || 'public';
-    const accountPrivacy = postOwner?.privacy || 'public';
 
     if (postPrivacy === 'public') {
         return {

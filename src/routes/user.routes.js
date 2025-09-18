@@ -3,7 +3,7 @@ import { upload } from "../middlewares/multerConfig.js";
 import { verifyJWT, optionalVerifyJWT } from "../middlewares/auth.middleware.js";
 import { getBlockedUsers as getBlockedUsersMiddleware} from "../middlewares/blocking.middleware.js";
 import { cacheSearchResults } from "../middlewares/cache.middleware.js";
-import { loginUser, logOutUser, registerUser, getUserProfile, updateUserProfile, changePassword, deleteAccount, searchUsers, verifyEmailWithOTP, uploadProfileImage, sendVerificationOTPForEmail, sendPasswordResetOTP, resetPasswordWithOTP, getOtherUserProfile, checkTokenExpiry, togglePhoneNumberVisibility, toggleAddressVisibility, toggleAccountPrivacy, trackSearch, getPopularSearches, blockUser, unblockUser, getBlockedUsers, checkIfUserBlocked, getUsernameSuggestions, checkUsernameAvailability } from "../controllers/user.controllers.js";
+import { loginUser, logOutUser, registerUser, getUserProfile, updateUserProfile, changePassword, deleteAccount, searchUsers, verifyEmailWithOTP, uploadProfileImage, sendVerificationOTPForEmail, sendPasswordResetOTP, resetPasswordWithOTP, getOtherUserProfile, checkTokenExpiry, togglePhoneNumberVisibility, toggleAddressVisibility, toggleAccountPrivacy, trackSearch, getPopularSearches, blockUser, unblockUser, getBlockedUsers, checkIfUserBlocked, getUsernameSuggestions, checkUsernameAvailability, toggleFullPrivateAccount } from "../controllers/user.controllers.js";
 import { searchAllContent } from "../controllers/searchAllContent.controllers.js";
 import { followUser, unfollowUser, getFollowers, getFollowing, approveFollowRequest, rejectFollowRequest, getPendingFollowRequests, getSentFollowRequests } from "../controllers/follower.controllers.js";
 import { getSearchSuggestions } from "../controllers/searchSuggestion.controllers.js";
@@ -54,6 +54,7 @@ router.get("/profile/other", verifyJWT, getOtherUserProfile);
 router.put("/privacy/phone-number", verifyJWT, togglePhoneNumberVisibility);
 router.put("/privacy/address", verifyJWT, toggleAddressVisibility);
 router.put("/privacy/account", verifyJWT, toggleAccountPrivacy);
+router.put("/privacy/full-private", verifyJWT, toggleFullPrivateAccount);
 
 // Block user routes
 router.post("/block", verifyJWT, blockUser);

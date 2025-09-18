@@ -571,7 +571,7 @@ export const getAllPosts = asyncHandler(async (req, res) => {
 
     // Get all posts with user information
     const posts = await Post.find(filter)
-        .populate('userId', 'username fullName profileImageUrl privacy')
+        .populate('userId', 'username fullName profileImageUrl privacy isFullPrivate')
         .sort({ createdAt: -1 });
 
     // Get viewer's following/followers for privacy filtering
@@ -598,7 +598,7 @@ export const getPostById = asyncHandler(async (req, res) => {
     const currentUser = req.user;
 
     const post = await Post.findById(postId)
-        .populate('userId', 'username fullName profileImageUrl privacy');
+        .populate('userId', 'username fullName profileImageUrl privacy isFullPrivate');
 
     if (!post) throw new ApiError(404, "Post not found");
 
@@ -1234,7 +1234,7 @@ export const getUserProfilePosts = asyncHandler(async (req, res) => {
 
     try {
         const posts = await Post.find(filter)
-            .populate('userId', 'username profileImageUrl fullName isVerified location bio privacy')
+            .populate('userId', 'username profileImageUrl fullName isVerified location bio privacy isFullPrivate')
             .populate('mentions', 'username fullName profileImageUrl')
             .sort(sortObj)
             .skip(skip)
@@ -1363,7 +1363,7 @@ export const getPostPrivacyStatus = asyncHandler(async (req, res) => {
     const userId = req.user._id;
 
     const post = await Post.findById(postId)
-        .populate('userId', 'username privacy');
+        .populate('userId', 'username privacy isFullPrivate');
 
     if (!post) {
         throw new ApiError(404, "Post not found");

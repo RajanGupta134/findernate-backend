@@ -1257,6 +1257,11 @@ const toggleAccountPrivacy = asyncHandler(async (req, res) => {
             throw new ApiError(404, "User not found");
         }
 
+        // If user is in full private mode, can't use regular privacy toggle
+        if (user.isFullPrivate) {
+            throw new ApiError(400, "Cannot toggle basic privacy while in full private mode. Please disable full private mode first.");
+        }
+
         // Toggle: private -> public, public -> private
         const newPrivacy = user.privacy === "private" ? "public" : "private";
         user.privacy = newPrivacy;
@@ -1276,11 +1281,62 @@ const toggleAccountPrivacy = asyncHandler(async (req, res) => {
         return res.status(200).json(
             new ApiResponse(200, {
                 privacy: user.privacy,
-                isPrivate: user.privacy === "private"
+                isPrivate: user.privacy === "private",
+                isFullPrivate: user.isFullPrivate
             }, `Account is now ${user.privacy}`)
         );
     } catch (error) {
         throw new ApiError(500, "Error toggling account privacy", [error.message]);
+    }
+});
+
+// Toggle Full Private Account Mode
+const toggleFullPrivateAccount = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+
+    try {
+        const user = await User.findById(userId);
+
+        if (!user) {
+            throw new ApiError(404, "User not found");
+        }
+
+        // Toggle full private mode
+        const newFullPrivateState = !user.isFullPrivate;
+        user.isFullPrivate = newFullPrivateState;
+
+        // When switching to full private, set basic privacy to private as well
+        if (newFullPrivateState) {
+            user.privacy = 'private';
+
+            // Update all posts that haven't been manually touched to private
+            await Post.updateMany(
+                {
+                    userId: userId,
+                    "settings.isPrivacyTouched": { $ne: true }
+                },
+                {
+                    $set: { "settings.privacy": "private" }
+                }
+            );
+        }
+        // When switching back from full private, restore individual post privacy settings
+        // Individual privacy settings will take effect again automatically
+
+        await user.save();
+
+        return res.status(200).json(
+            new ApiResponse(200, {
+                isFullPrivate: user.isFullPrivate,
+                privacy: user.privacy,
+                isPrivate: user.privacy === "private",
+                message: newFullPrivateState
+                    ? "Full private mode enabled - all posts are now private regardless of individual settings"
+                    : "Full private mode disabled - individual post privacy settings will now take effect"
+            }, `Full private account ${newFullPrivateState ? 'enabled' : 'disabled'}`)
+        );
+    } catch (error) {
+        throw new ApiError(500, "Error toggling full private account", [error.message]);
     }
 });
 
@@ -1310,5 +1366,6 @@ export {
     getBlockedUsers,
     checkIfUserBlocked,
     getUsernameSuggestions,
-    checkUsernameAvailability
+    checkUsernameAvailability,
+    toggleFullPrivateAccount
 };
