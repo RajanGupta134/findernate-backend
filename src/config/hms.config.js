@@ -1,5 +1,6 @@
 import { SDK } from '@100mslive/server-sdk';
-
+import { TokenService } from '../services/TokenService.js';
+import { APIService } from '../services/APIService.js';
 
 class HMSService {
     constructor() {
@@ -7,6 +8,10 @@ class HMSService {
             process.env.HMS_ACCESS_KEY,
             process.env.HMS_SECRET
         );
+
+        // Initialize token and API services for direct REST API calls
+        this.tokenService = new TokenService();
+        this.apiService = new APIService(this.tokenService);
 
         // Default template IDs - you'll need to create these in your 100ms dashboard
         this.VOICE_TEMPLATE_ID = process.env.HMS_VOICE_TEMPLATE_ID;
@@ -59,26 +64,41 @@ class HMSService {
      */
     async generateAuthToken(roomId, user, role = 'guest') {
         try {
-            const tokenOptions = {
+            // Use the new TokenService for more reliable token generation
+            const token = this.tokenService.getAuthToken({
                 room_id: roomId,
                 user_id: user._id.toString(),
-                role: role,
-                user_data: JSON.stringify({
-                    userId: user._id.toString(),
-                    username: user.username,
-                    fullName: user.fullName,
-                    profileImage: user.profileImageUrl
-                })
-            };
+                role: role
+            });
 
-            const token = await this.api.auth.getAuthToken(tokenOptions);
-
-            console.log(`🔑 Generated auth token for user: ${user.username} in room: ${roomId}`);
+            console.log(`🔑 Generated auth token for user: ${user.username} in room: ${roomId} with role: ${role}`);
 
             return token;
         } catch (error) {
             console.error('❌ Error generating auth token:', error);
-            throw new Error(`Failed to generate auth token: ${error.message}`);
+
+            // Fallback to SDK method if TokenService fails
+            try {
+                console.log('🔄 Falling back to SDK token generation');
+                const tokenOptions = {
+                    room_id: roomId,
+                    user_id: user._id.toString(),
+                    role: role,
+                    user_data: JSON.stringify({
+                        userId: user._id.toString(),
+                        username: user.username,
+                        fullName: user.fullName,
+                        profileImage: user.profileImageUrl
+                    })
+                };
+
+                const token = await this.api.auth.getAuthToken(tokenOptions);
+                console.log(`🔑 Generated auth token via SDK fallback for user: ${user.username}`);
+                return token;
+            } catch (fallbackError) {
+                console.error('❌ SDK fallback also failed:', fallbackError);
+                throw new Error(`Failed to generate auth token: ${error.message}`);
+            }
         }
     }
 
@@ -238,6 +258,58 @@ class HMSService {
             console.error('❌ Error sending room message:', error);
             return false;
         }
+    }
+
+    /**
+     * Get sessions for a room using direct API calls
+     * @param {string} roomId - 100ms room ID
+     * @returns {Object} Sessions data
+     */
+    async getSessionsByRoom(roomId) {
+        try {
+            console.log(`📊 Fetching sessions for room: ${roomId}`);
+            const sessionData = await this.apiService.get('/sessions', { room_id: roomId });
+            console.log(`✅ Retrieved ${sessionData.data?.length || 0} sessions for room ${roomId}`);
+            return sessionData;
+        } catch (error) {
+            console.error('❌ Error fetching sessions:', error);
+            throw new Error(`Failed to fetch sessions for room ${roomId}: ${error.message}`);
+        }
+    }
+
+    /**
+     * Create room using direct API calls (alternative to SDK)
+     * @param {Object} roomOptions - Room creation options
+     * @returns {Object} Room data
+     */
+    async createRoomDirect(roomOptions) {
+        try {
+            console.log('🏠 Creating room via direct API:', roomOptions);
+            const roomData = await this.apiService.post('/rooms', roomOptions);
+            console.log(`✅ Created room via API: ${roomData.id}`);
+            return roomData;
+        } catch (error) {
+            console.error('❌ Error creating room via API:', error);
+            throw new Error(`Failed to create room via API: ${error.message}`);
+        }
+    }
+
+    /**
+     * Get management token (exposed for external use)
+     * @param {boolean} forceNew - Force generate new token
+     * @returns {string} Management token
+     */
+    getManagementToken(forceNew = false) {
+        return this.tokenService.getManagementToken(forceNew);
+    }
+
+    /**
+     * Validate if a token is still valid
+     * @param {string} token - Token to validate
+     * @returns {boolean} Is token valid
+     */
+    isTokenValid(token) {
+        return this.tokenService.isTokenValid(token);
     }
 }
 
