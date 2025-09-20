@@ -8,6 +8,7 @@ import { asyncHandler } from '../utlis/asyncHandler.js';
 import socketManager from '../config/socket.js';
 import hmsService from '../config/hms.config.js';
 import mongoose from 'mongoose';
+import moment from 'moment';
 
 // Helper function to safely emit socket events
 const safeEmitToUser = (userId, event, data) => {
@@ -723,3 +724,240 @@ const handleRecordingSuccess = async (data) => {
         console.log(`📹 Recording saved for call ${call._id}: ${recording_url}`);
     }
 };
+
+// Get usage analytics for the latest Session in a Room
+export const getSessionAnalyticsByRoom = asyncHandler(async (req, res) => {
+    const currentUserId = req.user._id;
+    const { roomId } = req.query;
+
+    if (!roomId) {
+        throw new ApiError(400, 'Room ID is required');
+    }
+
+    try {
+        // Get the call associated with this room
+        const call = await Call.getCallByRoomId(roomId);
+        if (!call) {
+            throw new ApiError(404, 'Call not found for this room');
+        }
+
+        // Check if user is a participant
+        const participantIds = call.participants.map(p => p.toString());
+        if (!participantIds.includes(currentUserId.toString())) {
+            throw new ApiError(403, 'You are not authorized to view analytics for this call');
+        }
+
+        // Get session data from 100ms API
+        const sessionListData = await hmsService.getSessionsByRoom(roomId);
+
+        if (!sessionListData || !sessionListData.data || sessionListData.data.length === 0) {
+            return res.status(404).json(
+                new ApiResponse(404, null, "No session found for this room")
+            );
+        }
+
+        const sessionData = sessionListData.data[0]; // Get latest session
+        console.log('📊 Processing session data:', sessionData);
+
+        // Calculate individual participants' duration
+        const peers = Object.values(sessionData.peers || {});
+        const detailsByUser = peers.reduce((acc, peer) => {
+            const joinedAt = moment(peer.joined_at);
+            const leftAt = moment(peer.left_at || sessionData.updated_at);
+            const duration = moment.duration(leftAt.diff(joinedAt)).asMinutes();
+            const roundedDuration = Math.round(duration * 100) / 100;
+
+            const userId = peer.user_id;
+            if (!acc[userId]) {
+                acc[userId] = {
+                    name: peer.name,
+                    user_id: userId,
+                    duration: 0
+                };
+            }
+            acc[userId].duration += roundedDuration;
+            return acc;
+        }, {});
+
+        const userDurationList = Object.values(detailsByUser);
+        console.log('👥 User durations:', userDurationList);
+
+        // Calculate aggregated participants' duration
+        const totalPeerDuration = userDurationList
+            .reduce((total, user) => total + user.duration, 0)
+            .toFixed(2);
+        console.log(`⏱️ Total duration for all peers: ${totalPeerDuration} minutes`);
+
+        // Calculate total session duration
+        const sessionStartTime = moment(sessionData.created_at);
+        const sessionEndTime = moment(sessionData.updated_at);
+        const sessionDuration = moment.duration(sessionEndTime.diff(sessionStartTime))
+            .asMinutes()
+            .toFixed(2);
+        console.log(`📅 Session duration: ${sessionDuration} minutes`);
+
+        // Include call metadata
+        const analytics = {
+            user_duration_list: userDurationList,
+            session_duration: sessionDuration,
+            total_peer_duration: totalPeerDuration,
+            call_metadata: {
+                call_id: call._id,
+                call_type: call.callType,
+                status: call.status,
+                initiated_at: call.initiatedAt,
+                started_at: call.startedAt,
+                ended_at: call.endedAt,
+                duration_seconds: call.duration,
+                formatted_duration: call.formattedDuration,
+                participants_count: call.participants.length
+            },
+            session_metadata: {
+                session_id: sessionData.id,
+                room_id: roomId,
+                peers_count: peers.length,
+                session_created_at: sessionData.created_at,
+                session_updated_at: sessionData.updated_at
+            }
+        };
+
+        res.status(200).json(
+            new ApiResponse(200, analytics, 'Session analytics retrieved successfully')
+        );
+
+    } catch (error) {
+        console.error('❌ Error fetching session analytics:', error);
+
+        // If 100ms API fails, return basic analytics from our database
+        if (error.message?.includes('100ms') || error.response?.status >= 400) {
+            const call = await Call.getCallByRoomId(roomId)
+                .populate('participants', 'username fullName profileImageUrl');
+
+            if (call) {
+                const fallbackAnalytics = {
+                    user_duration_list: call.participants.map(participant => ({
+                        name: participant.fullName,
+                        user_id: participant._id.toString(),
+                        duration: call.duration ? (call.duration / 60).toFixed(2) : 0 // Convert seconds to minutes
+                    })),
+                    session_duration: call.duration ? (call.duration / 60).toFixed(2) : 0,
+                    total_peer_duration: call.duration && call.participants.length ?
+                        ((call.duration * call.participants.length) / 60).toFixed(2) : 0,
+                    call_metadata: {
+                        call_id: call._id,
+                        call_type: call.callType,
+                        status: call.status,
+                        initiated_at: call.initiatedAt,
+                        started_at: call.startedAt,
+                        ended_at: call.endedAt,
+                        duration_seconds: call.duration,
+                        formatted_duration: call.formattedDuration,
+                        participants_count: call.participants.length
+                    },
+                    note: 'Analytics generated from local database due to 100ms API unavailability'
+                };
+
+                return res.status(200).json(
+                    new ApiResponse(200, fallbackAnalytics, 'Fallback session analytics retrieved from database')
+                );
+            }
+        }
+
+        throw new ApiError(500, 'Failed to fetch session analytics');
+    }
+});
+
+// Create a new room following 100ms guide pattern
+export const createRoom = asyncHandler(async (req, res) => {
+    const currentUserId = req.user._id;
+    const { name, description, template_id, region, callType } = req.body;
+
+    try {
+        // Determine template ID based on callType if not provided
+        let finalTemplateId = template_id;
+        if (!finalTemplateId && callType) {
+            finalTemplateId = callType === 'video' ?
+                process.env.HMS_VIDEO_TEMPLATE_ID :
+                process.env.HMS_VOICE_TEMPLATE_ID;
+        }
+
+        const payload = {
+            name: name || `room-${Date.now()}`,
+            description: description || `Room created by ${req.user.username}`,
+            template_id: finalTemplateId,
+            region: region || 'in' // Default to India region
+        };
+
+        // Use the new APIService for room creation
+        const roomData = await hmsService.createRoomDirect(payload);
+
+        // Log room creation for analytics
+        console.log(`🏠 Room created: ${roomData.id} by user: ${req.user.username}`);
+
+        // Return room data in the format expected by clients
+        const responseData = {
+            id: roomData.id,
+            name: roomData.name,
+            description: roomData.description,
+            room_code: roomData.room_code,
+            enabled: roomData.enabled,
+            template_id: roomData.template_id,
+            region: roomData.region,
+            created_at: roomData.created_at,
+            created_by: {
+                _id: currentUserId,
+                username: req.user.username,
+                fullName: req.user.fullName
+            }
+        };
+
+        res.status(201).json(
+            new ApiResponse(201, responseData, 'Room created successfully')
+        );
+
+    } catch (error) {
+        console.error('❌ Error creating room:', error);
+        throw new ApiError(500, `Unable to create room: ${error.message}`);
+    }
+});
+
+// Generate auth token for a client to join a room (following 100ms guide)
+export const generateAuthToken = asyncHandler(async (req, res) => {
+    const { room_id, user_id, role } = req.body;
+
+    // Validate required fields
+    if (!room_id || !user_id) {
+        throw new ApiError(400, 'room_id and user_id are required');
+    }
+
+    // Validate role
+    const validRoles = ['participant', 'guest', 'host', 'moderator'];
+    const finalRole = role && validRoles.includes(role) ? role : 'participant';
+
+    try {
+        // Use the enhanced TokenService to generate auth token
+        const token = hmsService.tokenService.getAuthToken({
+            room_id,
+            user_id,
+            role: finalRole
+        });
+
+        // Log token generation for security audit
+        console.log(`🔑 Auth token generated for user ${user_id} in room ${room_id} with role ${finalRole}`);
+
+        res.status(200).json(
+            new ApiResponse(200, {
+                token,
+                room_id,
+                user_id,
+                role: finalRole,
+                expires_in: '1h', // Auth tokens expire in 1 hour
+                success: true
+            }, 'Auth token generated successfully')
+        );
+
+    } catch (error) {
+        console.error('❌ Error generating auth token:', error);
+        throw new ApiError(500, `Failed to generate auth token: ${error.message}`);
+    }
+});
