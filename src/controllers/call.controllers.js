@@ -10,6 +10,10 @@ import hmsService from '../config/hms.config.js';
 import mongoose from 'mongoose';
 import moment from 'moment';
 
+// Constants for call management
+const CALL_TIMEOUT_MINUTES = 2; // Calls timeout after 2 minutes if not answered
+const CLEANUP_INTERVAL_MINUTES = 5; // Run cleanup every 5 minutes
+
 // Helper function to safely emit socket events
 const safeEmitToUser = (userId, event, data) => {
     if (socketManager.isReady()) {
@@ -17,6 +21,97 @@ const safeEmitToUser = (userId, event, data) => {
     } else {
         console.warn(`Socket not ready, skipping ${event} for user ${userId}`);
     }
+};
+
+// Helper function to validate ObjectId
+const isValidObjectId = (id) => {
+    return mongoose.Types.ObjectId.isValid(id);
+};
+
+// Helper function to cleanup stale calls
+const cleanupStaleCalls = async () => {
+    try {
+        const timeoutDate = new Date(Date.now() - (CALL_TIMEOUT_MINUTES * 60 * 1000));
+
+        // Find calls that are stuck in initiated/ringing state beyond timeout
+        const staleCalls = await Call.find({
+            status: { $in: ['initiated', 'ringing'] },
+            initiatedAt: { $lt: timeoutDate }
+        });
+
+        for (const call of staleCalls) {
+            console.log(`🧹 Cleaning up stale call: ${call._id}`);
+
+            // End HMS room if exists
+            if (call.hmsRoom?.roomId) {
+                await safeHMSOperation(async () => {
+                    await hmsService.endRoom(call.hmsRoom.roomId);
+                    call.hmsRoom.endedAt = new Date();
+                }, `Failed to end HMS room ${call.hmsRoom.roomId} during cleanup`);
+            }
+
+            // Update call status
+            call.status = 'missed';
+            call.endedAt = new Date();
+            call.endReason = 'timeout';
+            await call.save();
+
+            // Notify participants
+            const participantIds = call.participants.map(p => p.toString());
+            participantIds.forEach(participantId => {
+                safeEmitToUser(participantId, 'call_timeout', {
+                    callId: call._id,
+                    timestamp: new Date()
+                });
+            });
+        }
+
+        if (staleCalls.length > 0) {
+            console.log(`🧹 Cleaned up ${staleCalls.length} stale calls`);
+        }
+    } catch (error) {
+        console.error('❌ Error during call cleanup:', error);
+    }
+};
+
+// Start cleanup interval
+setInterval(cleanupStaleCalls, CLEANUP_INTERVAL_MINUTES * 60 * 1000);
+
+// Helper function to safely execute HMS operations
+const safeHMSOperation = async (operation, fallbackMessage) => {
+    try {
+        return await operation();
+    } catch (error) {
+        console.warn(`HMS operation failed: ${error.message}. ${fallbackMessage}`);
+        return null;
+    }
+};
+
+// Helper function to check if user has active call
+const hasActiveCall = async (userId, session = null) => {
+    const query = {
+        participants: userId,
+        status: { $in: ['initiated', 'ringing', 'connecting', 'active'] }
+    };
+
+    return session ?
+        await Call.findOne(query).session(session) :
+        await Call.findOne(query);
+};
+
+// Helper function to validate chat permissions
+const validateChatPermissions = async (chatId, currentUserId, receiverId) => {
+    const chat = await Chat.findById(chatId);
+    if (!chat) {
+        throw new ApiError(404, 'Chat not found');
+    }
+
+    const participantIds = chat.participants.map(p => p.toString());
+    if (!participantIds.includes(currentUserId.toString()) || !participantIds.includes(receiverId)) {
+        throw new ApiError(403, 'You can only call users in your chats');
+    }
+
+    return chat;
 };
 
 // Initiate a call
@@ -33,16 +128,8 @@ export const initiateCall = asyncHandler(async (req, res) => {
         throw new ApiError(400, 'Call type must be voice or video');
     }
 
-    // Validate that the chat exists and user is a participant
-    const chat = await Chat.findById(chatId);
-    if (!chat) {
-        throw new ApiError(404, 'Chat not found');
-    }
-
-    const participantIds = chat.participants.map(p => p.toString());
-    if (!participantIds.includes(currentUserId.toString()) || !participantIds.includes(receiverId)) {
-        throw new ApiError(403, 'You can only call users in your chats');
-    }
+    // Validate chat permissions
+    await validateChatPermissions(chatId, currentUserId, receiverId);
 
     // Check if receiver exists and is online
     const receiver = await User.findById(receiverId);
@@ -55,47 +142,54 @@ export const initiateCall = asyncHandler(async (req, res) => {
         throw new ApiError(400, 'Cannot call yourself');
     }
 
-    // Check if there's already an active call for either user
-    const existingCall = await Call.findOne({
-        $or: [
-            { participants: currentUserId, status: { $in: ['initiated', 'ringing', 'connecting', 'active'] } },
-            { participants: receiverId, status: { $in: ['initiated', 'ringing', 'connecting', 'active'] } }
-        ]
-    });
+    // Use transaction to prevent race conditions
+    const session = await mongoose.startSession();
+    let newCall;
 
-    if (existingCall) {
-        throw new ApiError(409, 'User is already in a call');
+    try {
+        await session.withTransaction(async () => {
+            // Check if there's already an active call for either user within transaction
+            const currentUserActiveCall = await hasActiveCall(currentUserId, session);
+            const receiverActiveCall = await hasActiveCall(receiverId, session);
+
+            if (currentUserActiveCall || receiverActiveCall) {
+                const busyUser = currentUserActiveCall ? 'You are' : 'The recipient is';
+                throw new ApiError(409, `${busyUser} already in a call`);
+            }
+
+            // Create new call record within transaction
+            newCall = new Call({
+                participants: [currentUserId, receiverId],
+                initiator: currentUserId,
+                chatId,
+                callType,
+                status: 'initiated'
+            });
+
+            await newCall.save({ session });
+        });
+    } finally {
+        await session.endSession();
     }
 
-    // Create new call record
-    const newCall = new Call({
-        participants: [currentUserId, receiverId],
-        initiator: currentUserId,
-        chatId,
-        callType,
-        status: 'initiated'
-    });
-
-    await newCall.save();
-
-    // Create 100ms room for the call
-    try {
-        const hmsRoom = await hmsService.createRoom(callType, newCall._id.toString(), [currentUserId, receiverId]);
+    // Create 100ms room for the call with better error handling
+    const hmsRoom = await safeHMSOperation(async () => {
+        const room = await hmsService.createRoom(callType, newCall._id.toString(), [currentUserId, receiverId]);
 
         // Update call with HMS room data
         newCall.hmsRoom = {
-            roomId: hmsRoom.roomId,
-            roomCode: hmsRoom.roomCode,
-            enabled: hmsRoom.enabled,
-            createdAt: new Date(hmsRoom.createdAt)
+            roomId: room.roomId,
+            roomCode: room.roomCode,
+            enabled: room.enabled,
+            createdAt: new Date(room.createdAt)
         };
 
         // Generate auth tokens for both participants
-        const initiatorTokenResponse = await hmsService.generateAuthToken(hmsRoom.roomId, req.user, 'host');
+        const initiatorTokenResponse = await hmsService.generateAuthToken(room.roomId, req.user, 'host');
         const receiverUser = await User.findById(receiverId);
-        const receiverTokenResponse = await hmsService.generateAuthToken(hmsRoom.roomId, receiverUser, 'guest');
+        const receiverTokenResponse = await hmsService.generateAuthToken(room.roomId, receiverUser, 'guest');
 
-        // Extract token strings from response (HMS SDK returns { token: "jwt_string" })
+        // Extract token strings from response
         const initiatorToken = typeof initiatorTokenResponse === 'string' ? initiatorTokenResponse : initiatorTokenResponse.token;
         const receiverToken = typeof receiverTokenResponse === 'string' ? receiverTokenResponse : receiverTokenResponse.token;
 
@@ -103,12 +197,9 @@ export const initiateCall = asyncHandler(async (req, res) => {
         await newCall.addHMSToken(currentUserId, initiatorToken, 'host');
         await newCall.addHMSToken(receiverId, receiverToken, 'guest');
 
-        console.log(`🎉 Created 100ms room ${hmsRoom.roomId} for call ${newCall._id}`);
-    } catch (error) {
-        console.error('❌ Failed to create 100ms room:', error);
-        // Continue without 100ms integration - fallback to WebRTC
-        console.log('⚠️ Continuing with WebRTC fallback');
-    }
+        console.log(`🎉 Created 100ms room ${room.roomId} for call ${newCall._id}`);
+        return room;
+    }, 'Continuing with WebRTC fallback');
 
     // Populate the call with user details
     const populatedCall = await Call.findById(newCall._id)
@@ -162,6 +253,11 @@ export const acceptCall = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;
     const { callId } = req.params;
 
+    // Validate call ID format
+    if (!isValidObjectId(callId)) {
+        throw new ApiError(400, 'Invalid call ID format');
+    }
+
     // Find the call
     const call = await Call.findById(callId)
         .populate('participants', 'username fullName profileImageUrl')
@@ -182,10 +278,23 @@ export const acceptCall = asyncHandler(async (req, res) => {
         throw new ApiError(400, 'Call cannot be accepted in current status');
     }
 
-    // Update call status
-    call.status = 'connecting';
-    call.startedAt = new Date();
-    await call.save();
+    // Update call status with transaction
+    const session = await mongoose.startSession();
+    try {
+        await session.withTransaction(async () => {
+            // Double-check call is still in valid state
+            const freshCall = await Call.findById(callId).session(session);
+            if (!['initiated', 'ringing'].includes(freshCall.status)) {
+                throw new ApiError(400, 'Call cannot be accepted in current status');
+            }
+
+            call.status = 'connecting';
+            call.startedAt = new Date();
+            await call.save({ session });
+        });
+    } finally {
+        await session.endSession();
+    }
 
     // Emit call acceptance to all participants
     const otherParticipants = participantIds.filter(id => id !== currentUserId.toString());
@@ -233,6 +342,11 @@ export const declineCall = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;
     const { callId } = req.params;
 
+    // Validate call ID format
+    if (!isValidObjectId(callId)) {
+        throw new ApiError(400, 'Invalid call ID format');
+    }
+
     // Find the call
     const call = await Call.findById(callId);
     if (!call) {
@@ -250,11 +364,18 @@ export const declineCall = asyncHandler(async (req, res) => {
         throw new ApiError(400, 'Call cannot be declined in current status');
     }
 
-    // Update call status
-    call.status = 'declined';
-    call.endedAt = new Date();
-    call.endReason = 'declined';
-    await call.save();
+    // Update call status with transaction
+    const session = await mongoose.startSession();
+    try {
+        await session.withTransaction(async () => {
+            call.status = 'declined';
+            call.endedAt = new Date();
+            call.endReason = 'declined';
+            await call.save({ session });
+        });
+    } finally {
+        await session.endSession();
+    }
 
     // Emit call decline to other participants
     const otherParticipants = participantIds.filter(id => id !== currentUserId.toString());
@@ -282,6 +403,11 @@ export const endCall = asyncHandler(async (req, res) => {
     const { callId } = req.params;
     const { endReason = 'normal' } = req.body;
 
+    // Validate call ID format
+    if (!isValidObjectId(callId)) {
+        throw new ApiError(400, 'Invalid call ID format');
+    }
+
     // Find the call
     const call = await Call.findById(callId);
     if (!call) {
@@ -299,23 +425,28 @@ export const endCall = asyncHandler(async (req, res) => {
         throw new ApiError(400, 'Call has already ended');
     }
 
-    // Update call status
-    call.status = 'ended';
-    call.endedAt = new Date();
-    call.endReason = endReason;
-
-    // End 100ms room if it exists
-    if (call.hmsRoom && call.hmsRoom.roomId) {
-        try {
-            await hmsService.endRoom(call.hmsRoom.roomId);
-            call.hmsRoom.endedAt = new Date();
-            console.log(`🏠 Ended 100ms room ${call.hmsRoom.roomId} for call ${call._id}`);
-        } catch (error) {
-            console.error('❌ Failed to end 100ms room:', error);
-        }
+    // Update call status with transaction
+    const session = await mongoose.startSession();
+    try {
+        await session.withTransaction(async () => {
+            call.status = 'ended';
+            call.endedAt = new Date();
+            call.endReason = endReason;
+            await call.save({ session });
+        });
+    } finally {
+        await session.endSession();
     }
 
-    await call.save();
+    // End 100ms room if it exists (outside transaction for safety)
+    if (call.hmsRoom && call.hmsRoom.roomId) {
+        await safeHMSOperation(async () => {
+            await hmsService.endRoom(call.hmsRoom.roomId);
+            call.hmsRoom.endedAt = new Date();
+            await call.save();
+            console.log(`🏠 Ended 100ms room ${call.hmsRoom.roomId} for call ${call._id}`);
+        }, 'HMS room cleanup failed but call ended successfully');
+    }
 
     // Emit call end to other participants
     const otherParticipants = participantIds.filter(id => id !== currentUserId.toString());
@@ -343,6 +474,11 @@ export const updateCallStatus = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;
     const { callId } = req.params;
     const { status, metadata } = req.body;
+
+    // Validate call ID format
+    if (!isValidObjectId(callId)) {
+        throw new ApiError(400, 'Invalid call ID format');
+    }
 
     // Find the call
     const call = await Call.findById(callId);
@@ -452,6 +588,11 @@ export const storeSessionData = asyncHandler(async (req, res) => {
     const { callId } = req.params;
     const { sessionData } = req.body;
 
+    // Validate call ID format
+    if (!isValidObjectId(callId)) {
+        throw new ApiError(400, 'Invalid call ID format');
+    }
+
     // Find the call
     const call = await Call.findById(callId);
     if (!call) {
@@ -488,6 +629,11 @@ export const getHMSAuthToken = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;
     const { callId } = req.params;
     const { role = 'guest' } = req.body;
+
+    // Validate call ID format
+    if (!isValidObjectId(callId)) {
+        throw new ApiError(400, 'Invalid call ID format');
+    }
 
     // Find the call
     const call = await Call.findById(callId);
@@ -539,6 +685,11 @@ export const getHMSAuthToken = asyncHandler(async (req, res) => {
 export const getHMSRoomDetails = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;
     const { callId } = req.params;
+
+    // Validate call ID format
+    if (!isValidObjectId(callId)) {
+        throw new ApiError(400, 'Invalid call ID format');
+    }
 
     // Find the call
     const call = await Call.findById(callId)
