@@ -94,9 +94,12 @@ const hasActiveCall = async (userId, session = null) => {
         status: { $in: ['initiated', 'ringing', 'connecting', 'active'] }
     };
 
-    return session ?
-        await Call.findOne(query).session(session) :
-        await Call.findOne(query);
+    const baseQuery = session ?
+        Call.findOne(query).session(session) :
+        Call.findOne(query);
+
+    return baseQuery.populate('participants', 'username fullName profileImageUrl')
+                   .populate('initiator', 'username fullName profileImageUrl');
 };
 
 // Helper function to validate chat permissions
@@ -153,8 +156,22 @@ export const initiateCall = asyncHandler(async (req, res) => {
             const receiverActiveCall = await hasActiveCall(receiverId, session);
 
             if (currentUserActiveCall || receiverActiveCall) {
+                const existingCall = currentUserActiveCall || receiverActiveCall;
                 const busyUser = currentUserActiveCall ? 'You are' : 'The recipient is';
-                throw new ApiError(409, `${busyUser} already in a call`);
+
+                // Create enhanced error with call details
+                const error = new ApiError(409, `${busyUser} already in a call`);
+                error.data = {
+                    existingCallId: existingCall._id,
+                    existingCall: {
+                        _id: existingCall._id,
+                        status: existingCall.status,
+                        callType: existingCall.callType,
+                        initiatedAt: existingCall.initiatedAt,
+                        participants: existingCall.participants
+                    }
+                };
+                throw error;
             }
 
             // Create new call record within transaction

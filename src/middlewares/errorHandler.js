@@ -26,7 +26,7 @@ const errorHandler = (err, req, res, next) => {
             success: false,
             message: err.message,
             errors: err.errors || [],
-            data: null
+            data: err.data || null
         });
     }
 
