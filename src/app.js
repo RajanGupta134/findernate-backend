@@ -24,16 +24,36 @@ app.use(compression({
 app.use(express.json({ limit: '10mb' })); // Limit JSON payload size
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+
+const allowedOrigins = [
+        "https://eckss0cw0ggco0okoocc4wo4.194.164.151.15.sslip.io",
+        "https://p0k804os4c4scowcg488800c.194.164.151.15.sslip.io",
+        "http://localhost:3000"
+];
+
+
 app.use(cors({
-        origin: [
-                "https://eckss0cw0ggco0okoocc4wo4.194.164.151.15.sslip.io",
-                "https://p0k804os4c4scowcg488800c.194.164.151.15.sslip.io",
-                "http://localhost:3000"
-        ],
+        origin: function (origin, callback) {
+                if (!origin || allowedOrigins.includes(origin)) {
+                        callback(null, true);
+                } else {
+                        callback(new Error("Not allowed by CORS"));
+                }
+        },
         credentials: true,
         methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
         allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
 }));
+// app.use(cors({
+//         origin: [
+//                 "https://eckss0cw0ggco0okoocc4wo4.194.164.151.15.sslip.io",
+//                 "https://p0k804os4c4scowcg488800c.194.164.151.15.sslip.io",
+//                 "http://localhost:3000"
+//         ],
+//         credentials: true,
+//         methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+//         allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
+// }));
 
 app.use(cookieParser());
 
