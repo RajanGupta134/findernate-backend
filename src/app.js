@@ -44,6 +44,8 @@ app.use(cors({
         methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
         allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
 }));
+app.options("*", cors());
+
 // app.use(cors({
 //         origin: [
 //                 "https://eckss0cw0ggco0okoocc4wo4.194.164.151.15.sslip.io",
