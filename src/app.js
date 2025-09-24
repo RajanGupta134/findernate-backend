@@ -30,7 +30,9 @@ app.use(cors({
                 "https://p0k804os4c4scowcg488800c.194.164.151.15.sslip.io",
                 "http://localhost:3000"
         ],
-        credentials: true
+        credentials: true,
+        methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+        allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
 }));
 
 app.use(cookieParser());
