@@ -28,7 +28,8 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 const allowedOrigins = [
         "https://eckss0cw0ggco0okoocc4wo4.194.164.151.15.sslip.io",
         "https://p0k804os4c4scowcg488800c.194.164.151.15.sslip.io",
-        "http://localhost:3000"
+        "http://localhost:3000",
+        "http://localhost:4000"
 ];
 
 
