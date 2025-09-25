@@ -53,7 +53,7 @@ const BusinessSchema = new mongoose.Schema({
     rating: { type: Number },
     tags: { type: [String], index: true },
     website: { type: String },
-    gstNumber: { type: String, sparse: true, unique: true, required: false },
+    gstNumber: { type: String, required: false },
     aadhaarNumber: { type: String, required: false },
     logoUrl: { type: String },
     isVerified: { type: Boolean, default: false },
