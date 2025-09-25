@@ -44,8 +44,13 @@ const PUBSUB_CONFIG = {
     lazyConnect: false // Connect immediately for pubsub
 };
 
+// Socket.IO Redis adapter connections (dedicated)
 export const redisPubSub = new Redis(PUBSUB_CONFIG);
-export const redisPublisher = new Redis(PUBSUB_CONFIG); // Dedicated publisher for Socket.IO
+export const redisPublisher = new Redis(PUBSUB_CONFIG);
+
+// Separate Redis connections for application operations (not used by Socket.IO adapter)
+export const redisAppPublisher = new Redis(PUBSUB_CONFIG); // For app-level publishing
+export const redisAppClient = new Redis(PUBSUB_CONFIG);    // For app-level operations
 
 // Redis connection event handlers
 redisClient.on('connect', () => {
@@ -90,12 +95,39 @@ redisPublisher.on('error', (err) => {
     console.error('L Redis Publisher Error:', err);
 });
 
+// App Redis connections event handlers
+redisAppPublisher.on('connect', () => {
+    console.log(' Redis App Publisher: Connected');
+});
+
+redisAppPublisher.on('ready', () => {
+    console.log('🔄 Redis App Publisher: Ready');
+});
+
+redisAppPublisher.on('error', (err) => {
+    console.error('L Redis App Publisher Error:', err);
+});
+
+redisAppClient.on('connect', () => {
+    console.log(' Redis App Client: Connected');
+});
+
+redisAppClient.on('ready', () => {
+    console.log('🔄 Redis App Client: Ready');
+});
+
+redisAppClient.on('error', (err) => {
+    console.error('L Redis App Client Error:', err);
+});
+
 // Graceful shutdown
 process.on('SIGINT', async () => {
     console.log('=� Closing Redis connections...');
     await redisClient.quit();
     await redisPubSub.quit();
     await redisPublisher.quit();
+    await redisAppPublisher.quit();
+    await redisAppClient.quit();
     process.exit(0);
 });
 
