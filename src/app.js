@@ -45,18 +45,6 @@ app.use(cors({
         allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"]
 }));
 
-
-// app.use(cors({
-//         origin: [
-//                 "https://eckss0cw0ggco0okoocc4wo4.194.164.151.15.sslip.io",
-//                 "https://p0k804os4c4scowcg488800c.194.164.151.15.sslip.io",
-//                 "http://localhost:3000"
-//         ],
-//         credentials: true,
-//         methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-//         allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
-// }));
-
 app.use(cookieParser());
 
 // Apply general rate limiting to all routes
