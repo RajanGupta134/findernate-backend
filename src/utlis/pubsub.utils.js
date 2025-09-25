@@ -1,4 +1,4 @@
-import { redisPubSub, redisAppPublisher } from '../config/redis.config.js';
+import { redisAppSubscriber, redisAppPublisher } from '../config/redis.config.js';
 import { EventEmitter } from 'events';
 
 /**
@@ -18,23 +18,23 @@ class PubSubManager extends EventEmitter {
      * Setup Redis PubSub event handlers
      */
     setupPubSubHandlers() {
-        redisPubSub.on('ready', () => {
-            console.log('🔄 Redis PubSub: Ready');
+        redisAppSubscriber.on('ready', () => {
+            console.log('🔄 Redis App Subscriber: Ready');
             this.isReady = true;
             this.emit('ready');
         });
 
-        redisPubSub.on('error', (error) => {
-            console.error('❌ Redis PubSub Error:', error);
+        redisAppSubscriber.on('error', (error) => {
+            console.error('❌ Redis App Subscriber Error:', error);
             this.emit('error', error);
         });
 
         // Handle incoming messages
-        redisPubSub.on('message', (channel, message) => {
+        redisAppSubscriber.on('message', (channel, message) => {
             this.handleMessage(channel, message);
         });
 
-        redisPubSub.on('pmessage', (pattern, channel, message) => {
+        redisAppSubscriber.on('pmessage', (pattern, channel, message) => {
             this.handlePatternMessage(pattern, channel, message);
         });
     }
@@ -98,7 +98,7 @@ class PubSubManager extends EventEmitter {
      */
     async subscribe(channel, handler) {
         try {
-            await redisPubSub.subscribe(channel);
+            await redisAppSubscriber.subscribe(channel);
             
             if (handler) {
                 this.on(channel, handler);
@@ -124,7 +124,7 @@ class PubSubManager extends EventEmitter {
      */
     async psubscribe(pattern, handler) {
         try {
-            await redisPubSub.psubscribe(pattern);
+            await redisAppSubscriber.psubscribe(pattern);
             
             if (handler) {
                 this.on('pmessage', ({ pattern: msgPattern, channel, data }) => {
@@ -153,7 +153,7 @@ class PubSubManager extends EventEmitter {
      */
     async unsubscribe(channel) {
         try {
-            await redisPubSub.unsubscribe(channel);
+            await redisAppSubscriber.unsubscribe(channel);
             this.removeAllListeners(channel);
             this.subscribers.delete(channel);
             
@@ -170,7 +170,7 @@ class PubSubManager extends EventEmitter {
      */
     async punsubscribe(pattern) {
         try {
-            await redisPubSub.punsubscribe(pattern);
+            await redisAppSubscriber.punsubscribe(pattern);
             this.subscribers.delete(pattern);
             
             console.log(`🎯 Unsubscribed from pattern: ${pattern}`);

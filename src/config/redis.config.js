@@ -58,6 +58,7 @@ export const redisPubSub = new Redis(PUBSUB_CONFIG);
 export const redisPublisher = new Redis(PUBLISHER_CONFIG);
 
 // Separate Redis connections for application operations (not used by Socket.IO adapter)
+export const redisAppSubscriber = new Redis(PUBSUB_CONFIG); // For app-level subscribing
 export const redisAppPublisher = new Redis(PUBLISHER_CONFIG); // For app-level publishing
 
 // Redis connection event handlers
@@ -112,6 +113,18 @@ redisAppPublisher.on('ready', () => {
     console.log('🔄 Redis App Publisher: Ready');
 });
 
+redisAppSubscriber.on('connect', () => {
+    console.log(' Redis App Subscriber: Connected');
+});
+
+redisAppSubscriber.on('ready', () => {
+    console.log('🔄 Redis App Subscriber: Ready');
+});
+
+redisAppSubscriber.on('error', (err) => {
+    console.error('L Redis App Subscriber Error:', err);
+});
+
 redisAppPublisher.on('error', (err) => {
     console.error('L Redis App Publisher Error:', err);
 });
@@ -123,6 +136,7 @@ process.on('SIGINT', async () => {
     await redisClient.quit();
     await redisPubSub.quit();
     await redisPublisher.quit();
+    await redisAppSubscriber.quit();
     await redisAppPublisher.quit();
     process.exit(0);
 });
