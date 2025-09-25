@@ -41,9 +41,13 @@ connectDB()
         }
 
         const PORT = process.env.PORT || 3000;
+        console.log(`🔧 Attempting to start server on port ${PORT}`);
+        console.log(`🔧 Environment: ${process.env.NODE_ENV}`);
+
         server.listen(PORT, '0.0.0.0', () => {
             console.log(`🎉 Server is running on port ${PORT}`);
             console.log(`🌐 Health check: http://localhost:${PORT}/health`);
+            console.log(`🌐 Debug endpoint: http://localhost:${PORT}/debug`);
             console.log('🎯 FinderNate Backend is ready to accept connections!');
         });
 

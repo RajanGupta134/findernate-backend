@@ -71,6 +71,18 @@ app.get('/', healthCheckRateLimit, (req, res) => {
         res.status(200).json({
                 message: 'FinderNate Backend API is running!',
                 status: 'healthy',
+                timestamp: new Date().toISOString(),
+                port: process.env.PORT || 3000,
+                host: req.get('host')
+        });
+});
+
+// Simple debug endpoint
+app.get('/debug', (req, res) => {
+        res.status(200).json({
+                message: 'Debug endpoint working',
+                port: process.env.PORT || 3000,
+                env: process.env.NODE_ENV,
                 timestamp: new Date().toISOString()
         });
 });
