@@ -42,10 +42,26 @@ app.use(cors({
         },
         credentials: true,
         methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-        allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"]
+        allowedHeaders: [
+                "Content-Type",
+                "Authorization",
+                "X-Requested-With",
+                "Accept",
+                "Origin",
+                "Access-Control-Request-Method",
+                "Access-Control-Request-Headers"
+        ],
+        exposedHeaders: ["Set-Cookie"],
+        optionsSuccessStatus: 200,
+        preflightContinue: false
 }));
 
 app.use(cookieParser());
+
+// Explicit preflight handler for all routes
+app.options('*', (req, res) => {
+        res.status(200).end();
+});
 
 // Apply general rate limiting to all routes
 app.use(generalRateLimit);

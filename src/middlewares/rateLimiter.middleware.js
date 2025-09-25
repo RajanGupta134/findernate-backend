@@ -11,6 +11,8 @@ export const generalRateLimit = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
+    // Skip rate limiting for OPTIONS requests (CORS preflight)
+    skip: (req) => req.method === 'OPTIONS',
     // Temporarily using memory store instead of Redis to fix IPv6 issue
 });
 
@@ -64,5 +66,7 @@ export const healthCheckRateLimit = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
+    // Skip rate limiting for OPTIONS requests (CORS preflight)
+    skip: (req) => req.method === 'OPTIONS',
     // Temporarily using memory store instead of Redis to fix IPv6 issue
 });

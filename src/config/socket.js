@@ -133,9 +133,21 @@ class SocketManager {
 
     async initialize(server) {
         try {
+            const allowedOrigins = [
+                "https://eckss0cw0ggco0okoocc4wo4.194.164.151.15.sslip.io",
+                "https://p0k804os4c4scowcg488800c.194.164.151.15.sslip.io",
+                "http://localhost:3000"
+            ];
+
             this.io = new Server(server, {
                 cors: {
-                    origin: process.env.FRONTEND_URL || "http://localhost:3000",
+                    origin: function (origin, callback) {
+                        if (!origin || allowedOrigins.includes(origin)) {
+                            callback(null, true);
+                        } else {
+                            callback(new Error("Not allowed by CORS"));
+                        }
+                    },
                     methods: ["GET", "POST"],
                     credentials: true
                 }
