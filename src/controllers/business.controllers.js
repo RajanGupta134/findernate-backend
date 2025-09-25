@@ -830,7 +830,7 @@ function calculateDistance(lat1, lon1, lat2, lon2) {
 }
 
 // PATCH /api/v1/business/update-category
-// Any business plan (plan1, plan2, plan3, plan4) can update category
+// Any user can update category, creates minimal business profile if needed
 export const updateBusinessCategory = asyncHandler(async (req, res) => {
     const userId = req.user._id;
     const { category, subcategory } = req.body;
@@ -845,38 +845,62 @@ export const updateBusinessCategory = asyncHandler(async (req, res) => {
         throw new ApiError(400, `Invalid category. Must be one of: ${BUSINESS_CATEGORIES.join(', ')}`);
     }
 
-    // Find the business profile
-    const business = await Business.findOne({ userId });
+    // Find or create business profile
+    let business = await Business.findOne({ userId });
+
     if (!business) {
-        throw new ApiError(404, "Business profile not found");
+        // Create minimal business profile with just category info
+        business = await Business.create({
+            userId,
+            category: category.trim(),
+            subcategory: subcategory ? subcategory.trim() : undefined,
+            plan: 'plan1',
+            subscriptionStatus: 'active'
+        });
+
+        // Update user to business profile mode
+        const user = await User.findById(userId);
+        if (user) {
+            user.isBusinessProfile = true;
+            user.businessProfileId = business._id;
+            await user.save();
+        }
+
+        // Remove rating from response
+        const businessObj = business.toObject();
+        delete businessObj.rating;
+
+        return res.status(201).json(
+            new ApiResponse(201, {
+                business: businessObj,
+                updatedCategory: business.category,
+                updatedSubcategory: business.subcategory,
+                message: "Business profile created with category"
+            }, "Business category set successfully")
+        );
+    } else {
+        // Update existing business profile
+        business.category = category.trim();
+
+        // Update subcategory if provided
+        if (subcategory) {
+            business.subcategory = subcategory.trim();
+        }
+
+        await business.save();
+
+        // Remove rating from response
+        const businessObj = business.toObject();
+        delete businessObj.rating;
+
+        return res.status(200).json(
+            new ApiResponse(200, {
+                business: businessObj,
+                updatedCategory: business.category,
+                updatedSubcategory: business.subcategory
+            }, "Business category updated successfully")
+        );
     }
-
-    // Check if user has business profile enabled
-    // if (!req.user.isBusinessProfile) {
-    //     throw new ApiError(403, "Only business accounts can update category");
-    // }
-
-    // Update the category
-    business.category = category.trim();
-
-    // Update subcategory if provided
-    if (subcategory) {
-        business.subcategory = subcategory.trim();
-    }
-
-    await business.save();
-
-    // Remove rating from response
-    const businessObj = business.toObject();
-    delete businessObj.rating;
-
-    return res.status(200).json(
-        new ApiResponse(200, {
-            business: businessObj,
-            updatedCategory: business.category,
-            updatedSubcategory: business.subcategory
-        }, "Business category updated successfully")
-    );
 });
 
 // GET /api/v1/business/categories - Get all available business categories
