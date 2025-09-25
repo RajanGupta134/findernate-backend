@@ -29,7 +29,12 @@ const allowedOrigins = [
         "https://eckss0cw0ggco0okoocc4wo4.194.164.151.15.sslip.io",
         "https://p0k804os4c4scowcg488800c.194.164.151.15.sslip.io",
         "http://localhost:3000",
-        "http://localhost:4000"
+        "http://localhost:3001",
+        "http://localhost:4000",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:3001",
+        // Add environment variable for additional origins
+        ...(process.env.ADDITIONAL_CORS_ORIGINS ? process.env.ADDITIONAL_CORS_ORIGINS.split(',') : [])
 ];
 
 
