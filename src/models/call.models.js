@@ -63,7 +63,7 @@ const CallSchema = new mongoose.Schema({
     // 🔌 End reason
     endReason: {
         type: String,
-        enum: ['normal', 'declined', 'missed', 'failed', 'network_error', 'cancelled'],
+        enum: ['normal', 'declined', 'missed', 'failed', 'network_error', 'cancelled', 'timeout'],
         default: 'normal'
     },
 
