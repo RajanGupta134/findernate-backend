@@ -414,7 +414,7 @@ export const searchAllContent = async (req, res) => {
                 .lean();
 
             return {
-                ...user.toObject(),
+                ...user,
                 business: businessProfile,
                 posts: userPosts,
                 reels: userReels,

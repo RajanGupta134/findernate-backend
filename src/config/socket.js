@@ -2,7 +2,7 @@ import { Server } from 'socket.io';
 import { createAdapter } from '@socket.io/redis-adapter';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/user.models.js';
-import { redisPubSub, redisPublisher, redisAppClient } from './redis.config.js';
+import { redisPubSub, redisPublisher, redisClient } from './redis.config.js';
 import { 
     ChatPubSub, 
     NotificationPubSub, 
@@ -215,7 +215,7 @@ class SocketManager {
 
             // Store in Redis with process ID for clustering
             const PROCESS_ID = process.env.INSTANCE_ID || process.env.pm_id || `process-${process.pid}`;
-            redisAppClient.hset('fn:online_users', socket.userId, JSON.stringify({
+            redisClient.hset('fn:online_users', socket.userId, JSON.stringify({
                 socketId: socket.id,
                 processId: PROCESS_ID,
                 connectedAt: new Date().toISOString()
@@ -514,7 +514,7 @@ class SocketManager {
                 this.userSockets.delete(socket.id);
 
                 // Remove from Redis cross-process tracking
-                redisAppClient.hdel('fn:online_users', socket.userId)
+                redisClient.hdel('fn:online_users', socket.userId)
                     .catch(err => console.error('Redis user removal error:', err));
 
                 // Unsubscribe from user-specific Redis channels
@@ -534,7 +534,7 @@ class SocketManager {
     // Check if user is online across all PM2 processes
     async isUserOnline(userId) {
         try {
-            const userInfo = await redisAppClient.hget('fn:online_users', userId);
+            const userInfo = await redisClient.hget('fn:online_users', userId);
             return userInfo !== null;
         } catch (error) {
             console.error('Error checking user online status:', error);
@@ -545,7 +545,7 @@ class SocketManager {
     // Get all online users across processes
     async getAllOnlineUsers() {
         try {
-            const onlineUsers = await redisAppClient.hgetall('fn:online_users');
+            const onlineUsers = await redisClient.hgetall('fn:online_users');
             return Object.keys(onlineUsers).map(userId => ({
                 userId,
                 ...JSON.parse(onlineUsers[userId])
