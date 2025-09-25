@@ -622,6 +622,114 @@ export const getPostById = asyncHandler(async (req, res) => {
     return res.status(200).json(new ApiResponse(200, post, "Post fetched successfully"));
 });
 
+// Edit post
+export const editPost = asyncHandler(async (req, res) => {
+    const { postId } = req.params;
+    const userId = req.user?._id;
+
+    if (!userId) throw new ApiError(401, "User authentication required");
+
+    const {
+        caption,
+        description,
+        mentions,
+        tags,
+        location,
+        privacy,
+        product,
+        service,
+        business
+    } = req.body;
+
+    // Find the post first to check ownership
+    const post = await Post.findById(postId);
+    if (!post) throw new ApiError(404, "Post not found");
+
+    // Check if user owns the post
+    if (post.userId.toString() !== userId.toString()) {
+        throw new ApiError(403, "You can only edit your own posts");
+    }
+
+    // Parse JSON fields if they're strings
+    const parsedMentions = typeof mentions === "string" ? JSON.parse(mentions) : mentions;
+    const parsedTags = typeof tags === "string" ? JSON.parse(tags) : tags;
+    const parsedLocation = typeof location === "string" ? JSON.parse(location) : location;
+    const parsedProduct = typeof product === "string" ? JSON.parse(product) : product;
+    const parsedService = typeof service === "string" ? JSON.parse(service) : service;
+    const parsedBusiness = typeof business === "string" ? JSON.parse(business) : business;
+
+    // Handle location coordinates if needed
+    let resolvedLocation = parsedLocation || post.customization?.normal?.location;
+    if (parsedLocation && parsedLocation.name && !parsedLocation.coordinates) {
+        const coords = await getCoordinates(parsedLocation.name);
+        if (coords?.latitude && coords?.longitude) {
+            resolvedLocation.coordinates = {
+                type: "Point",
+                coordinates: [coords.longitude, coords.latitude]
+            };
+        }
+    }
+
+    // Prepare update object
+    const updateData = {
+        updatedAt: new Date()
+    };
+
+    // Update basic fields
+    if (caption !== undefined) updateData.caption = caption;
+    if (description !== undefined) updateData.description = description;
+    if (parsedMentions) updateData.mentions = parsedMentions;
+
+    // Update customization based on content type
+    const customization = { ...post.customization };
+
+    if (post.contentType === "normal") {
+        customization.normal = {
+            ...customization.normal,
+            tags: parsedTags || customization.normal?.tags || [],
+            location: resolvedLocation || customization.normal?.location
+        };
+    } else if (post.contentType === "product" && parsedProduct) {
+        customization.product = parsedProduct;
+        customization.normal = {
+            ...customization.normal,
+            tags: parsedTags || customization.normal?.tags || [],
+            location: resolvedLocation || customization.normal?.location
+        };
+    } else if (post.contentType === "service" && parsedService) {
+        customization.service = parsedService;
+        customization.normal = {
+            ...customization.normal,
+            tags: parsedTags || customization.normal?.tags || [],
+            location: resolvedLocation || customization.normal?.location
+        };
+    } else if (post.contentType === "business" && parsedBusiness) {
+        customization.business = parsedBusiness;
+        customization.normal = {
+            ...customization.normal,
+            tags: parsedTags || customization.normal?.tags || [],
+            location: resolvedLocation || customization.normal?.location
+        };
+    }
+
+    updateData.customization = customization;
+
+    // Update privacy if provided
+    if (privacy && ['public', 'private'].includes(privacy)) {
+        updateData["settings.privacy"] = privacy;
+        updateData["settings.isPrivacyTouched"] = true;
+    }
+
+    // Update the post
+    const updatedPost = await Post.findByIdAndUpdate(
+        postId,
+        { $set: updateData },
+        { new: true, runValidators: true }
+    ).populate('userId', 'username fullName profileImageUrl');
+
+    return res.status(200).json(new ApiResponse(200, updatedPost, "Post updated successfully"));
+});
+
 // Update post
 export const updatePost = asyncHandler(async (req, res) => {
     const { id } = req.params;
