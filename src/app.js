@@ -65,6 +65,11 @@ app.use(cors({
 
 app.use(cookieParser());
 
+// Trust proxy for production (behind load balancer/reverse proxy)
+if (process.env.NODE_ENV === 'production') {
+    app.set('trust proxy', 1);
+}
+
 // Explicit preflight handler for all routes
 app.options('*', (req, res) => {
         res.status(200).end();
