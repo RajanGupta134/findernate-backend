@@ -41,6 +41,8 @@
     "compression": "^1.8.1",
     "cookie-parser": "^1.4.7",
     "cors": "^2.8.5",
+    "csv-parser": "^3.2.0",
+    "csv-writer": "^1.6.0",
     "dotenv": "^17.2.0",
     "express": "^4.21.2",
     "express-rate-limit": "^8.1.0",

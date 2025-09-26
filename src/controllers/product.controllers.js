@@ -1,10 +1,10 @@
 import Product from "../models/product.models.js";
-import Category from "../models/category.models.js";
 import Business from "../models/business.models.js";
 import { User } from "../models/user.models.js";
 import { ApiError } from "../utlis/ApiError.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import { asyncHandler } from "../utlis/asyncHandler.js";
+import { uploadBufferToBunny } from "../utlis/bunny.js";
 import mongoose from "mongoose";
 
 // Helper function to check if user is admin or vendor/seller
@@ -14,12 +14,6 @@ const checkProductPermission = async (userId, productId = null) => {
 
     if (user.role === 'admin') {
         return { isAdmin: true, canEdit: true };
-    }
-
-    // Check if user has a business profile
-    const business = await Business.findOne({ userId });
-    if (!business) {
-        throw new ApiError(403, "Business profile required to manage products");
     }
 
     // If editing existing product, check ownership
@@ -34,6 +28,12 @@ const checkProductPermission = async (userId, productId = null) => {
         }
     }
 
+    // Get business info if available (optional)
+    let business = null;
+    if (user.isBusinessProfile && user.businessProfileId) {
+        business = await Business.findById(user.businessProfileId);
+    }
+
     return { isAdmin: false, canEdit: true, business };
 };
 
@@ -42,90 +42,130 @@ const createProduct = asyncHandler(async (req, res) => {
     const userId = req.user._id;
     const { isAdmin, business } = await checkProductPermission(userId);
 
+    // Parse form-data fields (some might be strings that need parsing)
+    const parseField = (field) => {
+        if (typeof field === 'string') {
+            try {
+                return JSON.parse(field);
+            } catch (e) {
+                return field;
+            }
+        }
+        return field;
+    };
+
+    // Handle keys with extra spaces (common in form-data)
+    const getFieldValue = (key) => {
+        // Try exact key first
+        if (req.body[key]) return req.body[key];
+
+        // Try with trailing space
+        if (req.body[key + ' ']) return req.body[key + ' '];
+
+        // Try with leading space
+        if (req.body[' ' + key]) return req.body[' ' + key];
+
+        // Try with both spaces
+        if (req.body[' ' + key + ' ']) return req.body[' ' + key + ' '];
+
+        return null;
+    };
+
+    // Extract and clean fields from req.body
+    const name = getFieldValue('name') ? getFieldValue('name').toString().trim() : '';
+    const description = getFieldValue('description') ? getFieldValue('description').toString().trim() : '';
+    const price = getFieldValue('price') ? parseFloat(getFieldValue('price')) : null;
+    const comparePrice = getFieldValue('comparePrice') ? parseFloat(getFieldValue('comparePrice')) : null;
+    const costPrice = getFieldValue('costPrice') ? parseFloat(getFieldValue('costPrice')) : null;
+    const stock = getFieldValue('stock') ? parseInt(getFieldValue('stock')) : 0;
+    const minStock = getFieldValue('minStock') ? parseInt(getFieldValue('minStock')) : 5;
+    const trackStock = getFieldValue('trackStock') !== 'false';
+    const allowBackorder = getFieldValue('allowBackorder') === 'true';
+    const category = getFieldValue('category') ? getFieldValue('category').toString().trim() : '';
+    const subcategory = getFieldValue('subcategory') ? getFieldValue('subcategory').toString().trim() : '';
+    const brand = getFieldValue('brand') ? getFieldValue('brand').toString().trim() : '';
+    const shippingClass = getFieldValue('shippingClass') ? getFieldValue('shippingClass').toString().trim() : 'standard';
+    const status = getFieldValue('status') ? getFieldValue('status').toString().trim() : 'draft';
+    const visibility = getFieldValue('visibility') ? getFieldValue('visibility').toString().trim() : 'public';
+    const isFeatured = getFieldValue('isFeatured') === 'true';
+    const isDigital = getFieldValue('isDigital') === 'true';
+    const digitalFileUrl = getFieldValue('digitalFileUrl') ? getFieldValue('digitalFileUrl').toString().trim() : '';
+
     const {
-        name,
-        description,
-        price,
-        comparePrice,
-        costPrice,
-        stock,
-        minStock,
-        trackStock,
-        allowBackorder,
-        category,
-        subcategory,
-        brand,
         images,
         variants,
         specifications,
         features,
         tags,
         weight,
-        dimensions,
-        shippingClass,
-        status,
-        visibility,
-        isFeatured,
-        isDigital,
-        digitalFileUrl
+        dimensions
     } = req.body;
 
     // Validate required fields
-    if (!name || !price || !category) {
-        throw new ApiError(400, "Name, price, and category are required");
+    if (!name || !price) {
+        throw new ApiError(400, "Name and price are required");
     }
 
-    // Find category by name or ID
-    let categoryDoc;
-    if (mongoose.Types.ObjectId.isValid(category)) {
-        // If it's a valid ObjectId, search by ID
-        categoryDoc = await Category.findById(category);
-    } else {
-        // If it's not an ObjectId, search by name (case-insensitive)
-        categoryDoc = await Category.findOne({
-            name: { $regex: new RegExp(`^${category}$`, 'i') },
-            isActive: true
-        });
-    }
-
-    if (!categoryDoc) {
-        throw new ApiError(404, `Category '${category}' not found`);
-    }
-
-    // Validate subcategory if provided
-    let subcategoryDoc = null;
-    if (subcategory) {
-        if (mongoose.Types.ObjectId.isValid(subcategory)) {
-            // Search by ID
-            subcategoryDoc = await Category.findById(subcategory);
-        } else {
-            // Search by name, and it should be a child of the main category
-            subcategoryDoc = await Category.findOne({
-                name: { $regex: new RegExp(`^${subcategory}$`, 'i') },
-                parentCategory: categoryDoc._id,
-                isActive: true
-            });
-        }
-
-        if (!subcategoryDoc) {
-            throw new ApiError(404, `Subcategory '${subcategory}' not found under category '${categoryDoc.name}'`);
-        }
-
-        // Ensure subcategory belongs to the main category
-        if (subcategoryDoc.parentCategory?.toString() !== categoryDoc._id.toString()) {
-            throw new ApiError(400, `Subcategory '${subcategory}' must belong to category '${categoryDoc.name}'`);
-        }
-    }
+    // Use provided category or default to 'general'
+    const productCategory = category || 'general';
+    const productSubcategory = subcategory || null;
 
     // Validate price fields
     if (comparePrice && comparePrice < price) {
         throw new ApiError(400, "Compare price must be greater than selling price");
     }
 
+    // Generate SKU if not provided
+    const productSku = req.body.sku || (() => {
+        const baseSku = name
+            .replace(/[^a-zA-Z0-9]/g, '')
+            .toUpperCase()
+            .substring(0, 6);
+        const timestamp = Date.now().toString().slice(-4);
+        return `${baseSku}${timestamp}`;
+    })();
+
+    // Handle file uploads
+    let uploadedImages = [];
+    if (req.files && req.files.length > 0) {
+        try {
+            for (let i = 0; i < req.files.length; i++) {
+                const file = req.files[i];
+                const uploadResult = await uploadBufferToBunny(
+                    file.buffer,
+                    'products',
+                    file.originalname
+                );
+
+                uploadedImages.push({
+                    url: uploadResult.secure_url,
+                    alt: `${name} - Image ${i + 1}`,
+                    isPrimary: i === 0, // First image is primary
+                    sortOrder: i
+                });
+            }
+        } catch (error) {
+            throw new ApiError(500, `Image upload failed: ${error.message}`);
+        }
+    }
+
+    // Parse JSON fields from form-data
+    const parsedSpecifications = parseField(specifications) || [];
+    const parsedFeatures = parseField(features) || [];
+    const parsedTags = parseField(tags) || [];
+    const parsedWeight = parseField(weight);
+    const parsedDimensions = parseField(dimensions);
+    const parsedVariants = parseField(variants) || [];
+
+    // Combine uploaded images with any images provided in the body
+    const bodyImages = parseField(images) || [];
+    const finalImages = [...uploadedImages, ...bodyImages];
+
     const productData = {
         sellerId: userId,
-        businessId: business?._id,
+        businessId: business?._id || null,
         name,
+        sku: productSku,
         description,
         price,
         comparePrice,
@@ -134,16 +174,16 @@ const createProduct = asyncHandler(async (req, res) => {
         minStock: minStock || 5,
         trackStock: trackStock !== false,
         allowBackorder: allowBackorder || false,
-        category: categoryDoc._id, // Use the found category's ObjectId
-        subcategory: subcategoryDoc?._id, // Use the found subcategory's ObjectId
+        category: productCategory, // Use provided category or 'general'
+        subcategory: productSubcategory, // Use provided subcategory
         brand,
-        images: images || [],
-        variants: variants || [],
-        specifications: specifications || [],
-        features: features || [],
-        tags: tags || [],
-        weight,
-        dimensions,
+        images: finalImages,
+        variants: parsedVariants,
+        specifications: parsedSpecifications,
+        features: parsedFeatures,
+        tags: parsedTags,
+        weight: parsedWeight,
+        dimensions: parsedDimensions,
         shippingClass: shippingClass || 'standard',
         status: status || 'draft',
         visibility: visibility || 'public',
@@ -154,12 +194,16 @@ const createProduct = asyncHandler(async (req, res) => {
 
     const product = await Product.create(productData);
 
-    // Populate category and subcategory information
-    await product.populate([
-        { path: 'category', select: 'name slug' },
-        { path: 'subcategory', select: 'name slug' },
+    // Populate seller and business information (business is optional)
+    const populateOptions = [
         { path: 'sellerId', select: 'username firstName lastName' }
-    ]);
+    ];
+
+    if (product.businessId) {
+        populateOptions.push({ path: 'businessId', select: 'businessName category subcategory' });
+    }
+
+    await product.populate(populateOptions);
 
     return res.status(201).json(
         new ApiResponse(201, product, "Product created successfully")
@@ -180,8 +224,6 @@ const getProductById = asyncHandler(async (req, res) => {
         status: 'active',
         isActive: true
     })
-        .populate('category', 'name slug path')
-        .populate('subcategory', 'name slug path')
         .populate('sellerId', 'username firstName lastName')
         .populate('businessId', 'businessName logoUrl rating location contact');
 
@@ -241,7 +283,14 @@ const getProducts = asyncHandler(async (req, res) => {
         sortBy = 'createdAt',
         sortOrder = 'desc',
         sellerId,
-        status = 'active'
+        status = 'active',
+        // Enhanced filtering options
+        rating, // minimum rating
+        tags, // comma-separated tags
+        availability = 'all', // all, in_stock, out_of_stock, low_stock
+        priceRange, // predefined ranges: budget, mid, premium
+        dateRange, // today, week, month, year
+        searchType = 'fuzzy' // exact, fuzzy, phrase
     } = req.query;
 
     // Check if this is a search request
@@ -259,9 +308,32 @@ const getProducts = asyncHandler(async (req, res) => {
         filter.status = 'active';
     }
 
-    // Search filter (if search query provided)
+    // Enhanced search filter
     if (isSearchRequest) {
-        filter.$text = { $search: q.trim() };
+        const searchQuery = q.trim();
+
+        switch (searchType) {
+            case 'exact':
+                filter.$or = [
+                    { name: { $regex: `^${searchQuery}$`, $options: 'i' } },
+                    { brand: { $regex: `^${searchQuery}$`, $options: 'i' } },
+                    { tags: { $in: [new RegExp(`^${searchQuery}$`, 'i')] } }
+                ];
+                break;
+
+            case 'phrase':
+                filter.$or = [
+                    { name: { $regex: searchQuery, $options: 'i' } },
+                    { description: { $regex: searchQuery, $options: 'i' } }
+                ];
+                break;
+
+            case 'fuzzy':
+            default:
+                // Use MongoDB text search for fuzzy matching
+                filter.$text = { $search: searchQuery };
+                break;
+        }
     }
 
     // Seller filter (for vendor's own products)
@@ -293,12 +365,90 @@ const getProducts = asyncHandler(async (req, res) => {
         if (maxPrice) filter.price.$lte = parseFloat(maxPrice);
     }
 
-    // Stock filter
-    if (inStock === 'true') {
-        filter.$or = [
-            { trackStock: false },
-            { $and: [{ trackStock: true }, { stock: { $gt: 0 } }] }
-        ];
+    // Enhanced availability filter
+    switch (availability) {
+        case 'in_stock':
+            filter.$or = [
+                { trackStock: false },
+                { $and: [{ trackStock: true }, { stock: { $gt: 0 } }] }
+            ];
+            break;
+        case 'out_of_stock':
+            filter.$and = [
+                { trackStock: true },
+                { stock: 0 }
+            ];
+            break;
+        case 'low_stock':
+            filter.$and = [
+                { trackStock: true },
+                { $expr: { $lte: ['$stock', '$minStock'] } },
+                { stock: { $gt: 0 } }
+            ];
+            break;
+        case 'all':
+        default:
+            // Legacy inStock parameter support
+            if (inStock === 'true') {
+                filter.$or = [
+                    { trackStock: false },
+                    { $and: [{ trackStock: true }, { stock: { $gt: 0 } }] }
+                ];
+            }
+            break;
+    }
+
+    // Rating filter
+    if (rating) {
+        filter.averageRating = { $gte: parseFloat(rating) };
+    }
+
+    // Tags filter
+    if (tags) {
+        const tagArray = tags.split(',').map(tag => tag.trim());
+        filter.tags = { $in: tagArray.map(tag => new RegExp(tag, 'i')) };
+    }
+
+    // Predefined price ranges
+    if (priceRange) {
+        const priceRanges = {
+            budget: { min: 0, max: 1000 },
+            mid: { min: 1000, max: 5000 },
+            premium: { min: 5000, max: Infinity }
+        };
+
+        const range = priceRanges[priceRange];
+        if (range) {
+            filter.price = { $gte: range.min };
+            if (range.max !== Infinity) {
+                filter.price.$lte = range.max;
+            }
+        }
+    }
+
+    // Date range filter
+    if (dateRange) {
+        const now = new Date();
+        let startDate;
+
+        switch (dateRange) {
+            case 'today':
+                startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+                break;
+            case 'week':
+                startDate = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+                break;
+            case 'month':
+                startDate = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+                break;
+            case 'year':
+                startDate = new Date(now.getFullYear() - 1, now.getMonth(), now.getDate());
+                break;
+        }
+
+        if (startDate) {
+            filter.createdAt = { $gte: startDate };
+        }
     }
 
     // Featured filter
@@ -329,8 +479,6 @@ const getProducts = asyncHandler(async (req, res) => {
 
     // Execute query
     const products = await Product.find(filter)
-        .populate('category', 'name slug')
-        .populate('subcategory', 'name slug')
         .populate('sellerId', 'username firstName lastName')
         .select('-reviews') // Exclude reviews for listing
         .sort(sortOptions)
@@ -341,18 +489,46 @@ const getProducts = asyncHandler(async (req, res) => {
     const totalProducts = await Product.countDocuments(filter);
     const totalPages = Math.ceil(totalProducts / parseInt(limit));
 
-    // Search suggestions (if search request with few results)
+    // Enhanced search suggestions with multiple sources
     let suggestions = [];
     if (isSearchRequest && totalProducts < 5) {
-        const suggestionProducts = await Product.find({
+        const searchTerm = q.toLowerCase();
+
+        // Get suggestions from product names
+        const nameMatches = await Product.find({
             status: 'active',
             isActive: true,
-            name: { $regex: q, $options: 'i' }
+            name: { $regex: searchTerm, $options: 'i' }
         })
             .select('name')
-            .limit(5);
+            .limit(3);
 
-        suggestions = suggestionProducts.map(p => p.name);
+        // Get suggestions from brands
+        const brandMatches = await Product.distinct('brand', {
+            status: 'active',
+            isActive: true,
+            brand: { $regex: searchTerm, $options: 'i' }
+        });
+
+        // Get suggestions from tags
+        const tagMatches = await Product.find({
+            status: 'active',
+            isActive: true,
+            tags: { $elemMatch: { $regex: searchTerm, $options: 'i' } }
+        })
+            .select('tags')
+            .limit(3);
+
+        // Combine suggestions
+        suggestions = [
+            ...nameMatches.map(p => ({ type: 'product', value: p.name })),
+            ...brandMatches.slice(0, 2).map(brand => ({ type: 'brand', value: brand })),
+            ...tagMatches.flatMap(p =>
+                p.tags
+                    .filter(tag => tag.toLowerCase().includes(searchTerm))
+                    .map(tag => ({ type: 'tag', value: tag }))
+            ).slice(0, 2)
+        ];
     }
 
     // Pagination info
@@ -411,52 +587,104 @@ const updateProduct = asyncHandler(async (req, res) => {
 
     const updates = req.body;
 
-    // Validate category if being updated
-    if (updates.category) {
-        let categoryDoc;
-        if (mongoose.Types.ObjectId.isValid(updates.category)) {
-            categoryDoc = await Category.findById(updates.category);
-        } else {
-            categoryDoc = await Category.findOne({
-                name: { $regex: new RegExp(`^${updates.category}$`, 'i') },
-                isActive: true
-            });
+    // Parse form-data fields (same as create controller)
+    const parseField = (field) => {
+        if (typeof field === 'string') {
+            try {
+                return JSON.parse(field);
+            } catch (e) {
+                return field;
+            }
         }
+        return field;
+    };
 
-        if (!categoryDoc) {
-            throw new ApiError(404, `Category '${updates.category}' not found`);
+    // Handle keys with extra spaces (same as create controller)
+    const getFieldValue = (key) => {
+        if (updates[key]) return updates[key];
+        if (updates[key + ' ']) return updates[key + ' '];
+        if (updates[' ' + key]) return updates[' ' + key];
+        if (updates[' ' + key + ' ']) return updates[' ' + key + ' '];
+        return null;
+    };
+
+    // Clean and parse all form-data fields
+    const fieldsToTrim = [
+        'name', 'description', 'brand', 'category', 'subcategory',
+        'shippingClass', 'status', 'visibility', 'digitalFileUrl'
+    ];
+
+    fieldsToTrim.forEach(field => {
+        const value = getFieldValue(field);
+        if (value && typeof value === 'string') {
+            updates[field] = value.trim();
         }
+    });
 
-        // Replace category name with ObjectId
-        updates.category = categoryDoc._id;
+    // Parse numeric fields
+    const numericFields = ['price', 'comparePrice', 'costPrice', 'stock', 'minStock'];
+    numericFields.forEach(field => {
+        const value = getFieldValue(field);
+        if (value) {
+            updates[field] = parseFloat(value);
+        }
+    });
+
+    // Parse boolean fields
+    const booleanFields = ['trackStock', 'allowBackorder', 'isFeatured', 'isDigital'];
+    booleanFields.forEach(field => {
+        const value = getFieldValue(field);
+        if (value !== null && value !== undefined) {
+            updates[field] = value === 'true' || value === true;
+        }
+    });
+
+    // Parse JSON fields from form-data
+    if (getFieldValue('specifications')) {
+        updates.specifications = parseField(getFieldValue('specifications'));
+    }
+    if (getFieldValue('features')) {
+        updates.features = parseField(getFieldValue('features'));
+    }
+    if (getFieldValue('tags')) {
+        updates.tags = parseField(getFieldValue('tags'));
+    }
+    if (getFieldValue('weight')) {
+        updates.weight = parseField(getFieldValue('weight'));
+    }
+    if (getFieldValue('dimensions')) {
+        updates.dimensions = parseField(getFieldValue('dimensions'));
+    }
+    if (getFieldValue('variants')) {
+        updates.variants = parseField(getFieldValue('variants'));
     }
 
-    // Validate subcategory if being updated
-    if (updates.subcategory) {
-        let subcategoryDoc;
-        if (mongoose.Types.ObjectId.isValid(updates.subcategory)) {
-            subcategoryDoc = await Category.findById(updates.subcategory);
-        } else {
-            // If category is also being updated, use the new category, otherwise get current product's category
-            let parentCategoryId = updates.category;
-            if (!parentCategoryId) {
-                const currentProduct = await Product.findById(id).select('category');
-                parentCategoryId = currentProduct.category;
+    // Handle file uploads for updates
+    if (req.files && req.files.length > 0) {
+        try {
+            let uploadedImages = [];
+            for (let i = 0; i < req.files.length; i++) {
+                const file = req.files[i];
+                const uploadResult = await uploadBufferToBunny(
+                    file.buffer,
+                    'products',
+                    file.originalname
+                );
+
+                uploadedImages.push({
+                    url: uploadResult.secure_url,
+                    alt: `Product Image ${i + 1}`,
+                    isPrimary: i === 0 && (!updates.images || updates.images.length === 0),
+                    sortOrder: i
+                });
             }
 
-            subcategoryDoc = await Category.findOne({
-                name: { $regex: new RegExp(`^${updates.subcategory}$`, 'i') },
-                parentCategory: parentCategoryId,
-                isActive: true
-            });
+            // Combine uploaded images with any existing images from body
+            const bodyImages = parseField(getFieldValue('images')) || [];
+            updates.images = [...uploadedImages, ...bodyImages];
+        } catch (error) {
+            throw new ApiError(500, `Image upload failed: ${error.message}`);
         }
-
-        if (!subcategoryDoc) {
-            throw new ApiError(404, `Subcategory '${updates.subcategory}' not found`);
-        }
-
-        // Replace subcategory name with ObjectId
-        updates.subcategory = subcategoryDoc._id;
     }
 
     // Validate price fields
@@ -469,8 +697,6 @@ const updateProduct = asyncHandler(async (req, res) => {
         { $set: updates },
         { new: true, runValidators: true }
     )
-        .populate('category', 'name slug')
-        .populate('subcategory', 'name slug')
         .populate('sellerId', 'username firstName lastName');
 
     return res.status(200).json(
@@ -538,20 +764,17 @@ const toggleProductStatus = asyncHandler(async (req, res) => {
     );
 });
 
-// ✅ POST /api/v1/products/:id/feature - Toggle featured status (Admin only)
+// ✅ POST /api/v1/products/:id/feature - Toggle featured status (Product owner)
 const toggleFeaturedStatus = asyncHandler(async (req, res) => {
     const { id } = req.params;
     const userId = req.user._id;
 
-    // Check if user is admin
-    const user = await User.findById(userId);
-    if (user.role !== 'admin') {
-        throw new ApiError(403, "Only admins can manage featured products");
-    }
-
     if (!mongoose.Types.ObjectId.isValid(id)) {
         throw new ApiError(400, "Invalid product ID");
     }
+
+    // Check product ownership (same as other product operations)
+    await checkProductPermission(userId, id);
 
     const product = await Product.findById(id);
     if (!product) {
@@ -654,6 +877,497 @@ const getProductAnalytics = asyncHandler(async (req, res) => {
     );
 });
 
+// ✅ GET /api/v1/products/search/autocomplete - Search autocomplete/suggestions
+const getSearchSuggestions = asyncHandler(async (req, res) => {
+    const { q, limit = 10 } = req.query;
+
+    if (!q || q.trim().length < 2) {
+        return res.status(200).json(
+            new ApiResponse(200, { suggestions: [] }, "Search term too short")
+        );
+    }
+
+    const searchTerm = q.trim().toLowerCase();
+
+    try {
+        // Get product name suggestions
+        const productSuggestions = await Product.aggregate([
+            {
+                $match: {
+                    status: 'active',
+                    isActive: true,
+                    name: { $regex: searchTerm, $options: 'i' }
+                }
+            },
+            {
+                $project: {
+                    name: 1,
+                    relevance: { $divide: [{ $strLenCP: '$name' }, 100] }
+                }
+            },
+            { $sort: { relevance: 1, salesCount: -1 } },
+            { $limit: 5 }
+        ]);
+
+        // Get brand suggestions
+        const brandSuggestions = await Product.aggregate([
+            {
+                $match: {
+                    status: 'active',
+                    isActive: true,
+                    brand: { $regex: searchTerm, $options: 'i' }
+                }
+            },
+            {
+                $group: {
+                    _id: '$brand',
+                    productCount: { $sum: 1 }
+                }
+            },
+            { $sort: { productCount: -1 } },
+            { $limit: 3 }
+        ]);
+
+        // Get category suggestions from actual product categories
+        const categorySuggestions = await Product.distinct('category', {
+            status: 'active',
+            isActive: true,
+            category: { $regex: searchTerm, $options: 'i' }
+        }).limit(3);
+
+        // Popular search suggestions based on view count
+        const popularProducts = await Product.find({
+            status: 'active',
+            isActive: true,
+            $or: [
+                { name: { $regex: searchTerm, $options: 'i' } },
+                { tags: { $elemMatch: { $regex: searchTerm, $options: 'i' } } }
+            ]
+        })
+            .select('name viewCount')
+            .sort({ viewCount: -1 })
+            .limit(3);
+
+        // Format suggestions
+        const suggestions = [
+            ...productSuggestions.map(p => ({
+                type: 'product',
+                value: p.name,
+                icon: '🛍️'
+            })),
+            ...brandSuggestions.map(b => ({
+                type: 'brand',
+                value: b._id,
+                count: b.productCount,
+                icon: '🏷️'
+            })),
+            ...categorySuggestions.map(c => ({
+                type: 'category',
+                value: c,
+                icon: '📂'
+            })),
+            ...popularProducts.map(p => ({
+                type: 'trending',
+                value: p.name,
+                views: p.viewCount,
+                icon: '🔥'
+            }))
+        ].slice(0, parseInt(limit));
+
+        // Remove duplicates
+        const uniqueSuggestions = suggestions.filter((suggestion, index, self) =>
+            index === self.findIndex(s => s.value === suggestion.value)
+        );
+
+        return res.status(200).json(
+            new ApiResponse(200, {
+                suggestions: uniqueSuggestions,
+                query: q,
+                count: uniqueSuggestions.length
+            }, "Search suggestions retrieved successfully")
+        );
+
+    } catch (error) {
+        console.error('Search suggestions error:', error);
+        return res.status(200).json(
+            new ApiResponse(200, { suggestions: [] }, "Error retrieving suggestions")
+        );
+    }
+});
+
+// ✅ GET /api/v1/products/filters/options - Get available filter options
+const getFilterOptions = asyncHandler(async (req, res) => {
+    try {
+        // Get available brands
+        const brands = await Product.distinct('brand', {
+            status: 'active',
+            isActive: true,
+            brand: { $ne: null, $ne: '' }
+        });
+
+        // Get categories from actual products
+        const categoryNames = await Product.distinct('category', {
+            status: 'active',
+            isActive: true,
+            category: { $ne: null, $ne: '' }
+        });
+
+        const categories = categoryNames.sort().map(name => ({
+            name,
+            slug: name.toLowerCase().replace(/[^a-z0-9]+/g, '-'),
+            _id: name
+        }));
+
+        // Get price range
+        const priceStats = await Product.aggregate([
+            {
+                $match: { status: 'active', isActive: true }
+            },
+            {
+                $group: {
+                    _id: null,
+                    minPrice: { $min: '$price' },
+                    maxPrice: { $max: '$price' },
+                    avgPrice: { $avg: '$price' }
+                }
+            }
+        ]);
+
+        // Get popular tags
+        const popularTags = await Product.aggregate([
+            { $match: { status: 'active', isActive: true } },
+            { $unwind: '$tags' },
+            { $group: { _id: '$tags', count: { $sum: 1 } } },
+            { $sort: { count: -1 } },
+            { $limit: 20 }
+        ]);
+
+        return res.status(200).json(
+            new ApiResponse(200, {
+                brands: brands.sort(),
+                categories,
+                priceRange: priceStats[0] || { minPrice: 0, maxPrice: 0, avgPrice: 0 },
+                popularTags: popularTags.map(tag => ({
+                    name: tag._id,
+                    count: tag.count
+                })),
+                availabilityOptions: [
+                    { value: 'all', label: 'All Products' },
+                    { value: 'in_stock', label: 'In Stock' },
+                    { value: 'out_of_stock', label: 'Out of Stock' },
+                    { value: 'low_stock', label: 'Low Stock' }
+                ],
+                priceRangeOptions: [
+                    { value: 'budget', label: 'Budget (Under ₹1,000)', min: 0, max: 1000 },
+                    { value: 'mid', label: 'Mid Range (₹1,000 - ₹5,000)', min: 1000, max: 5000 },
+                    { value: 'premium', label: 'Premium (Above ₹5,000)', min: 5000, max: null }
+                ],
+                sortOptions: [
+                    { value: 'relevance', label: 'Relevance' },
+                    { value: 'price_asc', label: 'Price: Low to High' },
+                    { value: 'price_desc', label: 'Price: High to Low' },
+                    { value: 'rating', label: 'Customer Rating' },
+                    { value: 'popularity', label: 'Popularity' },
+                    { value: 'newest', label: 'Newest First' },
+                    { value: 'name', label: 'Name A-Z' }
+                ]
+            }, "Filter options retrieved successfully")
+        );
+
+    } catch (error) {
+        console.error('Filter options error:', error);
+        throw new ApiError(500, "Error retrieving filter options");
+    }
+});
+
+// ✅ POST /api/v1/products/:productId/reviews - Add product review
+const addProductReview = asyncHandler(async (req, res) => {
+    const { productId } = req.params;
+    const userId = req.user._id;
+    const { rating, comment, images = [] } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+        throw new ApiError(400, "Invalid product ID");
+    }
+
+    if (!rating || rating < 1 || rating > 5) {
+        throw new ApiError(400, "Rating must be between 1 and 5");
+    }
+
+    const product = await Product.findById(productId);
+    if (!product) {
+        throw new ApiError(404, "Product not found");
+    }
+
+    // Check if user already reviewed this product
+    const existingReview = product.reviews.find(
+        review => review.userId.toString() === userId.toString()
+    );
+
+    if (existingReview) {
+        throw new ApiError(400, "You have already reviewed this product");
+    }
+
+    // Add review
+    const review = {
+        userId,
+        rating: parseInt(rating),
+        comment: comment || '',
+        images,
+        isVerified: false, // Can be set to true by admin or based on purchase history
+        helpfulCount: 0
+    };
+
+    product.reviews.push(review);
+
+    // Recalculate average rating and total reviews
+    const totalRating = product.reviews.reduce((sum, review) => sum + review.rating, 0);
+    product.averageRating = totalRating / product.reviews.length;
+    product.totalReviews = product.reviews.length;
+
+    await product.save();
+
+    // Populate user info for the new review
+    await product.populate({
+        path: 'reviews.userId',
+        select: 'username firstName lastName profileImageUrl',
+        model: 'User'
+    });
+
+    const newReview = product.reviews[product.reviews.length - 1];
+
+    return res.status(201).json(
+        new ApiResponse(201, {
+            review: newReview,
+            product: {
+                averageRating: product.averageRating,
+                totalReviews: product.totalReviews
+            }
+        }, "Review added successfully")
+    );
+});
+
+// ✅ PUT /api/v1/products/:productId/reviews/:reviewId - Update product review
+const updateProductReview = asyncHandler(async (req, res) => {
+    const { productId, reviewId } = req.params;
+    const userId = req.user._id;
+    const { rating, comment, images } = req.body;
+
+    if (!mongoose.Types.ObjectId.isValid(productId) || !mongoose.Types.ObjectId.isValid(reviewId)) {
+        throw new ApiError(400, "Invalid product or review ID");
+    }
+
+    const product = await Product.findById(productId);
+    if (!product) {
+        throw new ApiError(404, "Product not found");
+    }
+
+    const review = product.reviews.id(reviewId);
+    if (!review) {
+        throw new ApiError(404, "Review not found");
+    }
+
+    // Check ownership
+    if (review.userId.toString() !== userId.toString()) {
+        throw new ApiError(403, "You can only update your own reviews");
+    }
+
+    // Update review fields
+    if (rating !== undefined) {
+        if (rating < 1 || rating > 5) {
+            throw new ApiError(400, "Rating must be between 1 and 5");
+        }
+        review.rating = parseInt(rating);
+    }
+
+    if (comment !== undefined) {
+        review.comment = comment;
+    }
+
+    if (images !== undefined) {
+        review.images = images;
+    }
+
+    // Recalculate average rating
+    const totalRating = product.reviews.reduce((sum, review) => sum + review.rating, 0);
+    product.averageRating = totalRating / product.reviews.length;
+
+    await product.save();
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            review,
+            product: {
+                averageRating: product.averageRating,
+                totalReviews: product.totalReviews
+            }
+        }, "Review updated successfully")
+    );
+});
+
+// ✅ DELETE /api/v1/products/:productId/reviews/:reviewId - Delete product review
+const deleteProductReview = asyncHandler(async (req, res) => {
+    const { productId, reviewId } = req.params;
+    const userId = req.user._id;
+
+    if (!mongoose.Types.ObjectId.isValid(productId) || !mongoose.Types.ObjectId.isValid(reviewId)) {
+        throw new ApiError(400, "Invalid product or review ID");
+    }
+
+    const product = await Product.findById(productId);
+    if (!product) {
+        throw new ApiError(404, "Product not found");
+    }
+
+    const review = product.reviews.id(reviewId);
+    if (!review) {
+        throw new ApiError(404, "Review not found");
+    }
+
+    // Check ownership or admin
+    if (review.userId.toString() !== userId.toString() && req.user.role !== 'admin') {
+        throw new ApiError(403, "You can only delete your own reviews");
+    }
+
+    product.reviews.pull(reviewId);
+
+    // Recalculate average rating and total reviews
+    if (product.reviews.length > 0) {
+        const totalRating = product.reviews.reduce((sum, review) => sum + review.rating, 0);
+        product.averageRating = totalRating / product.reviews.length;
+    } else {
+        product.averageRating = 0;
+    }
+    product.totalReviews = product.reviews.length;
+
+    await product.save();
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            product: {
+                averageRating: product.averageRating,
+                totalReviews: product.totalReviews
+            }
+        }, "Review deleted successfully")
+    );
+});
+
+// ✅ GET /api/v1/products/:productId/reviews - Get product reviews with pagination
+const getProductReviews = asyncHandler(async (req, res) => {
+    const { productId } = req.params;
+    const {
+        page = 1,
+        limit = 10,
+        rating, // Filter by specific rating
+        sortBy = 'createdAt',
+        sortOrder = 'desc',
+        verified = false // Filter verified reviews only
+    } = req.query;
+
+    if (!mongoose.Types.ObjectId.isValid(productId)) {
+        throw new ApiError(400, "Invalid product ID");
+    }
+
+    const product = await Product.findById(productId);
+    if (!product) {
+        throw new ApiError(404, "Product not found");
+    }
+
+    let reviews = [...product.reviews];
+
+    // Filter by rating
+    if (rating) {
+        reviews = reviews.filter(review => review.rating === parseInt(rating));
+    }
+
+    // Filter verified reviews
+    if (verified === 'true') {
+        reviews = reviews.filter(review => review.isVerified);
+    }
+
+    // Sort reviews
+    const sortField = sortBy === 'helpful' ? 'helpfulCount' : sortBy;
+    reviews.sort((a, b) => {
+        const aValue = a[sortField];
+        const bValue = b[sortField];
+
+        if (sortOrder === 'asc') {
+            return aValue > bValue ? 1 : -1;
+        } else {
+            return aValue < bValue ? 1 : -1;
+        }
+    });
+
+    // Pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const paginatedReviews = reviews.slice(skip, skip + parseInt(limit));
+
+    // Populate user info for paginated reviews
+    await Product.populate(paginatedReviews, {
+        path: 'userId',
+        select: 'username firstName lastName profileImageUrl'
+    });
+
+    // Calculate rating distribution
+    const ratingDistribution = [1, 2, 3, 4, 5].map(star => {
+        const count = product.reviews.filter(review => review.rating === star).length;
+        const percentage = product.reviews.length > 0 ? (count / product.reviews.length) * 100 : 0;
+        return { star, count, percentage: Math.round(percentage) };
+    });
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            reviews: paginatedReviews,
+            pagination: {
+                page: parseInt(page),
+                limit: parseInt(limit),
+                total: reviews.length,
+                totalPages: Math.ceil(reviews.length / parseInt(limit)),
+                hasNextPage: page < Math.ceil(reviews.length / parseInt(limit)),
+                hasPrevPage: page > 1
+            },
+            summary: {
+                averageRating: product.averageRating,
+                totalReviews: product.totalReviews,
+                ratingDistribution,
+                verifiedReviews: product.reviews.filter(r => r.isVerified).length
+            },
+            filters: {
+                rating,
+                verified,
+                sortBy,
+                sortOrder
+            }
+        }, "Product reviews retrieved successfully")
+    );
+});
+
+// ✅ POST /api/v1/products/:productId/reviews/:reviewId/helpful - Mark review as helpful
+const markReviewHelpful = asyncHandler(async (req, res) => {
+    const { productId, reviewId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(productId) || !mongoose.Types.ObjectId.isValid(reviewId)) {
+        throw new ApiError(400, "Invalid product or review ID");
+    }
+
+    const product = await Product.findById(productId);
+    if (!product) {
+        throw new ApiError(404, "Product not found");
+    }
+
+    const review = product.reviews.id(reviewId);
+    if (!review) {
+        throw new ApiError(404, "Review not found");
+    }
+
+    review.helpfulCount += 1;
+    await product.save();
+
+    return res.status(200).json(
+        new ApiResponse(200, { helpfulCount: review.helpfulCount }, "Review marked as helpful")
+    );
+});
+
 export {
     createProduct,
     getProductById,
@@ -662,5 +1376,12 @@ export {
     deleteProduct,
     toggleProductStatus,
     toggleFeaturedStatus,
-    getProductAnalytics
+    getProductAnalytics,
+    getSearchSuggestions,
+    getFilterOptions,
+    addProductReview,
+    updateProductReview,
+    deleteProductReview,
+    getProductReviews,
+    markReviewHelpful
 };

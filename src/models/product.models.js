@@ -1,13 +1,59 @@
 import mongoose from 'mongoose';
 
 const VariantSchema = new mongoose.Schema({
+    sku: {
+        type: String,
+        required: false,
+        index: true
+    },
     name: String, // e.g., "Size", "Color"
     value: String, // e.g., "Large", "Red"
-    price: Number, // Additional price for this variant
-    stock: Number,
+    price: {
+        type: Number,
+        default: 0 // Additional price for this variant (can be negative for discounts)
+    },
+    stock: {
+        type: Number,
+        default: 0,
+        min: 0
+    },
+    weight: {
+        value: Number,
+        unit: {
+            type: String,
+            enum: ['g', 'kg', 'lb', 'oz'],
+            default: 'kg'
+        }
+    },
+    dimensions: {
+        length: Number,
+        width: Number,
+        height: Number,
+        unit: {
+            type: String,
+            enum: ['cm', 'inch', 'm'],
+            default: 'cm'
+        }
+    },
     images: [{
         url: String,
-        alt: String
+        alt: String,
+        isPrimary: {
+            type: Boolean,
+            default: false
+        }
+    }],
+    isActive: {
+        type: Boolean,
+        default: true
+    },
+    sortOrder: {
+        type: Number,
+        default: 0
+    },
+    attributes: [{
+        name: String, // e.g., "Color", "Size", "Material"
+        value: String // e.g., "Red", "Large", "Cotton"
     }]
 }, { _id: true });
 
@@ -52,6 +98,13 @@ const ProductSchema = new mongoose.Schema({
         required: true,
         trim: true,
         index: 'text'
+    },
+    sku: {
+        type: String,
+        required: true,
+        unique: true,
+        index: true,
+        uppercase: true
     },
     slug: {
         type: String,
@@ -100,15 +153,15 @@ const ProductSchema = new mongoose.Schema({
         default: false
     },
     category: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Category',
+        type: String,
         required: true,
-        index: true
+        index: true,
+        trim: true
     },
     subcategory: {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: 'Category',
-        index: true
+        type: String,
+        index: true,
+        trim: true
     },
     brand: {
         type: String,
@@ -252,8 +305,19 @@ ProductSchema.virtual('displayPrice').get(function () {
     };
 });
 
-// Generate slug from name
+// Generate SKU and slug from name
 ProductSchema.pre('save', function (next) {
+    // Generate SKU if not provided
+    if (this.isModified('name') && !this.sku) {
+        const baseSkú = this.name
+            .replace(/[^a-zA-Z0-9]/g, '')
+            .toUpperCase()
+            .substring(0, 6);
+        const timestamp = Date.now().toString().slice(-4);
+        this.sku = `${baseSkú}${timestamp}`;
+    }
+
+    // Generate slug from name
     if (this.isModified('name') && !this.slug) {
         this.slug = this.name
             .toLowerCase()
