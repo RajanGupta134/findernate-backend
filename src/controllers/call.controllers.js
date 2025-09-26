@@ -122,147 +122,179 @@ export const initiateCall = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;
     const { receiverId, chatId, callType } = req.body;
 
+    console.log('🚀 Call initiation request:', { currentUserId, receiverId, chatId, callType });
+
     // Validate input
     if (!receiverId || !chatId || !callType) {
+        console.error('❌ Missing required fields:', { receiverId: !!receiverId, chatId: !!chatId, callType: !!callType });
         throw new ApiError(400, 'Receiver ID, chat ID, and call type are required');
     }
 
     if (!['voice', 'video'].includes(callType)) {
+        console.error('❌ Invalid call type:', callType);
         throw new ApiError(400, 'Call type must be voice or video');
     }
 
-    // Validate chat permissions
-    await validateChatPermissions(chatId, currentUserId, receiverId);
-
-    // Check if receiver exists and is online
-    const receiver = await User.findById(receiverId);
-    if (!receiver) {
-        throw new ApiError(404, 'Receiver not found');
-    }
-
-    // Check if user is trying to call themselves
-    if (currentUserId.toString() === receiverId) {
-        throw new ApiError(400, 'Cannot call yourself');
-    }
-
-    // Use transaction to prevent race conditions
-    const session = await mongoose.startSession();
-    let newCall;
-
     try {
-        await session.withTransaction(async () => {
-            // Check if there's already an active call for either user within transaction
-            const currentUserActiveCall = await hasActiveCall(currentUserId, session);
-            const receiverActiveCall = await hasActiveCall(receiverId, session);
+        // Validate chat permissions
+        console.log('🔍 Validating chat permissions...');
+        await validateChatPermissions(chatId, currentUserId, receiverId);
 
-            if (currentUserActiveCall || receiverActiveCall) {
-                const existingCall = currentUserActiveCall || receiverActiveCall;
-                const busyUser = currentUserActiveCall ? 'You are' : 'The recipient is';
-
-                // Create enhanced error with call details
-                const error = new ApiError(409, `${busyUser} already in a call`);
-                error.data = {
-                    existingCallId: existingCall._id,
-                    existingCall: {
-                        _id: existingCall._id,
-                        status: existingCall.status,
-                        callType: existingCall.callType,
-                        initiatedAt: existingCall.initiatedAt,
-                        participants: existingCall.participants
-                    }
-                };
-                throw error;
-            }
-
-            // Create new call record within transaction
-            newCall = new Call({
-                participants: [currentUserId, receiverId],
-                initiator: currentUserId,
-                chatId,
-                callType,
-                status: 'initiated'
-            });
-
-            await newCall.save({ session });
-        });
-    } finally {
-        await session.endSession();
-    }
-
-    // Create 100ms room for the call with better error handling
-    const hmsRoom = await safeHMSOperation(async () => {
-        const room = await hmsService.createRoom(callType, newCall._id.toString(), [currentUserId, receiverId]);
-
-        // Update call with HMS room data
-        newCall.hmsRoom = {
-            roomId: room.roomId,
-            roomCode: room.roomCode,
-            enabled: room.enabled,
-            createdAt: new Date(room.createdAt)
-        };
-
-        // Generate auth tokens for both participants
-        const initiatorTokenResponse = await hmsService.generateAuthToken(room.roomId, req.user, 'host');
-        const receiverUser = await User.findById(receiverId);
-        const receiverTokenResponse = await hmsService.generateAuthToken(room.roomId, receiverUser, 'guest');
-
-        // Extract token strings from response
-        const initiatorToken = typeof initiatorTokenResponse === 'string' ? initiatorTokenResponse : initiatorTokenResponse.token;
-        const receiverToken = typeof receiverTokenResponse === 'string' ? receiverTokenResponse : receiverTokenResponse.token;
-
-        // Store tokens in the call
-        await newCall.addHMSToken(currentUserId, initiatorToken, 'host');
-        await newCall.addHMSToken(receiverId, receiverToken, 'guest');
-
-        console.log(`🎉 Created 100ms room ${room.roomId} for call ${newCall._id}`);
-        return room;
-    }, 'Continuing with WebRTC fallback');
-
-    // Populate the call with user details
-    const populatedCall = await Call.findById(newCall._id)
-        .populate('participants', 'username fullName profileImageUrl')
-        .populate('initiator', 'username fullName profileImageUrl');
-
-    // Emit call initiation via socket
-    if (socketManager.isReady()) {
-        const callData = {
-            callId: newCall._id,
-            chatId,
-            callType,
-            caller: {
-                _id: currentUserId,
-                username: req.user.username,
-                fullName: req.user.fullName,
-                profileImageUrl: req.user.profileImageUrl
-            },
-            timestamp: new Date()
-        };
-
-        // Include HMS room data if available
-        if (newCall.hmsRoom && newCall.hmsRoom.roomId) {
-            const receiverToken = newCall.getHMSTokenForUser(receiverId);
-            callData.hmsRoom = {
-                roomId: newCall.hmsRoom.roomId,
-                roomCode: newCall.hmsRoom.roomCode,
-                authToken: receiverToken ? receiverToken.token : null
-            };
+        // Check if receiver exists and is online
+        console.log('👤 Checking receiver exists...');
+        const receiver = await User.findById(receiverId);
+        if (!receiver) {
+            console.error('❌ Receiver not found:', receiverId);
+            throw new ApiError(404, 'Receiver not found');
         }
 
-        socketManager.emitToUser(receiverId, 'incoming_call', callData);
+        // Check if user is trying to call themselves
+        if (currentUserId.toString() === receiverId) {
+            console.error('❌ User trying to call themselves');
+            throw new ApiError(400, 'Cannot call yourself');
+        }
+
+        // Use transaction to prevent race conditions
+        console.log('💾 Creating call record with transaction...');
+        const session = await mongoose.startSession();
+        let newCall;
+
+        try {
+            await session.withTransaction(async () => {
+                // Check if there's already an active call for either user within transaction
+                const currentUserActiveCall = await hasActiveCall(currentUserId, session);
+                const receiverActiveCall = await hasActiveCall(receiverId, session);
+
+                if (currentUserActiveCall || receiverActiveCall) {
+                    const existingCall = currentUserActiveCall || receiverActiveCall;
+                    const busyUser = currentUserActiveCall ? 'You are' : 'The recipient is';
+                    console.warn('⚠️ User already in call:', { existingCallId: existingCall._id, busyUser });
+
+                    // Create enhanced error with call details
+                    const error = new ApiError(409, `${busyUser} already in a call`);
+                    error.data = {
+                        existingCallId: existingCall._id,
+                        existingCall: {
+                            _id: existingCall._id,
+                            status: existingCall.status,
+                            callType: existingCall.callType,
+                            initiatedAt: existingCall.initiatedAt,
+                            participants: existingCall.participants
+                        }
+                    };
+                    throw error;
+                }
+
+                // Create new call record within transaction
+                newCall = new Call({
+                    participants: [currentUserId, receiverId],
+                    initiator: currentUserId,
+                    chatId,
+                    callType,
+                    status: 'initiated'
+                });
+
+                await newCall.save({ session });
+                console.log('✅ Call record created successfully:', { callId: newCall._id });
+            });
+        } finally {
+            await session.endSession();
+        }
+
+        // Create 100ms room for the call with better error handling
+        console.log('🏠 Creating HMS room...');
+        const hmsRoom = await safeHMSOperation(async () => {
+            const room = await hmsService.createRoom(callType, newCall._id.toString(), [currentUserId, receiverId]);
+
+            // Update call with HMS room data
+            newCall.hmsRoom = {
+                roomId: room.roomId,
+                roomCode: room.roomCode,
+                enabled: room.enabled,
+                createdAt: new Date(room.createdAt)
+            };
+
+            // Generate auth tokens for both participants
+            const initiatorTokenResponse = await hmsService.generateAuthToken(room.roomId, req.user, 'host');
+            const receiverUser = await User.findById(receiverId);
+            const receiverTokenResponse = await hmsService.generateAuthToken(room.roomId, receiverUser, 'guest');
+
+            // Extract token strings from response
+            const initiatorToken = typeof initiatorTokenResponse === 'string' ? initiatorTokenResponse : initiatorTokenResponse.token;
+            const receiverToken = typeof receiverTokenResponse === 'string' ? receiverTokenResponse : receiverTokenResponse.token;
+
+            // Store tokens in the call
+            await newCall.addHMSToken(currentUserId, initiatorToken, 'host');
+            await newCall.addHMSToken(receiverId, receiverToken, 'guest');
+
+            console.log(`🎉 Created 100ms room ${room.roomId} for call ${newCall._id}`);
+            return room;
+        }, 'Continuing with WebRTC fallback');
+
+        // Populate the call with user details
+        console.log('📋 Populating call details...');
+        const populatedCall = await Call.findById(newCall._id)
+            .populate('participants', 'username fullName profileImageUrl')
+            .populate('initiator', 'username fullName profileImageUrl');
+
+        // Emit call initiation via socket
+        console.log('📡 Emitting socket events...');
+        if (socketManager.isReady()) {
+            const callData = {
+                callId: newCall._id,
+                chatId,
+                callType,
+                caller: {
+                    _id: currentUserId,
+                    username: req.user.username,
+                    fullName: req.user.fullName,
+                    profileImageUrl: req.user.profileImageUrl
+                },
+                timestamp: new Date()
+            };
+
+            // Include HMS room data if available
+            if (newCall.hmsRoom && newCall.hmsRoom.roomId) {
+                const receiverToken = newCall.getHMSTokenForUser(receiverId);
+                callData.hmsRoom = {
+                    roomId: newCall.hmsRoom.roomId,
+                    roomCode: newCall.hmsRoom.roomCode,
+                    authToken: receiverToken ? receiverToken.token : null
+                };
+            }
+
+            socketManager.emitToUser(receiverId, 'incoming_call', callData);
+        }
+
+        // Create a call message in the chat (non-critical, don't let this fail the call)
+        try {
+            console.log('💬 Creating call message...');
+            const callMessage = new Message({
+                chatId,
+                sender: currentUserId,
+                message: `${callType} call ${callType === 'voice' ? '📞' : '📹'}`,
+                messageType: 'text'
+            });
+            await callMessage.save();
+        } catch (messageError) {
+            console.warn('⚠️ Failed to create call message (non-critical):', messageError.message);
+        }
+
+        console.log('🎉 Call initiated successfully:', { callId: newCall._id });
+        res.status(201).json(
+            new ApiResponse(201, populatedCall, 'Call initiated successfully')
+        );
+
+    } catch (error) {
+        console.error('❌ Error in initiateCall:', {
+            message: error.message,
+            stack: error.stack,
+            data: error.data
+        });
+
+        // Re-throw the error to be handled by asyncHandler
+        throw error;
     }
-
-    // Create a call message in the chat
-    const callMessage = new Message({
-        chatId,
-        sender: currentUserId,
-        message: `${callType} call ${callType === 'voice' ? '📞' : '📹'}`,
-        messageType: 'text'
-    });
-    await callMessage.save();
-
-    res.status(201).json(
-        new ApiResponse(201, populatedCall, 'Call initiated successfully')
-    );
 });
 
 // Accept a call
@@ -647,35 +679,46 @@ export const getHMSAuthToken = asyncHandler(async (req, res) => {
     const { callId } = req.params;
     const { role = 'guest' } = req.body;
 
+    console.log('🔑 HMS token request:', { callId, currentUserId, role });
+
     // Validate call ID format
     if (!isValidObjectId(callId)) {
-        throw new ApiError(400, 'Invalid call ID format');
+        console.error('❌ Invalid call ID format:', { callId, isValid: false });
+        throw new ApiError(400, `Invalid call ID format: ${callId}. Must be a valid 24-character MongoDB ObjectId.`);
     }
 
     // Find the call
+    console.log('🔍 Looking for call:', callId);
     const call = await Call.findById(callId);
     if (!call) {
+        console.error('❌ Call not found:', callId);
         throw new ApiError(404, 'Call not found');
     }
+
+    console.log('✅ Call found:', { callId: call._id, status: call.status, hmsRoom: !!call.hmsRoom });
 
     // Check if user is a participant
     const participantIds = call.participants.map(p => p.toString());
     if (!participantIds.includes(currentUserId.toString())) {
+        console.error('❌ User not a participant:', { currentUserId, participants: participantIds });
         throw new ApiError(403, 'You are not a participant in this call');
     }
 
     // Check if call has HMS room
     if (!call.hmsRoom || !call.hmsRoom.roomId) {
+        console.error('❌ Call does not have HMS room configured:', { hmsRoom: call.hmsRoom });
         throw new ApiError(400, 'Call does not have 100ms room configured');
     }
 
     // Check if call is still active
     if (!['initiated', 'ringing', 'connecting', 'active'].includes(call.status)) {
+        console.error('❌ Call is not active:', { status: call.status });
         throw new ApiError(400, 'Call is not active');
     }
 
     try {
         // Generate new auth token
+        console.log('🔑 Generating HMS auth token...');
         const tokenResponse = await hmsService.generateAuthToken(call.hmsRoom.roomId, req.user, role);
 
         // Extract token string from response (HMS SDK returns { token: "jwt_string" })
@@ -684,16 +727,21 @@ export const getHMSAuthToken = asyncHandler(async (req, res) => {
         // Store/update token in call
         await call.addHMSToken(currentUserId, token, role);
 
-        res.status(200).json(
-            new ApiResponse(200, {
-                authToken: token,
-                roomId: call.hmsRoom.roomId,
-                roomCode: call.hmsRoom.roomCode,
-                role
-            }, 'HMS auth token generated successfully')
-        );
+        console.log('✅ HMS token generated successfully');
+        res.status(200).json({
+            success: true,
+            data: {
+                token: token,
+                room_id: call.hmsRoom.roomId
+            }
+        });
     } catch (error) {
-        console.error('❌ Error generating HMS token:', error);
+        console.error('❌ Error generating HMS token:', {
+            message: error.message,
+            stack: error.stack,
+            callId,
+            roomId: call.hmsRoom?.roomId
+        });
         throw new ApiError(500, 'Failed to generate HMS auth token');
     }
 });

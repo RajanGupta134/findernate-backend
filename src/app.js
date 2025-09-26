@@ -137,6 +137,14 @@ app.get('/health', healthCheckRateLimit, async (req, res) => {
         }
 });
 
+// API v1 health endpoint
+app.get('/api/v1/health', healthCheckRateLimit, async (req, res) => {
+        res.status(200).json({
+                success: true,
+                message: "Backend is healthy"
+        });
+});
+
 //import route
 import userRouter from './routes/user.routes.js';
 import postRouter from './routes/post.routes.js';
