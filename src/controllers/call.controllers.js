@@ -726,7 +726,7 @@ export const getHMSAuthToken = asyncHandler(async (req, res) => {
 
         // Store/update token in call
         await call.addHMSToken(currentUserId, token, role);
-
+      fix/hms-try-v3
         console.log('✅ HMS token generated successfully');
         res.status(200).json(
             new ApiResponse(200, {
@@ -736,6 +736,15 @@ export const getHMSAuthToken = asyncHandler(async (req, res) => {
                 role
             }, 'HMS auth token generated successfully')
         );
+
+        res.status(200).json({
+            success: true,
+            data: {
+                token: token,
+                room_id: call.hmsRoom.roomId
+            }
+        });
+     main
     } catch (error) {
         console.error('❌ Error generating HMS token:', {
             message: error.message,
