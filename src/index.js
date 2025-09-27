@@ -15,11 +15,19 @@ console.log('🔌 Port:', process.env.PORT);
 // Global error handlers to catch unhandled errors
 process.on('uncaughtException', (error) => {
     console.error('💥 Uncaught Exception:', error);
+    if (error.code === 'ECONNRESET' || error.code === 'ENOTFOUND') {
+        console.log('🔄 Network error detected, continuing...');
+        return;
+    }
     process.exit(1);
 });
 
 process.on('unhandledRejection', (error) => {
     console.error('🚫 Unhandled Rejection:', error);
+    if (error.code === 'ECONNRESET' || error.code === 'ENOTFOUND') {
+        console.log('🔄 Network error detected, continuing...');
+        return;
+    }
     process.exit(1);
 });
 

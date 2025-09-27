@@ -21,7 +21,7 @@ const VariantSchema = new mongoose.Schema({
         value: Number,
         unit: {
             type: String,
-            enum: ['g', 'kg', 'lb', 'oz'],
+            enum: ['g', 'grams', 'kg', 'kilograms', 'lb', 'pounds', 'oz', 'ounces'],
             default: 'kg'
         }
     },
@@ -197,7 +197,7 @@ const ProductSchema = new mongoose.Schema({
         value: Number,
         unit: {
             type: String,
-            enum: ['g', 'kg', 'lb', 'oz'],
+            enum: ['g', 'grams', 'kg', 'kilograms', 'lb', 'pounds', 'oz', 'ounces'],
             default: 'kg'
         }
     },
@@ -298,10 +298,13 @@ ProductSchema.virtual('stockStatus').get(function () {
 
 // Virtual for display price
 ProductSchema.virtual('displayPrice').get(function () {
+    const price = this.price || 0;
+    const currency = this.currency || 'INR';
+
     return {
-        amount: this.price,
-        currency: this.currency,
-        formatted: `${this.currency} ${this.price.toLocaleString()}`
+        amount: price,
+        currency: currency,
+        formatted: `${currency} ${price.toLocaleString()}`
     };
 });
 

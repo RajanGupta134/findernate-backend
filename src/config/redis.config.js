@@ -9,26 +9,43 @@ const REDIS_CONFIG = {
     port: parseInt(process.env.REDIS_PORT) || 6379,
     password: process.env.REDIS_PASSWORD || undefined,
     db: parseInt(process.env.REDIS_DB) || 0,
-    
+
     // Connection options
     connectTimeout: 10000,
     commandTimeout: 5000,
-    lazyConnect: true, // Changed to true to reduce connections
-    
+    lazyConnect: true,
+
     // Pool settings optimized for limited connections
     family: 4,
     keepAlive: true,
     maxLoadingTimeout: 10000,
-    
+
     // Connection pooling to limit connections
     enableAutoPipelining: true,
-    maxRetriesPerRequest: 3, // Reduced retries
-    
+    maxRetriesPerRequest: 3,
+
     // Error handling
-    enableOfflineQueue: true, // Enable for better connection handling
-    
+    enableOfflineQueue: true,
+
     // Retry configuration
     retryDelayOnFailover: 1000,
+    retryDelayOnClusterDown: 300,
+    maxRetriesPerRequest: 3,
+
+    // Reconnection settings
+    reconnectOnError: (err) => {
+        const targetError = 'READONLY';
+        return err.message.includes(targetError);
+    },
+
+    // Better timeout handling
+    socketTimeout: 30000,
+
+    // Retry strategy
+    retryStrategy: (times) => {
+        const delay = Math.min(times * 50, 2000);
+        return delay;
+    },
 };
 
 // Create Redis instances for this process
@@ -122,11 +139,27 @@ redisAppSubscriber.on('ready', () => {
 });
 
 redisAppSubscriber.on('error', (err) => {
-    console.error('L Redis App Subscriber Error:', err);
+    console.error('❌ Redis App Subscriber Error:', err);
+});
+
+redisAppSubscriber.on('close', () => {
+    console.log('📤 Redis App Subscriber: Connection closed');
+});
+
+redisAppSubscriber.on('reconnecting', () => {
+    console.log('🔄 Redis App Subscriber: Reconnecting...');
 });
 
 redisAppPublisher.on('error', (err) => {
-    console.error('L Redis App Publisher Error:', err);
+    console.error('❌ Redis App Publisher Error:', err);
+});
+
+redisAppPublisher.on('close', () => {
+    console.log('📤 Redis App Publisher: Connection closed');
+});
+
+redisAppPublisher.on('reconnecting', () => {
+    console.log('🔄 Redis App Publisher: Reconnecting...');
 });
 
 

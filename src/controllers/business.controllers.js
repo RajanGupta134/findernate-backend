@@ -211,7 +211,7 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
     }
 
     // Create the business profile
-    const business = await Business.create({
+    const businessData = {
         userId,
         businessName: trimmedBusinessName,
         businessType,
@@ -223,11 +223,21 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
         rating,
         tags: uniqueTags,
         website,
-        gstNumber,
-        aadhaarNumber,
         plan: 'plan1',
         subscriptionStatus: 'active'
-    });
+    };
+
+    // Only include gstNumber if it has a valid value
+    if (gstNumber && gstNumber.trim() !== '') {
+        businessData.gstNumber = gstNumber;
+    }
+
+    // Only include aadhaarNumber if it has a valid value
+    if (aadhaarNumber && aadhaarNumber.trim() !== '') {
+        businessData.aadhaarNumber = aadhaarNumber;
+    }
+
+    const business = await Business.create(businessData);
 
     // Update user profile
     user.isBusinessProfile = true;
@@ -459,7 +469,8 @@ export const updateBusinessProfile = asyncHandler(async (req, res) => {
         location,
         website,
         tags,
-        gstNumber
+        gstNumber,
+        aadhaarNumber
     } = req.body;
 
     // Validate if businessName is provided and it's not already taken by another business
@@ -479,7 +490,7 @@ export const updateBusinessProfile = asyncHandler(async (req, res) => {
 
     // Validate GST number format and check for duplicates if provided
     if (gstNumber !== undefined) {
-        if (gstNumber) {
+        if (gstNumber && gstNumber.trim() !== '') {
             // Check GST number length (must be at least 15 characters)
             if (gstNumber.length < 15) {
                 throw new ApiError(400, "GST number must be at least 15 characters long");
@@ -493,8 +504,21 @@ export const updateBusinessProfile = asyncHandler(async (req, res) => {
             if (existingGST) {
                 throw new ApiError(409, "GST number already registered");
             }
+            business.gstNumber = gstNumber;
+        } else {
+            // If gstNumber is empty or null, remove it from the document
+            business.gstNumber = undefined;
         }
-        business.gstNumber = gstNumber;
+    }
+
+    // Handle aadhaarNumber updates
+    if (aadhaarNumber !== undefined) {
+        if (aadhaarNumber && aadhaarNumber.trim() !== '') {
+            business.aadhaarNumber = aadhaarNumber;
+        } else {
+            // If aadhaarNumber is empty or null, remove it from the document
+            business.aadhaarNumber = undefined;
+        }
     }
 
     // Update category if provided

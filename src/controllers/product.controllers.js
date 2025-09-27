@@ -833,7 +833,7 @@ const getProductAnalytics = asyncHandler(async (req, res) => {
         isActive: true
     })
         .sort({ salesCount: -1, viewCount: -1 })
-        .limit(5)
+        .limit(10)
         .select('name salesCount viewCount averageRating totalReviews');
 
     // Category distribution
@@ -845,18 +845,17 @@ const getProductAnalytics = asyncHandler(async (req, res) => {
             }
         },
         {
-            $lookup: {
-                from: 'categories',
-                localField: 'category',
-                foreignField: '_id',
-                as: 'categoryInfo'
-            }
-        },
-        {
             $group: {
                 _id: '$category',
                 count: { $sum: 1 },
-                categoryName: { $first: { $arrayElemAt: ['$categoryInfo.name', 0] } }
+                categoryName: { $first: '$category' }
+            }
+        },
+        {
+            $project: {
+                _id: 0,
+                categoryName: 1,
+                count: 1
             }
         },
         { $sort: { count: -1 } }
@@ -929,11 +928,12 @@ const getSearchSuggestions = asyncHandler(async (req, res) => {
         ]);
 
         // Get category suggestions from actual product categories
-        const categorySuggestions = await Product.distinct('category', {
+        const allCategorySuggestions = await Product.distinct('category', {
             status: 'active',
             isActive: true,
             category: { $regex: searchTerm, $options: 'i' }
-        }).limit(3);
+        });
+        const categorySuggestions = allCategorySuggestions.slice(0, 3);
 
         // Popular search suggestions based on view count
         const popularProducts = await Product.find({
