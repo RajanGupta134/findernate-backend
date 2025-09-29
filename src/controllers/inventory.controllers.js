@@ -80,17 +80,23 @@ const stockIn = asyncHandler(async (req, res) => {
         timestamp: new Date()
     };
 
+    // Remove cost data if not admin/owner
+    const responseData = {
+        product: {
+            id: product._id,
+            name: product.name,
+            oldStock,
+            newStock: product.stock,
+            stockAdded: parseInt(quantity)
+        },
+        movement: {
+            ...stockMovement,
+            cost: (req.user.role === 'admin' || product.sellerId.toString() === userId.toString()) ? cost : undefined
+        }
+    };
+
     return res.status(200).json(
-        new ApiResponse(200, {
-            product: {
-                id: product._id,
-                name: product.name,
-                oldStock,
-                newStock: product.stock,
-                stockAdded: parseInt(quantity)
-            },
-            movement: stockMovement
-        }, "Stock added successfully")
+        new ApiResponse(200, responseData, "Stock added successfully")
     );
 });
 

@@ -7,10 +7,10 @@ import mongoose from "mongoose";
 // Helper function to generate variant SKU
 const generateVariantSKU = (productSKU, variantAttributes) => {
     const variantCode = variantAttributes
-        .map(attr => attr.value.substring(0, 2).toUpperCase())
+        .map(attr => (attr.value || '').substring(0, 2).toUpperCase())
         .join('');
     const timestamp = Date.now().toString().slice(-3);
-    return `${productSKU}-${variantCode}${timestamp}`;
+    return `${productSKU}-${variantCode || 'VAR'}${timestamp}`;
 };
 
 // ✅ POST /api/v1/products/:productId/variants - Add product variant
@@ -28,6 +28,11 @@ const addProductVariant = asyncHandler(async (req, res) => {
         isActive = true
     } = req.body;
 
+    // Validate required fields
+    if (!name || !value) {
+        throw new ApiError(400, "Name and value are required for variant");
+    }
+
     if (!mongoose.Types.ObjectId.isValid(productId)) {
         throw new ApiError(400, "Invalid product ID");
     }
@@ -42,8 +47,23 @@ const addProductVariant = asyncHandler(async (req, res) => {
         throw new ApiError(403, "You can only add variants to your own products");
     }
 
+    // Fix existing variants that might have validation issues
+    product.variants.forEach((variant, index) => {
+        if (!variant.sku) {
+            const variantCode = variant.value ? variant.value.substring(0, 2).toUpperCase() : 'VAR';
+            const timestamp = Date.now().toString().slice(-3);
+            variant.sku = `${product.sku}-${variantCode}${timestamp}${index}`;
+        }
+        if (!variant.value) {
+            variant.value = variant.name || `Variant ${index + 1}`;
+        }
+        if (!variant.name) {
+            variant.name = 'Default';
+        }
+    });
+
     // Generate unique SKU for variant
-    const sku = generateVariantSKU(product.sku, attributes.length > 0 ? attributes : [{ value }]);
+    const sku = generateVariantSKU(product.sku, attributes.length > 0 ? attributes : [{ name, value }]);
 
     // Check if variant SKU already exists
     const existingVariant = await Product.findOne({
@@ -58,12 +78,12 @@ const addProductVariant = asyncHandler(async (req, res) => {
         sku,
         name,
         value,
-        price,
-        stock,
+        price: Number(price) || 0,
+        stock: Number(stock) || 0,
         weight,
         dimensions,
         images,
-        attributes,
+        attributes: attributes.length > 0 ? attributes : [{ name, value }],
         isActive,
         sortOrder: product.variants.length
     };
@@ -71,8 +91,15 @@ const addProductVariant = asyncHandler(async (req, res) => {
     product.variants.push(newVariant);
     await product.save();
 
+    // Return only the new variant, not the entire product
+    const addedVariant = product.variants[product.variants.length - 1];
+
     return res.status(201).json(
-        new ApiResponse(201, product, "Product variant added successfully")
+        new ApiResponse(201, {
+            variant: addedVariant,
+            productId: product._id,
+            productName: product.name
+        }, "Product variant added successfully")
     );
 });
 
@@ -110,8 +137,15 @@ const updateProductVariant = asyncHandler(async (req, res) => {
 
     await product.save();
 
+    // Return only the updated variant
+    const updatedVariant = product.variants[variantIndex];
+
     return res.status(200).json(
-        new ApiResponse(200, product, "Product variant updated successfully")
+        new ApiResponse(200, {
+            variant: updatedVariant,
+            productId: product._id,
+            productName: product.name
+        }, "Product variant updated successfully")
     );
 });
 
@@ -138,11 +172,21 @@ const deleteProductVariant = asyncHandler(async (req, res) => {
         throw new ApiError(404, "Variant not found");
     }
 
+    const deletedVariant = product.variants[variantIndex];
     product.variants.splice(variantIndex, 1);
     await product.save();
 
     return res.status(200).json(
-        new ApiResponse(200, product, "Product variant deleted successfully")
+        new ApiResponse(200, {
+            deletedVariant: {
+                id: deletedVariant._id,
+                name: deletedVariant.name,
+                value: deletedVariant.value
+            },
+            productId: product._id,
+            productName: product.name,
+            remainingVariants: product.variants.length
+        }, "Product variant deleted successfully")
     );
 });
 
@@ -167,12 +211,26 @@ const getProductVariants = asyncHandler(async (req, res) => {
         variants = variants.filter(variant => variant.isActive);
     }
 
+    // Clean variants data - remove sensitive fields for non-owners
+    const isOwner = req.user && product.sellerId && product.sellerId.toString() === req.user._id.toString();
+    const isAdmin = req.user && req.user.role === 'admin';
+
+    const cleanVariants = variants.map(variant => {
+        const variantObj = variant.toObject();
+        if (!isOwner && !isAdmin) {
+            delete variantObj.sku;
+            delete variantObj.stock;
+            delete variantObj.weight;
+            delete variantObj.dimensions;
+        }
+        return variantObj;
+    });
+
     return res.status(200).json(
         new ApiResponse(200, {
             productId,
             productName: product.name,
-            productSKU: product.sku,
-            variants: variants.sort((a, b) => a.sortOrder - b.sortOrder)
+            variants: cleanVariants.sort((a, b) => a.sortOrder - b.sortOrder)
         }, "Product variants retrieved successfully")
     );
 });
@@ -198,16 +256,21 @@ const getVariantBySKU = asyncHandler(async (req, res) => {
     const variant = product.variants[0];
     const finalPrice = product.price + (variant.price || 0);
 
+    // Clean variant data
+    const variantData = variant.toObject();
+    delete variantData.stock; // Remove stock info from public variant lookup
+    delete variantData.weight;
+    delete variantData.dimensions;
+
     return res.status(200).json(
         new ApiResponse(200, {
             product: {
                 id: product._id,
                 name: product.name,
-                sku: product.sku,
                 basePrice: product.price
             },
             variant: {
-                ...variant.toObject(),
+                ...variantData,
                 finalPrice,
                 displayPrice: {
                     amount: finalPrice,

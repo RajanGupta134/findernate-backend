@@ -165,6 +165,7 @@ import productRouter from "./routes/product.routes.js";
 import categoryRouter from "./routes/category.routes.js";
 import feedbackRouter from "./routes/feedback.routes.js";
 import qrRouter from "./routes/qr.routes.js";
+import wishlistRouter from "./routes/wishlist.routes.js";
 
 
 app.use("/api/v1/users", userRouter);
@@ -186,6 +187,7 @@ app.use("/api/v1/products", productRouter);
 app.use("/api/v1/categories", categoryRouter);
 app.use("/api/v1/feedback", feedbackRouter);
 app.use("/api/v1/qr", qrRouter);
+app.use("/api/v1/wishlist", wishlistRouter);
 
 app.use(errorHandler);
 

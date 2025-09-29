@@ -3,11 +3,16 @@ import mongoose from 'mongoose';
 const VariantSchema = new mongoose.Schema({
     sku: {
         type: String,
-        required: false,
         index: true
     },
-    name: String, // e.g., "Size", "Color"
-    value: String, // e.g., "Large", "Red"
+    name: {
+        type: String,
+        required: true
+    }, // e.g., "Size", "Color"
+    value: {
+        type: String,
+        required: true
+    }, // e.g., "Large", "Red"
     price: {
         type: Number,
         default: 0 // Additional price for this variant (can be negative for discounts)
@@ -334,6 +339,31 @@ ProductSchema.pre('save', function (next) {
 ProductSchema.pre('save', function (next) {
     if (this.isModified('status') && this.status === 'active' && !this.publishedAt) {
         this.publishedAt = new Date();
+    }
+    next();
+});
+
+// Auto-generate missing variant fields
+ProductSchema.pre('save', function (next) {
+    if (this.variants && this.variants.length > 0) {
+        this.variants.forEach((variant, index) => {
+            // Generate SKU if missing
+            if (!variant.sku) {
+                const variantCode = variant.value ? variant.value.substring(0, 2).toUpperCase() : 'VAR';
+                const timestamp = Date.now().toString().slice(-3);
+                variant.sku = `${this.sku}-${variantCode}${timestamp}${index}`;
+            }
+
+            // Set default value if missing
+            if (!variant.value) {
+                variant.value = variant.name || `Variant ${index + 1}`;
+            }
+
+            // Set default name if missing
+            if (!variant.name) {
+                variant.name = 'Default';
+            }
+        });
     }
     next();
 });

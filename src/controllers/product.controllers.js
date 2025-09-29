@@ -205,8 +205,31 @@ const createProduct = asyncHandler(async (req, res) => {
 
     await product.populate(populateOptions);
 
+    // Remove sensitive data for response
+    const responseProduct = product.toObject();
+    if (req.user.role !== 'admin' && product.sellerId.toString() !== req.user._id.toString()) {
+        delete responseProduct.costPrice;
+        delete responseProduct.sellerId;
+        delete responseProduct.businessId;
+    }
+
+    // Clean up response structure - keep _id for database clarity, add productId for frontend
+    responseProduct.productId = responseProduct._id;
+    delete responseProduct.id; // Remove the virtual id field
+    delete responseProduct.__v;
+
+    // Clean variants - keep _id for database, add variantId for frontend
+    if (responseProduct.variants) {
+        responseProduct.variants = responseProduct.variants.map(variant => {
+            const cleanVariant = { ...variant };
+            cleanVariant.variantId = cleanVariant._id;
+            delete cleanVariant.id; // Remove virtual id field only
+            return cleanVariant;
+        });
+    }
+
     return res.status(201).json(
-        new ApiResponse(201, product, "Product created successfully")
+        new ApiResponse(201, responseProduct, "Product created successfully")
     );
 });
 
@@ -261,6 +284,54 @@ const getProductById = asyncHandler(async (req, res) => {
         .sort({ averageRating: -1, salesCount: -1 });
 
     result.relatedProducts = relatedProducts;
+
+    // Remove sensitive data based on user role and ownership
+    const isOwner = req.user && product.sellerId._id.toString() === req.user._id.toString();
+    const isAdmin = req.user && req.user.role === 'admin';
+
+    if (!isOwner && !isAdmin) {
+        delete result.costPrice;
+        delete result.minStock;
+        delete result.trackStock;
+        delete result.allowBackorder;
+        delete result.salesCount;
+        delete result.viewCount;
+        delete result.wishlistCount;
+
+        // Clean seller info
+        if (result.sellerId) {
+            result.seller = {
+                username: result.sellerId.username,
+                firstName: result.sellerId.firstName,
+                lastName: result.sellerId.lastName
+            };
+            delete result.sellerId;
+        }
+
+        // Clean business info
+        if (result.businessId) {
+            result.business = {
+                businessName: result.businessId.businessName,
+                logoUrl: result.businessId.logoUrl,
+                rating: result.businessId.rating
+            };
+            delete result.businessId;
+        }
+
+        // Clean variants - remove sensitive data
+        if (result.variants) {
+            result.variants = result.variants.map(variant => ({
+                id: variant._id,
+                name: variant.name,
+                value: variant.value,
+                price: variant.price,
+                images: variant.images,
+                attributes: variant.attributes,
+                isActive: variant.isActive,
+                sortOrder: variant.sortOrder
+            }));
+        }
+    }
 
     return res.status(200).json(
         new ApiResponse(200, result, "Product retrieved successfully")
@@ -347,10 +418,10 @@ const getProducts = asyncHandler(async (req, res) => {
 
     // Category filters
     if (category) {
-        filter.category = category;
+        filter.category = { $regex: category, $options: 'i' };
     }
     if (subcategory) {
-        filter.subcategory = subcategory;
+        filter.subcategory = { $regex: subcategory, $options: 'i' };
     }
 
     // Brand filter
@@ -477,10 +548,10 @@ const getProducts = asyncHandler(async (req, res) => {
     // Pagination
     const skip = (parseInt(page) - 1) * parseInt(limit);
 
-    // Execute query
+    // Execute query - only select necessary fields for listing
     const products = await Product.find(filter)
         .populate('sellerId', 'username firstName lastName')
-        .select('-reviews') // Exclude reviews for listing
+        .select('name slug price comparePrice currency images averageRating totalReviews trackStock stock minStock brand category isFeatured isActive displayPrice createdAt sellerId')
         .sort(sortOptions)
         .limit(parseInt(limit))
         .skip(skip);
@@ -541,9 +612,24 @@ const getProducts = asyncHandler(async (req, res) => {
         hasPrevPage: page > 1
     };
 
+    // Clean products data - remove sensitive fields for non-owners
+    const cleanProducts = products.map(product => {
+        const productObj = product.toObject();
+        // Remove seller ID for public listing
+        if (productObj.sellerId && productObj.sellerId._id) {
+            productObj.seller = {
+                username: productObj.sellerId.username,
+                firstName: productObj.sellerId.firstName,
+                lastName: productObj.sellerId.lastName
+            };
+            delete productObj.sellerId;
+        }
+        return productObj;
+    });
+
     // Response data
     const responseData = {
-        products,
+        products: cleanProducts,
         pagination,
         filters: {
             category,
@@ -699,8 +785,19 @@ const updateProduct = asyncHandler(async (req, res) => {
     )
         .populate('sellerId', 'username firstName lastName');
 
+    // Remove sensitive data for response
+    const responseProduct = product.toObject();
+    const isOwner = req.user._id.toString() === product.sellerId._id.toString();
+    const isAdmin = req.user.role === 'admin';
+
+    if (!isOwner && !isAdmin) {
+        delete responseProduct.costPrice;
+        delete responseProduct.sellerId;
+        delete responseProduct.businessId;
+    }
+
     return res.status(200).json(
-        new ApiResponse(200, product, "Product updated successfully")
+        new ApiResponse(200, responseProduct, "Product updated successfully")
     );
 });
 

@@ -190,7 +190,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
     const userId = req.user._id;
 
     const user = await User.findById(userId).select(
-        "username fullName email phoneNumber address gender dateOfBirth bio profileImageUrl location link followers following posts isBusinessProfile businessProfileId isEmailVerified isPhoneVerified isPhoneNumberHidden isAddressHidden createdAt"
+        "username fullName email phoneNumber address gender dateOfBirth bio profileImageUrl location link followers following posts isBusinessProfile businessProfileId isEmailVerified isPhoneVerified isPhoneNumberHidden isAddressHidden privacy createdAt"
     );
 
     if (!user) {
@@ -219,6 +219,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
             isPhoneVerified: user.isPhoneVerified,
             isPhoneNumberHidden: user.isPhoneNumberHidden,
             isAddressHidden: user.isAddressHidden,
+            privacy: user.privacy,
             createdAt: user.createdAt,
             bio: user.bio,
             link: user.link,
