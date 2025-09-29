@@ -1079,4 +1079,57 @@ export const switchToPersonalAccount = asyncHandler(async (req, res) => {
     );
 });
 
+// ✅ POST /api/v1/business/toggle-product-posts - Toggle product posts
+export const toggleProductPosts = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+
+    const user = await User.findById(userId);
+    if (!user || !user.isBusinessProfile) {
+        throw new ApiError(403, "Only business profiles can toggle product posts");
+    }
+
+    const business = await Business.findOne({ userId });
+    if (!business) {
+        throw new ApiError(404, "Business profile not found");
+    }
+
+    // Toggle the current state
+    const currentState = business.postSettings?.allowProductPosts ?? true;
+    business.postSettings.allowProductPosts = !currentState;
+    await business.save();
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            allowProductPosts: business.postSettings.allowProductPosts
+        }, `Product posts ${business.postSettings.allowProductPosts ? 'enabled' : 'disabled'} successfully`)
+    );
+});
+
+// ✅ POST /api/v1/business/toggle-service-posts - Toggle service posts
+export const toggleServicePosts = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+
+    const user = await User.findById(userId);
+    if (!user || !user.isBusinessProfile) {
+        throw new ApiError(403, "Only business profiles can toggle service posts");
+    }
+
+    const business = await Business.findOne({ userId });
+    if (!business) {
+        throw new ApiError(404, "Business profile not found");
+    }
+
+    // Toggle the current state
+    const currentState = business.postSettings?.allowServicePosts ?? true;
+    business.postSettings.allowServicePosts = !currentState;
+    await business.save();
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            allowServicePosts: business.postSettings.allowServicePosts
+        }, `Service posts ${business.postSettings.allowServicePosts ? 'enabled' : 'disabled'} successfully`)
+    );
+});
+
+
 

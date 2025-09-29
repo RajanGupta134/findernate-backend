@@ -17,7 +17,9 @@ import {
     updateBusinessCategory,
     getBusinessCategories,
     rateBusiness,
-    getBusinessRatingSummary
+    getBusinessRatingSummary,
+    toggleProductPosts,
+    toggleServicePosts
 } from "../controllers/business.controllers.js";
 
 const router = Router();
@@ -63,6 +65,10 @@ router.route("/:id").get(getBusinessById);
 // 📊 Business Rating Routes
 router.route("/:businessId/rate").post(verifyJWT, rateBusiness);
 router.route("/:businessId/rating-summary").get(getBusinessRatingSummary);
+
+// 📝 Post Settings Routes
+router.route("/toggle-product-posts").post(verifyJWT, toggleProductPosts);
+router.route("/toggle-service-posts").post(verifyJWT, toggleServicePosts);
 
 // Helper route to update existing businesses with active subscriptions (admin only)
 router.route("/admin/update-active-businesses").post(optionalVerifyJWT, updateExistingActiveBusinesses);

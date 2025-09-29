@@ -92,7 +92,13 @@ const BusinessSchema = new mongoose.Schema({
 
     aadhaarVerified: { type: Boolean, default: false },
     aadhaarVerifiedAt: { type: Date },
-    aadhaarVerifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' }
+    aadhaarVerifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
+
+    // Post type controls for business profile
+    postSettings: {
+        allowProductPosts: { type: Boolean, default: true },
+        allowServicePosts: { type: Boolean, default: true }
+    }
 }, { timestamps: true });
 
 // 🚀 Auto-verify business when subscription becomes active
