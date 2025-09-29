@@ -202,6 +202,12 @@ const getUserProfile = asyncHandler(async (req, res) => {
     // Count posts directly from Post collection
     const postsCount = await Post.countDocuments({ userId });
 
+    // Get business profile information if user is a business profile
+    let businessInfo = null;
+    if (user.isBusinessProfile) {
+        businessInfo = await Business.findOne({ userId }).select('postSettings isVerified');
+    }
+
     const userProfile = {
         _id: user._id,
         userId: {
@@ -220,6 +226,10 @@ const getUserProfile = asyncHandler(async (req, res) => {
             isPhoneNumberHidden: user.isPhoneNumberHidden,
             isAddressHidden: user.isAddressHidden,
             privacy: user.privacy,
+            // Add business-specific fields
+            productEnabled: user.isBusinessProfile ? (businessInfo?.postSettings?.allowProductPosts ?? true) : null,
+            serviceEnabled: user.isBusinessProfile ? (businessInfo?.postSettings?.allowServicePosts ?? true) : null,
+            isVerified: user.isBusinessProfile ? (businessInfo?.isVerified ?? false) : null,
             createdAt: user.createdAt,
             bio: user.bio,
             link: user.link,
