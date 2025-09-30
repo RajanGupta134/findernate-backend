@@ -16,11 +16,18 @@ export const likePost = asyncHandler(async (req, res) => {
     try {
         await Like.create({ userId, postId });
         await Post.findByIdAndUpdate(postId, { $inc: { "engagement.likes": 1 } });
-        // Notify post owner (if not self)
-        const post = await Post.findById(postId).select("userId");
-        if (post && post.userId.toString() !== userId.toString()) {
-            await createLikeNotification({ recipientId: post.userId, sourceUserId: userId, postId });
+
+        // Notify post owner (if not self) - with error handling
+        try {
+            const post = await Post.findById(postId).select("userId");
+            if (post && post.userId.toString() !== userId.toString()) {
+                await createLikeNotification({ recipientId: post.userId, sourceUserId: userId, postId });
+            }
+        } catch (notificationError) {
+            console.error('Error sending like notification:', notificationError);
+            // Don't fail the like operation if notification fails
         }
+
         // Return updated likedBy and isLikedBy
         const likes = await Like.find({ postId }).lean();
         const userIds = likes.map(like => like.userId.toString());
@@ -50,11 +57,18 @@ export const unlikePost = asyncHandler(async (req, res) => {
     const like = await Like.findOneAndDelete({ userId, postId });
     if (like) {
         await Post.findByIdAndUpdate(postId, { $inc: { "engagement.likes": -1 } });
-        // Notify post owner (if not self)
-        const post = await Post.findById(postId).select("userId");
-        if (post && post.userId.toString() !== userId.toString()) {
-            await createUnlikeNotification({ recipientId: post.userId, sourceUserId: userId, postId });
+
+        // Notify post owner (if not self) - with error handling
+        try {
+            const post = await Post.findById(postId).select("userId");
+            if (post && post.userId.toString() !== userId.toString()) {
+                await createUnlikeNotification({ recipientId: post.userId, sourceUserId: userId, postId });
+            }
+        } catch (notificationError) {
+            console.error('Error sending unlike notification:', notificationError);
+            // Don't fail the unlike operation if notification fails
         }
+
         // Return updated likedBy and isLikedBy
         const likes = await Like.find({ postId }).lean();
         const userIds = likes.map(like => like.userId.toString());
