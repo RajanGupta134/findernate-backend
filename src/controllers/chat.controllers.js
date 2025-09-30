@@ -241,28 +241,40 @@ export const getUserChats = asyncHandler(async (req, res) => {
         return acc;
     }, {});
 
-    // Get unread counts for all chats efficiently
-    const unreadCounts = await Message.aggregate([
+    // Get unread counts AND message counts in a single aggregation
+    const chatStats = await Message.aggregate([
         {
             $match: {
                 chatId: { $in: chatIds },
-                isDeleted: { $ne: true },
-                readBy: { $ne: currentUserId }
+                isDeleted: { $ne: true }
             }
         },
         {
             $group: {
                 _id: '$chatId',
-                unreadCount: { $sum: 1 }
+                totalMessages: { $sum: 1 },
+                unreadCount: {
+                    $sum: {
+                        $cond: [
+                            { $not: { $in: [currentUserId, '$readBy'] } },
+                            1,
+                            0
+                        ]
+                    }
+                }
             }
         }
     ]);
 
-    // Create a map for quick lookup
-    const unreadCountMap = unreadCounts.reduce((acc, item) => {
-        acc[item._id.toString()] = item.unreadCount;
-        return acc;
-    }, {});
+    // Create maps for quick lookup
+    const unreadCountMap = {};
+    const messageCountMap = {};
+
+    chatStats.forEach(item => {
+        const chatIdStr = item._id.toString();
+        unreadCountMap[chatIdStr] = item.unreadCount;
+        messageCountMap[chatIdStr] = item.totalMessages;
+    });
 
     // Populate the chats with participants
     const populatedChatsPromise = Promise.all(secureChats.map(async (chat) => {
@@ -316,18 +328,14 @@ export const getUserChats = asyncHandler(async (req, res) => {
             );
         }
 
-        // Add message count stats
+        // Add message count stats from aggregation (no extra query needed)
         if (!chatWithUsers.stats) {
             chatWithUsers.stats = {};
         }
-        const messageCount = await Message.countDocuments({
-            chatId: chat._id,
-            isDeleted: { $ne: true }
-        });
-        chatWithUsers.stats.totalMessages = messageCount;
+        chatWithUsers.stats.totalMessages = messageCountMap[chatId] || 0;
         chatWithUsers.stats.totalParticipants = chatWithUsers.participants.length;
 
-        // Add unread count
+        // Add unread count from aggregation
         chatWithUsers.unreadCount = unreadCountMap[chatId] || 0;
 
         return chatWithUsers;
@@ -497,8 +505,16 @@ export const getChatMessages = asyncHandler(async (req, res) => {
             .sort({ timestamp: -1 })
             .skip(skip)
             .limit(pageLimit)
+            .select('sender message messageType mediaUrl fileName fileSize duration timestamp readBy replyTo reactions')
             .populate('sender', 'username fullName profileImageUrl')
-            .populate('replyTo', 'message sender')
+            .populate({
+                path: 'replyTo',
+                select: 'message sender timestamp',
+                populate: {
+                    path: 'sender',
+                    select: 'username fullName'
+                }
+            })
             .lean(),
         Message.countDocuments({
             chatId,
@@ -642,28 +658,24 @@ export const addMessage = asyncHandler(async (req, res) => {
 
     await chat.save();
 
-    // ✅ Ensure populatedMessage has ALL fields
+    // Populate with selective fields only
     const populatedMessage = await Message.findById(newMessage._id)
         .populate('sender', 'username fullName profileImageUrl')
-        .populate('replyTo', 'message sender');
-    // Don't use .lean() if it strips fields
+        .populate({
+            path: 'replyTo',
+            select: 'message sender timestamp',
+            populate: {
+                path: 'sender',
+                select: 'username fullName'
+            }
+        })
+        .lean();
 
-    // ✅ Emit complete message
+    // Emit message - Socket.IO Redis adapter handles cross-process sync automatically
     safeEmitToChat(chatId, 'new_message', {
         chatId,
-        message: populatedMessage // This MUST include mediaUrl, fileName, etc.
+        message: populatedMessage
     });
-
-    // ✅ Broadcast message across all PM2 processes via Redis PubSub
-    try {
-        await ChatPubSub.publishMessage(chatId, {
-            type: 'new_message',
-            chatId,
-            message: populatedMessage
-        });
-    } catch (error) {
-        console.error('Failed to publish message to Redis PubSub:', error);
-    }
 
     // Send push notifications to other participants
     try {
@@ -969,7 +981,14 @@ export const restoreMessage = asyncHandler(async (req, res) => {
     // Populate sender info for response
     const populatedMessage = await Message.findById(message._id)
         .populate('sender', 'username fullName profileImageUrl')
-        .populate('replyTo', 'message sender')
+        .populate({
+            path: 'replyTo',
+            select: 'message sender timestamp',
+            populate: {
+                path: 'sender',
+                select: 'username fullName'
+            }
+        })
         .lean();
 
     // Emit real-time event for message restoration
@@ -1108,8 +1127,8 @@ export const searchMessages = asyncHandler(async (req, res) => {
             .sort({ timestamp: -1 })
             .skip(skip)
             .limit(pageLimit)
+            .select('sender message messageType timestamp')
             .populate('sender', 'username fullName profileImageUrl')
-            .populate('replyTo', 'message sender')
             .lean(),
         Message.countDocuments({
             chatId,

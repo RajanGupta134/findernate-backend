@@ -3,13 +3,6 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/user.models.js';
 import { redisPubSub, redisPublisher, redisClient } from './redis.config.js';
-import { 
-    ChatPubSub, 
-    NotificationPubSub, 
-    LiveFeaturesPubSub,
-    pubSubManager,
-    CHANNELS
-} from '../utlis/pubsub.utils.js';
 
 class SocketManager {
     constructor() {
@@ -17,118 +10,6 @@ class SocketManager {
         this.connectedUsers = new Map(); // userId -> socketId
         this.userSockets = new Map(); // socketId -> userId
         this.chatRooms = new Map(); // chatId -> Set of socketIds
-        this.setupPubSubListeners();
-    }
-
-    /**
-     * Setup Redis PubSub listeners for real-time features
-     */
-    setupPubSubListeners() {
-        // Chat messages
-        pubSubManager.on('message', ({ channel, data }) => {
-            if (channel.startsWith('fn:chat:')) {
-                this.handleChatMessage(data);
-            } else if (channel.includes(':notifications')) {
-                this.handleNotification(data);
-            } else if (channel.startsWith('fn:live:')) {
-                this.handleLiveFeature(data);
-            }
-        });
-
-        // Pattern-based messages for user-specific events
-        pubSubManager.on('pmessage', ({ pattern, channel, data }) => {
-            if (pattern.includes('fn:user:*')) {
-                this.handleUserSpecificEvent(channel, data);
-            }
-        });
-    }
-
-    /**
-     * Handle incoming chat messages from Redis
-     */
-    handleChatMessage(data) {
-        if (!this.io || !data.chatId) return;
-        
-        // Broadcast to all users in the chat room
-        this.io.to(`chat:${data.chatId}`).emit('new_message', {
-            id: data.message?.id,
-            chatId: data.chatId,
-            senderId: data.senderId,
-            message: data.message?.message || data.message,
-            timestamp: data.timestamp,
-            type: data.type || 'message'
-        });
-        
-        console.log(`📨 Chat message broadcasted to room: chat:${data.chatId}`);
-    }
-
-    /**
-     * Handle real-time notifications
-     */
-    handleNotification(data) {
-        if (!this.io || !data.userId) return;
-        
-        const socketId = this.connectedUsers.get(data.userId);
-        if (socketId) {
-            this.io.to(socketId).emit('notification', {
-                type: data.notification?.type || data.type,
-                message: data.notification?.message || data.message,
-                data: data.notification || data,
-                timestamp: data.timestamp
-            });
-            
-            console.log(`🔔 Notification sent to user: ${data.userId}`);
-        }
-    }
-
-    /**
-     * Handle live features (typing, online status, etc.)
-     */
-    handleLiveFeature(data) {
-        if (!this.io) return;
-        
-        switch (data.type) {
-            case 'typing':
-                this.io.to(`chat:${data.chatId}`).emit('typing_indicator', {
-                    userId: data.userId,
-                    isTyping: data.isTyping,
-                    chatId: data.chatId
-                });
-                break;
-                
-            case 'online_status':
-                this.io.emit('user_online_status', {
-                    userId: data.userId,
-                    isOnline: data.isOnline,
-                    timestamp: data.timestamp
-                });
-                break;
-                
-            case 'call_event':
-                this.io.to(`call:${data.callId}`).emit('call_event', data.event);
-                break;
-        }
-    }
-
-    /**
-     * Handle user-specific events from Redis patterns
-     */
-    handleUserSpecificEvent(channel, data) {
-        const userIdMatch = channel.match(/fn:user:([^:]+)/);
-        if (!userIdMatch) return;
-        
-        const userId = userIdMatch[1];
-        const socketId = this.connectedUsers.get(userId);
-        
-        if (socketId) {
-            if (channel.includes(':notifications')) {
-                this.io.to(socketId).emit('notification', data);
-            } else if (channel.includes(':activity')) {
-                this.io.to(socketId).emit('user_activity', data);
-            } else if (channel.includes(':messages')) {
-                this.io.to(socketId).emit('private_message', data);
-            }
-        }
     }
 
     async initialize(server) {
@@ -209,12 +90,14 @@ class SocketManager {
 
     setupEventHandlers() {
         this.io.on('connection', (socket) => {
-
             // Store user connection locally AND in Redis for cross-process access
             this.connectedUsers.set(socket.userId, socket.id);
             this.userSockets.set(socket.id, socket.userId);
 
-            // Store in Redis with process ID for clustering
+            // Track user's chat rooms for cleanup on disconnect
+            socket.chatRooms = new Set();
+
+            // Store in Redis with 24-hour expiry (auto-cleanup for stale connections)
             const PROCESS_ID = process.env.INSTANCE_ID || process.env.pm_id || `process-${process.pid}`;
             redisClient.hset('fn:online_users', socket.userId, JSON.stringify({
                 socketId: socket.id,
@@ -222,40 +105,35 @@ class SocketManager {
                 connectedAt: new Date().toISOString()
             })).catch(err => console.error('Redis user tracking error:', err));
 
+            // Set TTL on online users hash key (24 hours)
+            redisClient.expire('fn:online_users', 86400).catch(err =>
+                console.error('Redis TTL error:', err)
+            );
+
             // Join user to their personal room
             socket.join(`user_${socket.userId}`);
 
-            // Subscribe to user-specific Redis channels
-            this.subscribeUserToRedisChannels(socket.userId);
-
-            // Publish user online status
-            LiveFeaturesPubSub.publishOnlineStatus(socket.userId, true);
+            // Note: No Redis pattern subscriptions needed - Socket.IO rooms handle routing
 
             // Handle joining chat rooms
             socket.on('join_chat', (chatId) => {
                 socket.join(`chat:${chatId}`);
-                
-                // Subscribe to Redis channel for this chat
-                ChatPubSub.subscribeToChat(chatId, (message) => {
-                    console.log(`📨 Redis message received for chat ${chatId}`);
-                });
-                
+                socket.chatRooms.add(chatId); // Track for cleanup
                 console.log(`User ${socket.userId} joined chat ${chatId}`);
             });
 
             // Handle leaving chat rooms
             socket.on('leave_chat', (chatId) => {
                 socket.leave(`chat:${chatId}`);
+                socket.chatRooms.delete(chatId); // Remove from tracking
+                console.log(`User ${socket.userId} left chat ${chatId}`);
             });
 
-            // Handle typing events with Redis broadcasting
+            // Handle typing events
             socket.on('typing_start', (data) => {
                 const { chatId } = data;
-                
-                // Publish typing status to Redis for cross-process sync
-                ChatPubSub.publishTyping(chatId, socket.userId, true);
-                
-                // Also emit locally for immediate feedback
+
+                // Emit to chat room - Socket.IO adapter syncs across processes
                 socket.to(`chat:${chatId}`).emit('user_typing', {
                     userId: socket.userId,
                     username: socket.user.username,
@@ -511,21 +389,27 @@ class SocketManager {
 
             // Handle disconnect
             socket.on('disconnect', () => {
+                // Clean up local tracking
                 this.connectedUsers.delete(socket.userId);
                 this.userSockets.delete(socket.id);
+
+                // Clean up all chat rooms the user was in
+                if (socket.chatRooms && socket.chatRooms.size > 0) {
+                    socket.chatRooms.forEach(chatId => {
+                        socket.leave(`chat:${chatId}`);
+                    });
+                    console.log(`User ${socket.userId} cleaned up from ${socket.chatRooms.size} chat rooms`);
+                    socket.chatRooms.clear();
+                }
 
                 // Remove from Redis cross-process tracking
                 redisClient.hdel('fn:online_users', socket.userId)
                     .catch(err => console.error('Redis user removal error:', err));
 
-                // Unsubscribe from user-specific Redis channels
-                this.unsubscribeUserFromRedisChannels(socket.userId);
-
-                // Publish user offline status
-                LiveFeaturesPubSub.publishOnlineStatus(socket.userId, false);
-
                 // Emit offline status to relevant users
                 this.emitUserOffline(socket.userId);
+
+                console.log(`User ${socket.userId} disconnected and cleaned up`);
             });
         });
     }
@@ -638,49 +522,8 @@ class SocketManager {
         });
     }
 
-    /**
-     * Subscribe user to their Redis channels
-     * @param {string} userId - User ID to subscribe
-     */
-    async subscribeUserToRedisChannels(userId) {
-        try {
-            // Subscribe to user-specific notifications
-            await NotificationPubSub.subscribeToNotifications(userId);
-            
-            // Subscribe to user activity updates
-            const activityChannel = `fn:user:${userId}:activity`;
-            await pubSubManager.subscribe(activityChannel);
-            
-            // Subscribe to pattern-based channels for this user
-            const userPattern = `fn:user:${userId}:*`;
-            await pubSubManager.psubscribe(userPattern);
-            
-            console.log(`🔔 User ${userId} subscribed to Redis channels`);
-        } catch (error) {
-            console.error(`Failed to subscribe user ${userId} to Redis channels:`, error);
-        }
-    }
-
-    /**
-     * Unsubscribe user from their Redis channels
-     * @param {string} userId - User ID to unsubscribe
-     */
-    async unsubscribeUserFromRedisChannels(userId) {
-        try {
-            // Unsubscribe from user-specific channels
-            const notificationChannel = `fn:user:${userId}:notifications`;
-            const activityChannel = `fn:user:${userId}:activity`;
-            const userPattern = `fn:user:${userId}:*`;
-            
-            await pubSubManager.unsubscribe(notificationChannel);
-            await pubSubManager.unsubscribe(activityChannel);
-            await pubSubManager.punsubscribe(userPattern);
-            
-            console.log(`🔕 User ${userId} unsubscribed from Redis channels`);
-        } catch (error) {
-            console.error(`Failed to unsubscribe user ${userId} from Redis channels:`, error);
-        }
-    }
+    // Removed: Pattern subscriptions no longer needed
+    // Socket.IO rooms and Redis adapter handle all routing automatically
 }
 
 export default new SocketManager(); 

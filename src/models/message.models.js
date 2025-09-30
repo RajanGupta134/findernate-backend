@@ -69,10 +69,11 @@ const MessageSchema = new mongoose.Schema({
     toObject: { virtuals: true }
 });
 
-// Indexes for better performance
-MessageSchema.index({ chatId: 1, timestamp: -1 });
-MessageSchema.index({ sender: 1, timestamp: -1 });
-MessageSchema.index({ chatId: 1, isDeleted: 1 });
+// Compound indexes for optimal query performance
+MessageSchema.index({ chatId: 1, timestamp: -1 }); // For message fetching
+MessageSchema.index({ chatId: 1, isDeleted: 1, timestamp: -1 }); // For non-deleted messages
+MessageSchema.index({ chatId: 1, isDeleted: 1, readBy: 1 }); // For unread count queries
+MessageSchema.index({ sender: 1, timestamp: -1 }); // For user's sent messages
 
 // Virtual for unread status (per user)
 MessageSchema.virtual('isUnread').get(function () {

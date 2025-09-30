@@ -1,42 +1,20 @@
-import { redisAppSubscriber, redisAppPublisher } from '../config/redis.config.js';
 import { EventEmitter } from 'events';
 
 /**
- * Redis PubSub Manager for FinderNate real-time features
- * Integrates with Socket.IO for WebSocket communication
+ * DEPRECATED: Redis PubSub Manager
+ * Socket.IO Redis adapter now handles all pub/sub automatically
+ * This file is kept for backward compatibility but functionality is disabled
  */
 class PubSubManager extends EventEmitter {
     constructor() {
         super();
         this.subscribers = new Map();
-        this.isReady = false;
-        
-        this.setupPubSubHandlers();
+        this.isReady = true; // Always ready (no-op)
+        console.warn('⚠️ PubSubManager is deprecated. Use Socket.IO Redis adapter instead.');
     }
 
-    /**
-     * Setup Redis PubSub event handlers
-     */
     setupPubSubHandlers() {
-        redisAppSubscriber.on('ready', () => {
-            console.log('🔄 Redis App Subscriber: Ready');
-            this.isReady = true;
-            this.emit('ready');
-        });
-
-        redisAppSubscriber.on('error', (error) => {
-            console.error('❌ Redis App Subscriber Error:', error);
-            this.emit('error', error);
-        });
-
-        // Handle incoming messages
-        redisAppSubscriber.on('message', (channel, message) => {
-            this.handleMessage(channel, message);
-        });
-
-        redisAppSubscriber.on('pmessage', (pattern, channel, message) => {
-            this.handlePatternMessage(pattern, channel, message);
-        });
+        // No-op: Socket.IO adapter handles this
     }
 
     /**
@@ -91,115 +69,30 @@ class PubSubManager extends EventEmitter {
         return userMatch ? userMatch[1] : null;
     }
 
-    /**
-     * Subscribe to a specific channel
-     * @param {string} channel - Channel to subscribe to
-     * @param {Function} handler - Message handler function
-     */
+    // All methods now no-op - Socket.IO adapter handles pub/sub
     async subscribe(channel, handler) {
-        try {
-            await redisAppSubscriber.subscribe(channel);
-            
-            if (handler) {
-                this.on(channel, handler);
-            }
-            
-            this.subscribers.set(channel, {
-                type: 'channel',
-                handler,
-                subscribedAt: new Date()
-            });
-            
-            console.log(`📻 Subscribed to channel: ${channel}`);
-            
-        } catch (error) {
-            console.error(`Subscribe error for channel ${channel}:`, error);
-        }
+        // No-op
+        return Promise.resolve();
     }
 
-    /**
-     * Subscribe to a channel pattern
-     * @param {string} pattern - Pattern to subscribe to
-     * @param {Function} handler - Message handler function
-     */
     async psubscribe(pattern, handler) {
-        try {
-            await redisAppSubscriber.psubscribe(pattern);
-            
-            if (handler) {
-                this.on('pmessage', ({ pattern: msgPattern, channel, data }) => {
-                    if (msgPattern === pattern) {
-                        handler(channel, data);
-                    }
-                });
-            }
-            
-            this.subscribers.set(pattern, {
-                type: 'pattern',
-                handler,
-                subscribedAt: new Date()
-            });
-            
-            console.log(`🎯 Subscribed to pattern: ${pattern}`);
-            
-        } catch (error) {
-            console.error(`Pattern subscribe error for ${pattern}:`, error);
-        }
+        // No-op
+        return Promise.resolve();
     }
 
-    /**
-     * Unsubscribe from a channel
-     * @param {string} channel - Channel to unsubscribe from
-     */
     async unsubscribe(channel) {
-        try {
-            await redisAppSubscriber.unsubscribe(channel);
-            this.removeAllListeners(channel);
-            this.subscribers.delete(channel);
-            
-            console.log(`📻 Unsubscribed from channel: ${channel}`);
-            
-        } catch (error) {
-            console.error(`Unsubscribe error for channel ${channel}:`, error);
-        }
+        // No-op
+        return Promise.resolve();
     }
 
-    /**
-     * Unsubscribe from a pattern
-     * @param {string} pattern - Pattern to unsubscribe from
-     */
     async punsubscribe(pattern) {
-        try {
-            await redisAppSubscriber.punsubscribe(pattern);
-            this.subscribers.delete(pattern);
-            
-            console.log(`🎯 Unsubscribed from pattern: ${pattern}`);
-            
-        } catch (error) {
-            console.error(`Pattern unsubscribe error for ${pattern}:`, error);
-        }
+        // No-op
+        return Promise.resolve();
     }
 
-    /**
-     * Publish a message to a channel
-     * @param {string} channel - Channel to publish to
-     * @param {Object} data - Data to publish
-     */
     async publish(channel, data) {
-        try {
-            const message = JSON.stringify({
-                ...data,
-                timestamp: Date.now(),
-                channel
-            });
-            
-            const result = await redisAppPublisher.publish(channel, message);
-            return result;
-            
-        } catch (error) {
-            console.error(`Publish error for channel ${channel}:`, error);
-            return 0;
-        }
+        // No-op
+        return Promise.resolve(0);
     }
 
     /**
