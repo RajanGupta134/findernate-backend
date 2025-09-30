@@ -28,6 +28,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 const allowedOrigins = [
         "https://p0k804os4c4scowcg488800c.194.164.151.15.sslip.io",
         "https://findernate.com",
+        "https://www.findernate.com",
         "http://localhost:3000",
         "http://localhost:3001",
         "http://localhost:4000",
@@ -42,9 +43,15 @@ const allowedOrigins = [
 
 app.use(cors({
         origin: function (origin, callback) {
-                if (!origin || allowedOrigins.includes(origin)) {
+                // Allow requests with no origin (mobile apps, Postman, etc.)
+                if (!origin) {
+                        return callback(null, true);
+                }
+
+                if (allowedOrigins.includes(origin)) {
                         callback(null, true);
                 } else {
+                        console.warn(`CORS blocked origin: ${origin}`);
                         callback(new Error("Not allowed by CORS"));
                 }
         },
