@@ -54,8 +54,8 @@ export const unlikePost = asyncHandler(async (req, res) => {
     const { postId } = req.body;
     if (!postId) throw new ApiError(400, "postId is required");
 
-    const like = await Like.findOneAndDelete({ userId, postId });
-    if (like) {
+    const deletedLike = await Like.findOneAndDelete({ userId, postId });
+    if (deletedLike) {
         await Post.findByIdAndUpdate(postId, { $inc: { "engagement.likes": -1 } });
 
         // Notify post owner (if not self) - with error handling
@@ -69,9 +69,9 @@ export const unlikePost = asyncHandler(async (req, res) => {
             // Don't fail the unlike operation if notification fails
         }
 
-        // Return updated likedBy and isLikedBy
+        // Return updated likedBy and isLikedBy (user has unliked, so isLikedBy should be false)
         const likes = await Like.find({ postId }).lean();
-        const userIds = likes.map(like => like.userId.toString());
+        const userIds = likes.map(likeDoc => likeDoc.userId.toString());
         let users = [];
         if (userIds.length > 0) {
             users = await Post.db.model('User').find(
@@ -79,8 +79,8 @@ export const unlikePost = asyncHandler(async (req, res) => {
                 'username profileImageUrl fullName isVerified'
             ).lean();
         }
-        const isLikedBy = userIds.includes(userId.toString());
-        return res.status(200).json(new ApiResponse(200, { likedBy: users, isLikedBy }, "Post unliked successfully"));
+        // After unliking, isLikedBy should always be false
+        return res.status(200).json(new ApiResponse(200, { likedBy: users, isLikedBy: false }, "Post unliked successfully"));
     } else {
         throw new ApiError(404, "Like not found for this post");
     }
