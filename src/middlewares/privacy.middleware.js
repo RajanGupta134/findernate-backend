@@ -1,5 +1,6 @@
 import { User } from "../models/user.models.js";
 import Follower from "../models/follower.models.js";
+import ExpensiveOperationsCache from "../utlis/expensiveOperationsCache.js";
 
 /**
  * Privacy middleware to check if a user can view another user's content
@@ -71,27 +72,46 @@ export const addPrivacyFilter = async (req, res, next) => {
 /**
  * Get users that the current user can view content from
  * (themselves + users they follow + public users)
+ * OPTIMIZED: Uses Redis caching for 5 minutes
  */
 export const getViewableUserIds = async (viewerId) => {
-    if (!viewerId) {
-        // Anonymous users can only see public content
-        const publicUsers = await User.find({ privacy: 'public' }).select('_id');
-        return publicUsers.map(u => u._id);
+    // OPTIMIZED: Try to get from cache first
+    const cached = await ExpensiveOperationsCache.getViewableUserIds(viewerId);
+    if (cached) {
+        return cached;
     }
 
-    // Get users the viewer follows
-    const following = await Follower.find({ followerId: viewerId }).select('userId');
-    const followingIds = following.map(f => f.userId);
+    // Cache miss - compute viewable user IDs
+    let userIds;
 
-    // Add viewer's own ID
-    followingIds.push(viewerId);
+    if (!viewerId) {
+        // Anonymous users can only see public content
+        const publicUsers = await User.find({ privacy: 'public' }).select('_id').lean();
+        userIds = publicUsers.map(u => u._id);
+    } else {
+        // OPTIMIZED: Run queries in parallel
+        const [following, publicUsers] = await Promise.all([
+            Follower.find({ followerId: viewerId }).select('userId').lean(),
+            User.find({ privacy: 'public' }).select('_id').lean()
+        ]);
 
-    // Get all public users not already in the following list
-    const publicUsers = await User.find({ 
-        privacy: 'public',
-        _id: { $nin: followingIds }
-    }).select('_id');
+        const followingIds = following.map(f => f.userId);
 
-    // Combine following + own + public users
-    return [...followingIds, ...publicUsers.map(u => u._id)];
+        // Add viewer's own ID
+        followingIds.push(viewerId);
+
+        // Get all public users not already in the following list
+        const followingIdStrings = followingIds.map(id => id.toString());
+        const additionalPublicUsers = publicUsers
+            .filter(u => !followingIdStrings.includes(u._id.toString()))
+            .map(u => u._id);
+
+        // Combine following + own + public users
+        userIds = [...followingIds, ...additionalPublicUsers];
+    }
+
+    // OPTIMIZED: Cache the result for 5 minutes
+    await ExpensiveOperationsCache.cacheViewableUserIds(viewerId, userIds, 300);
+
+    return userIds;
 };

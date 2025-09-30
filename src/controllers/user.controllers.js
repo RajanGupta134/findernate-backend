@@ -191,9 +191,30 @@ const logOutUser = asyncHandler(async (req, res) => {
 const getUserProfile = asyncHandler(async (req, res) => {
     const userId = req.user._id;
 
-    const user = await User.findById(userId).select(
-        "username fullName email phoneNumber address gender dateOfBirth bio profileImageUrl location link followers following posts isBusinessProfile businessProfileId isEmailVerified isPhoneVerified isPhoneNumberHidden isAddressHidden privacy createdAt"
-    );
+    // OPTIMIZED: Try to get from Redis cache first (1 hour TTL)
+    const cacheKey = `fn:user:${userId}:profile`;
+    let cachedProfile = null;
+
+    try {
+        const { redisClient } = await import('../config/redis.config.js');
+        const cached = await redisClient.get(cacheKey);
+        if (cached) {
+            cachedProfile = JSON.parse(cached);
+            return res.status(200).json(
+                new ApiResponse(200, cachedProfile, "User profile retrieved successfully")
+            );
+        }
+    } catch (cacheError) {
+        console.error('Redis cache error in getUserProfile:', cacheError);
+        // Continue without cache if Redis fails
+    }
+
+    // Cache miss - fetch from database
+    const user = await User.findById(userId)
+        .select(
+            "username fullName email phoneNumber address gender dateOfBirth bio profileImageUrl location link followers following posts isBusinessProfile businessProfileId isEmailVerified isPhoneVerified isPhoneNumberHidden isAddressHidden privacy createdAt"
+        )
+        .lean(); // OPTIMIZED: Use lean() for faster query
 
     if (!user) {
         throw new ApiError(404, "User not found");
@@ -207,7 +228,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
     // Get business profile information if user is a business profile
     let businessInfo = null;
     if (user.isBusinessProfile) {
-        businessInfo = await Business.findOne({ userId }).select('postSettings isVerified');
+        businessInfo = await Business.findOne({ userId }).select('postSettings isVerified').lean();
     }
 
     const userProfile = {
@@ -243,13 +264,13 @@ const getUserProfile = asyncHandler(async (req, res) => {
         }
     };
 
-    // Cache the response if caching is available
-    if (res.locals.cacheKey && res.locals.cacheTTL) {
-        await setCache(res.locals.cacheKey, { 
-            success: true,
-            data: userProfile,
-            message: "User profile retrieved successfully"
-        }, res.locals.cacheTTL);
+    // OPTIMIZED: Cache the profile for 1 hour (3600 seconds)
+    try {
+        const { redisClient } = await import('../config/redis.config.js');
+        await redisClient.setex(cacheKey, 3600, JSON.stringify(userProfile));
+    } catch (cacheError) {
+        console.error('Redis cache set error in getUserProfile:', cacheError);
+        // Continue even if caching fails
     }
 
     return res.status(200).json(
@@ -291,6 +312,14 @@ const updateUserProfile = asyncHandler(async (req, res) => {
             runValidators: true,
         })
         .select("-password -refreshToken -emailVerificationToken ");
+
+    // OPTIMIZED: Invalidate cached profile and auth data
+    try {
+        await ExpensiveOperationsCache.clearUserCache(req.user._id);
+    } catch (cacheError) {
+        console.error('Cache invalidation error in updateUserProfile:', cacheError);
+        // Continue even if cache invalidation fails
+    }
 
     return res
         .status(200)
@@ -1145,6 +1174,17 @@ const blockUser = asyncHandler(async (req, res) => {
         followingId: blockerId
     });
 
+    // OPTIMIZED: Invalidate caches when blocking
+    try {
+        await ExpensiveOperationsCache.invalidateFollowCache(blockerId, blockedUserId);
+        // Invalidate blocked users cache
+        const blockedCacheKey = `fn:user:${blockerId}:blocked:list`;
+        const { CacheManager } = await import('../utlis/cache.utils.js');
+        await CacheManager.del(blockedCacheKey);
+    } catch (cacheError) {
+        console.error('Cache invalidation error in blockUser:', cacheError);
+    }
+
     return res.status(200).json(
         new ApiResponse(200, { block }, "User blocked successfully")
     );
@@ -1171,6 +1211,15 @@ const unblockUser = asyncHandler(async (req, res) => {
 
     // Remove block record
     await Block.findByIdAndDelete(existingBlock._id);
+
+    // OPTIMIZED: Invalidate blocked users cache
+    try {
+        const blockedCacheKey = `fn:user:${blockerId}:blocked:list`;
+        const { CacheManager } = await import('../utlis/cache.utils.js');
+        await CacheManager.del(blockedCacheKey);
+    } catch (cacheError) {
+        console.error('Cache invalidation error in unblockUser:', cacheError);
+    }
 
     return res.status(200).json(
         new ApiResponse(200, null, "User unblocked successfully")

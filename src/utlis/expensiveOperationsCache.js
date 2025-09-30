@@ -195,7 +195,13 @@ export class ExpensiveOperationsCache {
             `fn:user:${userId}:following:list`,
             `fn:user:${targetUserId}:followers:list`,
             `fn:privacy:viewable:${userId}`,
-            `fn:privacy:viewable:${targetUserId}`
+            `fn:privacy:viewable:${targetUserId}`,
+            // OPTIMIZED: Also clear profile caches to update follower/following counts
+            `fn:user:${userId}:profile`,
+            `fn:user:${targetUserId}:profile`,
+            // Clear auth cache to update user data
+            `fn:user:${userId}:auth`,
+            `fn:user:${targetUserId}:auth`
         ];
         await CacheManager.del(keys);
     }
