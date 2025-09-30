@@ -19,13 +19,11 @@ import SearchHistory from "../models/searchHistory.models.js";
 import Media from "../models/mediaUser.models.js";
 import Block from "../models/block.models.js";
 import jwt from "jsonwebtoken";
-import {
-    generateRealtimeUsernameSuggestions,
-    isUsernameAvailable,
-    validateUsername
+import { 
+    generateRealtimeUsernameSuggestions, 
+    isUsernameAvailable, 
+    validateUsername 
 } from "../utlis/usernameSuggestions.js";
-import { batchFetchUsers } from "../utlis/batchUserLookup.js";
-import ExpensiveOperationsCache from "../utlis/expensiveOperationsCache.js";
 
 
 const generateAcessAndRefreshToken = async (userId) => {
@@ -191,30 +189,9 @@ const logOutUser = asyncHandler(async (req, res) => {
 const getUserProfile = asyncHandler(async (req, res) => {
     const userId = req.user._id;
 
-    // OPTIMIZED: Try to get from Redis cache first (1 hour TTL)
-    const cacheKey = `fn:user:${userId}:profile`;
-    let cachedProfile = null;
-
-    try {
-        const { redisClient } = await import('../config/redis.config.js');
-        const cached = await redisClient.get(cacheKey);
-        if (cached) {
-            cachedProfile = JSON.parse(cached);
-            return res.status(200).json(
-                new ApiResponse(200, cachedProfile, "User profile retrieved successfully")
-            );
-        }
-    } catch (cacheError) {
-        console.error('Redis cache error in getUserProfile:', cacheError);
-        // Continue without cache if Redis fails
-    }
-
-    // Cache miss - fetch from database
-    const user = await User.findById(userId)
-        .select(
-            "username fullName email phoneNumber address gender dateOfBirth bio profileImageUrl location link followers following posts isBusinessProfile businessProfileId isEmailVerified isPhoneVerified isPhoneNumberHidden isAddressHidden privacy createdAt"
-        )
-        .lean(); // OPTIMIZED: Use lean() for faster query
+    const user = await User.findById(userId).select(
+        "username fullName email phoneNumber address gender dateOfBirth bio profileImageUrl location link followers following posts isBusinessProfile businessProfileId isEmailVerified isPhoneVerified isPhoneNumberHidden isAddressHidden privacy createdAt"
+    );
 
     if (!user) {
         throw new ApiError(404, "User not found");
@@ -228,7 +205,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
     // Get business profile information if user is a business profile
     let businessInfo = null;
     if (user.isBusinessProfile) {
-        businessInfo = await Business.findOne({ userId }).select('postSettings isVerified').lean();
+        businessInfo = await Business.findOne({ userId }).select('postSettings isVerified');
     }
 
     const userProfile = {
@@ -264,13 +241,13 @@ const getUserProfile = asyncHandler(async (req, res) => {
         }
     };
 
-    // OPTIMIZED: Cache the profile for 1 hour (3600 seconds)
-    try {
-        const { redisClient } = await import('../config/redis.config.js');
-        await redisClient.setex(cacheKey, 3600, JSON.stringify(userProfile));
-    } catch (cacheError) {
-        console.error('Redis cache set error in getUserProfile:', cacheError);
-        // Continue even if caching fails
+    // Cache the response if caching is available
+    if (res.locals.cacheKey && res.locals.cacheTTL) {
+        await setCache(res.locals.cacheKey, { 
+            success: true,
+            data: userProfile,
+            message: "User profile retrieved successfully"
+        }, res.locals.cacheTTL);
     }
 
     return res.status(200).json(
@@ -312,14 +289,6 @@ const updateUserProfile = asyncHandler(async (req, res) => {
             runValidators: true,
         })
         .select("-password -refreshToken -emailVerificationToken ");
-
-    // OPTIMIZED: Invalidate cached profile and auth data
-    try {
-        await ExpensiveOperationsCache.clearUserCache(req.user._id);
-    } catch (cacheError) {
-        console.error('Cache invalidation error in updateUserProfile:', cacheError);
-        // Continue even if cache invalidation fails
-    }
 
     return res
         .status(200)
@@ -514,31 +483,17 @@ const searchUsers = asyncHandler(async (req, res) => {
 
 
 
-    // OPTIMIZED: Use lean() and limit results for faster search
     let user = await User.find(searchQuery)
         .select("username fullName profileImageUrl bio location isBusinessProfile businessProfileId")
-        .limit(50) // Limit search results for performance
-        .lean();
+        .populate({
+            path: 'businessProfileId',
+            select: 'category subcategory businessName businessType'
+        });
 
-    // Batch fetch business profiles for users
-    const businessProfileIds = user.filter(u => u.businessProfileId).map(u => u.businessProfileId);
-    let businessProfileMap = {};
-    if (businessProfileIds.length > 0) {
-        const businessProfiles = await Business.find({ _id: { $in: businessProfileIds } })
-            .select('category subcategory businessName businessType')
-            .lean();
-        businessProfileMap = Object.fromEntries(businessProfiles.map(b => [b._id.toString(), b]));
-    }
 
-    // Attach business profiles
-    user.forEach(u => {
-        if (u.businessProfileId) {
-            u.businessProfileId = businessProfileMap[u.businessProfileId.toString()] || null;
-        }
-    });
-
-    // If no users found, try fallback search
+    // If no users found, try searching without fullNameLower (in case it's not populated)
     if (user.length === 0) {
+
         const fallbackQuery = {
             accountStatus: "active",
             $or: [
@@ -553,25 +508,13 @@ const searchUsers = asyncHandler(async (req, res) => {
 
         user = await User.find(fallbackQuery)
             .select("username fullName profileImageUrl bio location isBusinessProfile businessProfileId")
-            .limit(50)
-            .lean();
-
-        // Batch fetch business profiles again
-        const fallbackBusinessIds = user.filter(u => u.businessProfileId).map(u => u.businessProfileId);
-        if (fallbackBusinessIds.length > 0) {
-            const fallbackBusinesses = await Business.find({ _id: { $in: fallbackBusinessIds } })
-                .select('category subcategory businessName businessType')
-                .lean();
-            const fallbackMap = Object.fromEntries(fallbackBusinesses.map(b => [b._id.toString(), b]));
-            user.forEach(u => {
-                if (u.businessProfileId) {
-                    u.businessProfileId = fallbackMap[u.businessProfileId.toString()] || null;
-                }
+            .populate({
+                path: 'businessProfileId',
+                select: 'category subcategory businessName businessType'
             });
-        }
     }
 
-    // OPTIMIZED: Search businesses with lean() and batch user lookup
+    // Search through business categories and subcategories (always run in parallel)
     const businessSearchQuery = {
         $or: [
             { category: new RegExp(query, "i") },
@@ -580,39 +523,37 @@ const searchUsers = asyncHandler(async (req, res) => {
             { businessType: new RegExp(query, "i") },
             { tags: new RegExp(query, "i") }
         ],
-        userId: { $nin: blockedUsers }
+        userId: { $nin: blockedUsers } // Exclude blocked users at Business level
     };
 
+    // Find businesses matching the query
     matchingBusinesses = await Business.find(businessSearchQuery)
-        .select('userId category subcategory businessName businessType tags')
-        .limit(50)
-        .lean();
-
-    // Batch fetch users for businesses
-    const businessUserIds = matchingBusinesses.map(b => b.userId);
-    const businessUserMap = await batchFetchUsers(businessUserIds, 'username fullName profileImageUrl bio location isBusinessProfile accountStatus');
-
-    // Filter active users and attach data
-    matchingBusinesses = matchingBusinesses.filter(business => {
-        const user = businessUserMap[business.userId.toString()];
-        return user && user.accountStatus === 'active';
-    });
+        .populate({
+            path: 'userId',
+            match: {
+                accountStatus: "active"
+            },
+            select: "username fullName profileImageUrl bio location isBusinessProfile businessProfileId"
+        })
+        .select('category subcategory businessName businessType tags');
 
 
 
-    // Build valid business users from matched businesses
-    const validBusinessUsers = matchingBusinesses.map(business => {
-        const user = businessUserMap[business.userId.toString()];
-        return {
-            ...user,
-            businessProfileId: {
-                category: business.category,
-                subcategory: business.subcategory,
-                businessName: business.businessName,
-                businessType: business.businessType
-            }
-        };
-    });
+    // Filter out businesses where user population failed (due to blocked users or inactive accounts)
+    const validBusinessUsers = matchingBusinesses
+        .filter(business => business.userId)
+        .map(business => {
+            const userObj = business.userId.toObject();
+            return {
+                ...userObj,
+                businessProfileId: {
+                    category: business.category,
+                    subcategory: business.subcategory,
+                    businessName: business.businessName,
+                    businessType: business.businessType
+                }
+            };
+        });
 
     // Combine direct user search results with business search results
     if (validBusinessUsers.length > 0) {
@@ -1174,17 +1115,6 @@ const blockUser = asyncHandler(async (req, res) => {
         followingId: blockerId
     });
 
-    // OPTIMIZED: Invalidate caches when blocking
-    try {
-        await ExpensiveOperationsCache.invalidateFollowCache(blockerId, blockedUserId);
-        // Invalidate blocked users cache
-        const blockedCacheKey = `fn:user:${blockerId}:blocked:list`;
-        const { CacheManager } = await import('../utlis/cache.utils.js');
-        await CacheManager.del(blockedCacheKey);
-    } catch (cacheError) {
-        console.error('Cache invalidation error in blockUser:', cacheError);
-    }
-
     return res.status(200).json(
         new ApiResponse(200, { block }, "User blocked successfully")
     );
@@ -1211,15 +1141,6 @@ const unblockUser = asyncHandler(async (req, res) => {
 
     // Remove block record
     await Block.findByIdAndDelete(existingBlock._id);
-
-    // OPTIMIZED: Invalidate blocked users cache
-    try {
-        const blockedCacheKey = `fn:user:${blockerId}:blocked:list`;
-        const { CacheManager } = await import('../utlis/cache.utils.js');
-        await CacheManager.del(blockedCacheKey);
-    } catch (cacheError) {
-        console.error('Cache invalidation error in unblockUser:', cacheError);
-    }
 
     return res.status(200).json(
         new ApiResponse(200, null, "User unblocked successfully")

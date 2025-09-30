@@ -5,7 +5,6 @@ import { asyncHandler } from "../utlis/asyncHandler.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import { ApiError } from "../utlis/ApiError.js";
 import { createFollowNotification } from "./notification.controllers.js";
-import ExpensiveOperationsCache from "../utlis/expensiveOperationsCache.js";
 
 // Follow a user (with privacy support)
 export const followUser = asyncHandler(async (req, res) => {
@@ -39,13 +38,6 @@ export const followUser = asyncHandler(async (req, res) => {
         // Update User model arrays
         await User.findByIdAndUpdate(userId, { $addToSet: { followers: requesterId } });
         await User.findByIdAndUpdate(requesterId, { $addToSet: { following: userId } });
-
-        // OPTIMIZED: Invalidate follow-related caches
-        try {
-            await ExpensiveOperationsCache.invalidateFollowCache(requesterId, userId);
-        } catch (cacheError) {
-            console.error('Cache invalidation error in followUser:', cacheError);
-        }
 
         // Create notification
         await createFollowNotification({ recipientId: userId, sourceUserId: requesterId });
@@ -94,13 +86,6 @@ export const unfollowUser = asyncHandler(async (req, res) => {
         // Update User model arrays
         await User.findByIdAndUpdate(userId, { $pull: { followers: requesterId } });
         await User.findByIdAndUpdate(requesterId, { $pull: { following: userId } });
-
-        // OPTIMIZED: Invalidate follow-related caches
-        try {
-            await ExpensiveOperationsCache.invalidateFollowCache(requesterId, userId);
-        } catch (cacheError) {
-            console.error('Cache invalidation error in unfollowUser:', cacheError);
-        }
 
         // Get the unfollowed user's info to return in response
         const unfollowedUser = await User.findById(userId).select('username fullName profileImageUrl');
@@ -180,13 +165,6 @@ export const approveFollowRequest = asyncHandler(async (req, res) => {
     // Update User model arrays
     await User.findByIdAndUpdate(recipientId, { $addToSet: { followers: requesterId } });
     await User.findByIdAndUpdate(requesterId, { $addToSet: { following: recipientId } });
-
-    // OPTIMIZED: Invalidate follow-related caches
-    try {
-        await ExpensiveOperationsCache.invalidateFollowCache(requesterId, recipientId);
-    } catch (cacheError) {
-        console.error('Cache invalidation error in approveFollowRequest:', cacheError);
-    }
 
     // Create notification for approval
     await createFollowNotification({ recipientId: requesterId, sourceUserId: recipientId, isApproval: true });

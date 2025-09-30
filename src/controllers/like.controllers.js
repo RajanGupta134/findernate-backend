@@ -6,7 +6,6 @@ import Post from "../models/userPost.models.js";
 import Comment from "../models/comment.models.js";
 import { createLikeNotification } from "./notification.controllers.js";
 import { createUnlikeNotification } from "./notification.controllers.js";
-import ExpensiveOperationsCache from "../utlis/expensiveOperationsCache.js";
 
 // Like a post
 export const likePost = asyncHandler(async (req, res) => {
@@ -17,14 +16,6 @@ export const likePost = asyncHandler(async (req, res) => {
     try {
         await Like.create({ userId, postId });
         await Post.findByIdAndUpdate(postId, { $inc: { "engagement.likes": 1 } });
-
-        // OPTIMIZED: Invalidate like-related caches
-        try {
-            await ExpensiveOperationsCache.invalidateUserLikesCache(userId, postId);
-        } catch (cacheError) {
-            console.error('Cache invalidation error in likePost:', cacheError);
-        }
-
         // Notify post owner (if not self)
         const post = await Post.findById(postId).select("userId");
         if (post && post.userId.toString() !== userId.toString()) {
@@ -59,14 +50,6 @@ export const unlikePost = asyncHandler(async (req, res) => {
     const like = await Like.findOneAndDelete({ userId, postId });
     if (like) {
         await Post.findByIdAndUpdate(postId, { $inc: { "engagement.likes": -1 } });
-
-        // OPTIMIZED: Invalidate like-related caches
-        try {
-            await ExpensiveOperationsCache.invalidateUserLikesCache(userId, postId);
-        } catch (cacheError) {
-            console.error('Cache invalidation error in unlikePost:', cacheError);
-        }
-
         // Notify post owner (if not self)
         const post = await Post.findById(postId).select("userId");
         if (post && post.userId.toString() !== userId.toString()) {
