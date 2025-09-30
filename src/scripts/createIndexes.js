@@ -86,6 +86,10 @@ const createIndexes = async () => {
             [{ 'engagement.views': -1 }, { name: 'idx_views_desc' }],
             [{ isPromoted: 1, 'engagement.likes': -1, createdAt: -1 }, { name: 'idx_trending' }],
             [{ status: 1, publishedAt: -1 }, { name: 'idx_published' }],
+            // NEW PERFORMANCE INDEXES
+            [{ userId: 1, contentType: 1, status: 1 }, { name: 'idx_user_content_status' }],
+            [{ 'settings.privacy': 1, createdAt: -1 }, { name: 'idx_privacy_time' }],
+            [{ contentType: 1, userId: 1, createdAt: -1 }, { name: 'idx_feed_query' }],
         ];
 
         for (const [indexSpec, options] of postIndexes) {
@@ -135,6 +139,8 @@ const createIndexes = async () => {
         const likeIndexes = [
             [{ postId: 1, createdAt: -1 }, { name: 'idx_post_likes_time' }],
             [{ userId: 1, createdAt: -1 }, { name: 'idx_user_likes_time' }],
+            // NEW: Compound index for checking if user liked specific post (non-unique due to data)
+            [{ userId: 1, postId: 1 }, { name: 'idx_user_post_like' }],
         ];
 
         for (const [indexSpec, options] of likeIndexes) {
@@ -150,10 +156,30 @@ const createIndexes = async () => {
             [{ postId: 1, createdAt: -1 }, { name: 'idx_post_comments_time' }],
             [{ userId: 1, createdAt: -1 }, { name: 'idx_user_comments_time' }],
             [{ parentCommentId: 1 }, { name: 'idx_comment_replies' }],
+            // NEW: Compound index for fetching top comments
+            [{ postId: 1, parentCommentId: 1, isDeleted: 1, createdAt: -1 }, { name: 'idx_post_top_comments' }],
         ];
 
         for (const [indexSpec, options] of commentIndexes) {
             const result = await safeCreateIndex(commentCollection, indexSpec, options);
+            totalCreated += result.created ? 1 : 0;
+            totalSkipped += result.skipped ? 1 : 0;
+        }
+
+        // =============================================================================
+        // FOLLOWER INDEXES
+        // =============================================================================
+        console.log('\n👥 Follower Collection Indexes:');
+        const followerCollection = db.collection('followers');
+
+        const followerIndexes = [
+            [{ followerId: 1, createdAt: -1 }, { name: 'idx_follower_time' }],
+            [{ userId: 1, createdAt: -1 }, { name: 'idx_user_followers_time' }],
+            [{ followerId: 1, userId: 1 }, { name: 'idx_follower_user', unique: true }],
+        ];
+
+        for (const [indexSpec, options] of followerIndexes) {
+            const result = await safeCreateIndex(followerCollection, indexSpec, options);
             totalCreated += result.created ? 1 : 0;
             totalSkipped += result.skipped ? 1 : 0;
         }

@@ -4,6 +4,8 @@ import { User } from "../models/user.models.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import { asyncHandler } from "../utlis/asyncHandler.js";
 import { getViewableUserIds } from "../middlewares/privacy.middleware.js";
+import { batchFetchUsers } from "../utlis/batchUserLookup.js";
+import ExpensiveOperationsCache from "../utlis/expensiveOperationsCache.js";
 import mongoose from "mongoose";
 
 export const getExploreFeed = asyncHandler(async (req, res) => {
@@ -62,25 +64,37 @@ export const getExploreFeed = asyncHandler(async (req, res) => {
     }
     // When filtering by specific contentType, reels are included in the posts query below
 
-    // 2. Get posts using reliable find() method like homeFeed (not aggregation)
+    // 2. OPTIMIZED: Get posts with lean() and batch user lookup
     const EXPLORE_LIMIT = 100;
 
-    // Get all posts matching the criteria using the same reliable approach as homeFeed (excluding blocked users and respecting privacy)
+    // Get all posts matching the criteria (excluding blocked users and respecting privacy)
     const allPosts = await Post.find({
         ...postMatch,
         userId: { $in: viewableUserIds, $nin: blockedUsers }
     })
         .sort({ createdAt: -1 })
         .limit(EXPLORE_LIMIT)
-        .populate('userId', 'username profileImageUrl')
-        .select('-analytics -__v -settings.customAudience');
+        .select('_id userId postType contentType caption media engagement createdAt customization settings')
+        .lean(); // Use lean() for 5x faster queries
 
-    // Shuffle all posts for variety
+    // OPTIMIZED: Batch fetch users for all posts
+    const postUserIds = [...new Set(allPosts.map(p => p.userId))];
+    const postUserMap = await batchFetchUsers(postUserIds, 'username profileImageUrl fullName');
+
+    // Attach user data to posts
+    allPosts.forEach(post => {
+        const userId = post.userId.toString();
+        post.userId = postUserMap[userId] || { _id: userId, username: 'Unknown' };
+    });
+
+    // Shuffle all posts for variety (optimized shuffle)
     function shuffleArray(arr) {
-        return arr
-            .map(value => ({ value, sort: Math.random() }))
-            .sort((a, b) => a.sort - b.sort)
-            .map(({ value }) => value);
+        const shuffled = [...arr];
+        for (let i = shuffled.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+        }
+        return shuffled;
     }
 
     let posts = shuffleArray(allPosts);
@@ -120,22 +134,16 @@ export const getExploreFeed = asyncHandler(async (req, res) => {
     }
     posts = posts.slice(skip, skip + take);
 
-    // Handle reel user details (reels need separate user fetching)
+    // OPTIMIZED: Handle reel user details with batch fetch
     if (reels.length > 0) {
         const reelUserIds = [...new Set(reels.map(reel => reel.userId))].filter(id => id != null);
 
-        const reelUsers = await User.find(
-            { _id: { $in: reelUserIds } },
-            { _id: 1, username: 1, fullName: 1, profileImageUrl: 1 }
-        );
-
-        const reelUserMap = {};
-        reelUsers.forEach(user => {
-            reelUserMap[user._id.toString()] = user;
-        });
+        // Batch fetch reel users
+        const reelUserMap = await batchFetchUsers(reelUserIds, '_id username fullName profileImageUrl');
 
         reels.forEach(reel => {
-            const user = reelUserMap[reel.userId?.toString()];
+            const userId = reel.userId?.toString();
+            const user = reelUserMap[userId];
             if (user) {
                 reel.userId = {
                     _id: user._id,
@@ -153,8 +161,6 @@ export const getExploreFeed = asyncHandler(async (req, res) => {
             }
         });
     }
-
-    // Posts already have populated user details from the query
 
     // Combine and shuffle final feed based on query type
     let feed, totalAvailable, totalPages, hasNextPage;

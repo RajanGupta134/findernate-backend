@@ -12,6 +12,8 @@ import { filterPostsByPrivacy, canViewPost } from "../utlis/postPrivacy.js";
 import { User } from "../models/user.models.js";
 import Follower from "../models/follower.models.js";
 import Like from "../models/like.models.js";
+import { batchFetchUsers } from "../utlis/batchUserLookup.js";
+import ExpensiveOperationsCache from "../utlis/expensiveOperationsCache.js";
 // import Comment from "../models/comment.models.mjs";
 
 const extractMediaFiles = (files) => {
@@ -569,21 +571,45 @@ export const getAllPosts = asyncHandler(async (req, res) => {
     const filter = { ...req.query };
     const currentUser = req.user;
 
-    // Get all posts with user information
+    // OPTIMIZED: Get all posts with lean() and batch user lookup
     const posts = await Post.find(filter)
-        .populate('userId', 'username fullName profileImageUrl privacy isFullPrivate')
-        .sort({ createdAt: -1 });
+        .select('_id userId postType contentType caption media engagement createdAt settings')
+        .sort({ createdAt: -1 })
+        .lean();
 
-    // Get viewer's following/followers for privacy filtering
+    // Batch fetch user data for posts
+    const userIds = [...new Set(posts.map(p => p.userId))];
+    const userMap = await batchFetchUsers(userIds, 'username fullName profileImageUrl privacy isFullPrivate');
+
+    // Attach user data
+    posts.forEach(post => {
+        const userId = post.userId.toString();
+        post.userId = userMap[userId] || post.userId;
+    });
+
+    // OPTIMIZED: Get viewer's following/followers with caching
     let viewerFollowing = [];
     let viewerFollowers = [];
 
     if (currentUser) {
-        const followingRecords = await Follower.find({ followerId: currentUser._id });
-        const followerRecords = await Follower.find({ userId: currentUser._id });
+        // Try cache first
+        viewerFollowing = await ExpensiveOperationsCache.getFollowingList(currentUser._id);
+        viewerFollowers = await ExpensiveOperationsCache.getFollowersList(currentUser._id);
 
-        viewerFollowing = followingRecords.map(f => f.userId.toString());
-        viewerFollowers = followerRecords.map(f => f.followerId.toString());
+        if (!viewerFollowing || !viewerFollowers) {
+            // Cache miss - fetch from DB
+            const [followingRecords, followerRecords] = await Promise.all([
+                Follower.find({ followerId: currentUser._id }).select('userId').lean(),
+                Follower.find({ userId: currentUser._id }).select('followerId').lean()
+            ]);
+
+            viewerFollowing = followingRecords.map(f => f.userId.toString());
+            viewerFollowers = followerRecords.map(f => f.followerId.toString());
+
+            // Cache for future
+            await ExpensiveOperationsCache.cacheFollowingList(currentUser._id, viewerFollowing);
+            await ExpensiveOperationsCache.cacheFollowersList(currentUser._id, viewerFollowers);
+        }
     }
 
     // Filter posts based on privacy settings
@@ -597,21 +623,40 @@ export const getPostById = asyncHandler(async (req, res) => {
     const { postId } = req.params;
     const currentUser = req.user;
 
+    // OPTIMIZED: Get post with lean() and batch user lookup
     const post = await Post.findById(postId)
-        .populate('userId', 'username fullName profileImageUrl privacy isFullPrivate');
+        .select('_id userId postType contentType caption media engagement createdAt settings customization')
+        .lean();
 
     if (!post) throw new ApiError(404, "Post not found");
 
-    // Get viewer's following/followers for privacy check
+    // Batch fetch user data
+    const userMap = await batchFetchUsers([post.userId], 'username fullName profileImageUrl privacy isFullPrivate');
+    post.userId = userMap[post.userId.toString()] || post.userId;
+
+    // OPTIMIZED: Get viewer's following/followers with caching
     let viewerFollowing = [];
     let viewerFollowers = [];
 
     if (currentUser) {
-        const followingRecords = await Follower.find({ followerId: currentUser._id });
-        const followerRecords = await Follower.find({ userId: currentUser._id });
+        // Try cache first
+        viewerFollowing = await ExpensiveOperationsCache.getFollowingList(currentUser._id);
+        viewerFollowers = await ExpensiveOperationsCache.getFollowersList(currentUser._id);
 
-        viewerFollowing = followingRecords.map(f => f.userId.toString());
-        viewerFollowers = followerRecords.map(f => f.followerId.toString());
+        if (!viewerFollowing || !viewerFollowers) {
+            // Cache miss - fetch from DB
+            const [followingRecords, followerRecords] = await Promise.all([
+                Follower.find({ followerId: currentUser._id }).select('userId').lean(),
+                Follower.find({ userId: currentUser._id }).select('followerId').lean()
+            ]);
+
+            viewerFollowing = followingRecords.map(f => f.userId.toString());
+            viewerFollowers = followerRecords.map(f => f.followerId.toString());
+
+            // Cache for future
+            await ExpensiveOperationsCache.cacheFollowingList(currentUser._id, viewerFollowing);
+            await ExpensiveOperationsCache.cacheFollowersList(currentUser._id, viewerFollowers);
+        }
     }
 
     // Check if user can view this post
@@ -1219,17 +1264,28 @@ export const getMyPosts = asyncHandler(async (req, res) => {
         filter.contentType = contentType;
     }
 
+    // OPTIMIZED: Use lean() and batch user lookup
     const posts = await Post.find(filter)
-        .populate('userId', 'username profileImageUrl fullName isVerified location bio')
+        .select('_id userId postType contentType caption media engagement createdAt settings')
         .sort({ createdAt: -1 })
         .skip((page - 1) * limit)
-        .limit(limit);
+        .limit(limit)
+        .lean();
+
+    // Batch fetch user data
+    const userIds = [...new Set(posts.map(p => p.userId))];
+    const userMap = await batchFetchUsers(userIds, 'username profileImageUrl fullName isVerified location bio');
+
+    // Attach user data
+    posts.forEach(post => {
+        const userId = post.userId.toString();
+        post.userId = userMap[userId] || post.userId;
+    });
 
     const total = await Post.countDocuments(filter);
 
     const postsWithThumbnails = posts.map(post => {
-        const postObj = post.toObject();
-        postObj.media = (postObj.media || []).map(media => {
+        post.media = (post.media || []).map(media => {
             let thumbnailUrl = media.thumbnailUrl ?? null;
             if (
                 media.type === "video" &&
@@ -1245,13 +1301,14 @@ export const getMyPosts = asyncHandler(async (req, res) => {
                 thumbnailUrl
             };
         });
-        return postObj;
+        return post;
     });
 
-    // Enhancement: Add isLikedBy and likedBy fields (like getUserProfilePosts)
+    // OPTIMIZED: Add isLikedBy and likedBy fields with batch user lookup
     const currentUserId = req.user?._id?.toString();
     const postIds = postsWithThumbnails.map(post => post._id.toString());
-    const likes = await Like.find({ postId: { $in: postIds } }).lean();
+    const likes = await Like.find({ postId: { $in: postIds } }).select('postId userId').lean();
+
     // Map postId to array of userIds who liked it
     const likesByPost = {};
     likes.forEach(like => {
@@ -1259,23 +1316,15 @@ export const getMyPosts = asyncHandler(async (req, res) => {
         if (!likesByPost[pid]) likesByPost[pid] = [];
         likesByPost[pid].push(like.userId.toString());
     });
-    // Fetch user details for all liked users
-    const allLikedUserIds = Array.from(new Set(likes.flatMap(like => like.userId.toString())));
-    let likedUsersMap = {};
-    if (allLikedUserIds.length > 0) {
-        const likedUsers = await Post.db.model('User').find(
-            { _id: { $in: allLikedUserIds } },
-            'username profileImageUrl fullName isVerified'
-        ).lean();
-        likedUsersMap = likedUsers.reduce((acc, user) => {
-            acc[user._id.toString()] = user;
-            return acc;
-        }, {});
-    }
+
+    // Batch fetch user details for all liked users
+    const allLikedUserIds = Array.from(new Set(likes.map(like => like.userId.toString())));
+    const likedUsersMap = await batchFetchUsers(allLikedUserIds, 'username profileImageUrl fullName isVerified');
+
     postsWithThumbnails.forEach(post => {
         const pid = post._id.toString();
         const likedByIds = likesByPost[pid] || [];
-        post.likedBy = likedByIds.map(uid => likedUsersMap[uid]).filter(Boolean); // array of user details
+        post.likedBy = likedByIds.map(uid => likedUsersMap[uid]).filter(Boolean);
         post.isLikedBy = currentUserId ? likedByIds.includes(currentUserId) : false;
     });
 

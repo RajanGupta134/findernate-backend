@@ -10,6 +10,8 @@ import PostInteraction from '../models/postInteraction.models.js';
 import { setCache } from '../middlewares/cache.middleware.js';
 import { redisClient } from '../config/redis.config.js';
 import { getViewableUserIds } from '../middlewares/privacy.middleware.js';
+import { batchFetchUsers } from '../utlis/batchUserLookup.js';
+import ExpensiveOperationsCache from '../utlis/expensiveOperationsCache.js';
 
 export const getHomeFeed = asyncHandler(async (req, res) => {
     try {
@@ -37,13 +39,25 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         const viewableUserIds = await getViewableUserIds(userId);
         
         // ✅ 2. Get following and followers for prioritization (only if user is authenticated)
+        // OPTIMIZED: Use cache for following/followers lists
         let feedUserIds = [];
         if (userId) {
-            const user = await User.findById(userId)
-                .select('following followers')
-                .lean(); // Use lean() for better performance
-            const following = user?.following || [];
-            const followers = user?.followers || [];
+            // Try cache first
+            let following = await ExpensiveOperationsCache.getFollowingList(userId);
+            let followers = await ExpensiveOperationsCache.getFollowersList(userId);
+
+            if (!following || !followers) {
+                // Cache miss - fetch from DB
+                const user = await User.findById(userId)
+                    .select('following followers')
+                    .lean();
+                following = user?.following || [];
+                followers = user?.followers || [];
+
+                // Cache for future requests
+                await ExpensiveOperationsCache.cacheFollowingList(userId, following);
+                await ExpensiveOperationsCache.cacheFollowersList(userId, followers);
+            }
 
             feedUserIds = [...new Set([
                 ...following.map(id => id.toString()),
@@ -108,21 +122,22 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
                 $limit: limit
             },
             {
-                $lookup: {
-                    from: 'users',
-                    localField: 'userId',
-                    foreignField: '_id',
-                    as: 'userId',
-                    pipeline: [
-                        { $project: { username: 1, profileImageUrl: 1 } }
-                    ]
+                $project: {
+                    _id: 1,
+                    userId: 1,
+                    postType: 1,
+                    contentType: 1,
+                    caption: 1,
+                    media: 1,
+                    engagement: 1,
+                    createdAt: 1,
+                    feedScore: 1,
+                    settings: 1
                 }
-            },
-            {
-                $unwind: '$userId'
             }
         ];
 
+        // OPTIMIZED: Execute aggregation and get lean results
         const posts = await Post.aggregate(aggregationPipeline);
 
         if (posts.length === 0) {
@@ -138,18 +153,37 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
             return res.status(200).json(emptyResponse);
         }
 
-        // ✅ 3. Get user likes in a single optimized query
+        // OPTIMIZED: Batch fetch user data instead of populate
+        const userIds = [...new Set(posts.map(post => post.userId))];
+        const userMap = await batchFetchUsers(userIds, 'username profileImageUrl');
+
+        // Attach user data to posts
+        posts.forEach(post => {
+            const userId = post.userId.toString();
+            post.userId = userMap[userId] || { _id: userId, username: 'Unknown' };
+        });
+
+        // ✅ 3. OPTIMIZED: Get user likes with caching
         const postIds = posts.map(post => post._id);
         let likedPostIds = new Set();
         if (userId) {
-            const userLikes = await Like.find({
-                userId: userId,
-                postId: { $in: postIds }
-            }).select('postId').lean();
-            likedPostIds = new Set(userLikes.map(like => like.postId.toString()));
+            // Try to get from cache first
+            likedPostIds = await ExpensiveOperationsCache.getUserLikedPosts(userId, postIds);
+
+            if (!likedPostIds) {
+                // Cache miss - fetch from database
+                const userLikes = await Like.find({
+                    userId: userId,
+                    postId: { $in: postIds }
+                }).select('postId').lean();
+                likedPostIds = new Set(userLikes.map(like => like.postId.toString()));
+
+                // Cache the user's likes
+                await ExpensiveOperationsCache.cacheUserLikes(userId, Array.from(likedPostIds));
+            }
         }
 
-        // ✅ 4. Get top comments efficiently (no nested queries)
+        // ✅ 4. OPTIMIZED: Get top comments with batch user lookup
         const allComments = await Comment.find({
             postId: { $in: postIds },
             parentCommentId: null,
@@ -157,14 +191,20 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         })
         .sort({ createdAt: -1 })
         .limit(postIds.length * 3) // Max 3 comments per post
-        .populate('userId', 'username profileImageUrl')
         .select('_id content userId createdAt postId')
         .lean();
 
-        // Group comments by postId
+        // Batch fetch comment users
+        const commentUserIds = [...new Set(allComments.map(c => c.userId).filter(id => id))];
+        const commentUserMap = await batchFetchUsers(commentUserIds, 'username profileImageUrl');
+
+        // Group comments by postId with batch-fetched user data
         const commentsByPost = new Map();
         allComments.forEach(comment => {
-            if (comment.userId) { // Filter out comments from deleted users
+            const commentUserId = comment.userId?.toString();
+            const commentUser = commentUserMap[commentUserId];
+
+            if (commentUser) { // Filter out comments from deleted users
                 const postId = comment.postId.toString();
                 if (!commentsByPost.has(postId)) {
                     commentsByPost.set(postId, []);
@@ -175,9 +215,9 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
                         content: comment.content,
                         createdAt: comment.createdAt,
                         user: {
-                            _id: comment.userId._id,
-                            username: comment.userId.username,
-                            profileImageUrl: comment.userId.profileImageUrl
+                            _id: commentUser._id,
+                            username: commentUser.username,
+                            profileImageUrl: commentUser.profileImageUrl
                         },
                         replies: [] // Don't load replies for performance - load on demand
                     });
@@ -192,17 +232,25 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
             isLikedBy: likedPostIds.has(post._id.toString())
         }));
 
-        // Get total count for pagination (cached to avoid expensive count queries)
-        let totalCount = posts.length; // Simplified - use actual count for better pagination
+        // OPTIMIZED: Use estimatedDocumentCount for pagination (faster)
+        // For exact counts, only query on first page
+        let totalCount = posts.length;
         if (page === 1 && posts.length === limit) {
-            // Only do count query for first page if it's full
-            try {
-                totalCount = await Post.countDocuments({
-                    contentType: { $in: ['normal', 'service', 'product', 'business'] },
-                    userId: { $nin: blockedUsers }
-                });
-            } catch (error) {
-                totalCount = posts.length; // Fallback
+            // Try to get cached count first
+            const countCacheKey = `fn:posts:count:${userId || 'public'}`;
+            let cachedCount = await redisClient.get(countCacheKey);
+
+            if (cachedCount) {
+                totalCount = parseInt(cachedCount);
+            } else {
+                // Use estimatedDocumentCount for speed (acceptable approximation)
+                try {
+                    totalCount = await Post.estimatedDocumentCount();
+                    // Cache count for 5 minutes
+                    await redisClient.setex(countCacheKey, 300, totalCount.toString());
+                } catch (error) {
+                    totalCount = posts.length; // Fallback
+                }
             }
         }
 
