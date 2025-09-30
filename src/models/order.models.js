@@ -170,7 +170,7 @@ OrderSchema.virtual('formattedTotal').get(function() {
 
 // Indexes for efficient querying
 OrderSchema.index({ buyerId: 1, placedAt: -1 });
-OrderSchema.index({ orderId: 1 });
+// OrderSchema.index({ orderId: 1 }); // REMOVED: orderId already has unique index from schema definition
 OrderSchema.index({ orderStatus: 1 });
 OrderSchema.index({ paymentStatus: 1 });
 OrderSchema.index({ 'items.sellerId': 1, placedAt: -1 });
