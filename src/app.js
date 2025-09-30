@@ -28,6 +28,7 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 const allowedOrigins = [
         "https://eckss0cw0ggco0okoocc4wo4.194.164.151.15.sslip.io",
         "https://p0k804os4c4scowcg488800c.194.164.151.15.sslip.io",
+        "https://apis.findernate.com",
         "http://localhost:3000",
         "http://localhost:3001",
         "http://localhost:4000",
@@ -166,6 +167,8 @@ import categoryRouter from "./routes/category.routes.js";
 import feedbackRouter from "./routes/feedback.routes.js";
 import qrRouter from "./routes/qr.routes.js";
 import wishlistRouter from "./routes/wishlist.routes.js";
+import cartRouter from "./routes/cart.routes.js";
+import orderRouter from "./routes/order.routes.js";
 
 
 app.use("/api/v1/users", userRouter);
@@ -188,6 +191,8 @@ app.use("/api/v1/categories", categoryRouter);
 app.use("/api/v1/feedback", feedbackRouter);
 app.use("/api/v1/qr", qrRouter);
 app.use("/api/v1/wishlist", wishlistRouter);
+app.use("/api/v1/cart", cartRouter);
+app.use("/api/v1/orders", orderRouter);
 
 app.use(errorHandler);
 
