@@ -17,6 +17,8 @@ class SocketManager {
             const allowedOrigins = [
                 "https://p0k804os4c4scowcg488800c.194.164.151.15.sslip.io",
                 "https://findernate.com",
+                "https://www.findernate.com",
+                "https://apis.findernate.com",
                 "http://localhost:3000",
                 "http://localhost:3001",
                 "http://localhost:4000",
@@ -37,7 +39,14 @@ class SocketManager {
                     },
                     methods: ["GET", "POST"],
                     credentials: true
-                }
+                },
+                // Add these options for better compatibility with nginx/reverse proxies
+                transports: ['websocket', 'polling'],
+                allowEIO3: true,
+                pingTimeout: 60000,
+                pingInterval: 25000,
+                connectTimeout: 45000,
+                path: '/socket.io/'
             });
 
             // Wait for Redis connections to be ready before setting up adapter
