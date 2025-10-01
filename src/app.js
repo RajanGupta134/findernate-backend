@@ -78,13 +78,13 @@ if (process.env.NODE_ENV === 'production') {
     app.set('trust proxy', 1);
 }
 
-// Explicit preflight handler for all routes
-app.options('*', (req, res) => {
-        res.status(200).end();
+// Apply general rate limiting to all routes (but not to OPTIONS)
+app.use((req, res, next) => {
+    if (req.method === 'OPTIONS') {
+        return next();
+    }
+    generalRateLimit(req, res, next);
 });
-
-// Apply general rate limiting to all routes
-app.use(generalRateLimit);
 
 // Health check endpoint for monitoring
 app.get('/', healthCheckRateLimit, (req, res) => {
@@ -176,6 +176,8 @@ import wishlistRouter from "./routes/wishlist.routes.js";
 import cartRouter from "./routes/cart.routes.js";
 import orderRouter from "./routes/order.routes.js";
 
+// Handle all preflight requests
+app.options('*', cors());
 
 app.use("/api/v1/users", userRouter);
 app.use("/api/v1/posts", postRouter);
