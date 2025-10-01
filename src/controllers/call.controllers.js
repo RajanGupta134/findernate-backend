@@ -678,55 +678,102 @@ export const endCall = asyncHandler(async (req, res) => {
     );
 });
 
-// Update call status (for WebRTC connection states)
+// Update call status (for Agora connection state tracking only)
 export const updateCallStatus = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;
     const { callId } = req.params;
     const { status, metadata } = req.body;
 
+    console.log('📊 Call status update request:', { callId, currentUserId, status, metadata });
+
     // Validate call ID format
     if (!isValidObjectId(callId)) {
+        console.error('❌ Invalid call ID format:', callId);
         throw new ApiError(400, 'Invalid call ID format');
     }
 
-    // Find the call
-    const call = await Call.findById(callId);
-    if (!call) {
-        throw new ApiError(404, 'Call not found');
-    }
-
-    // Check if user is a participant
-    const participantIds = call.participants.map(p => p.toString());
-    if (!participantIds.includes(currentUserId.toString())) {
-        throw new ApiError(403, 'You are not a participant in this call');
-    }
-
-    // Validate status
-    const validStatuses = ['connecting', 'active', 'ended', 'failed'];
+    // Validate status - ONLY allow connection state updates, NOT terminal states
+    // Terminal states (ended/declined/missed/failed) must use dedicated endpoints
+    const validStatuses = ['connecting', 'active'];
     if (!validStatuses.includes(status)) {
-        throw new ApiError(400, 'Invalid call status');
+        console.error('❌ Invalid status for updateCallStatus:', {
+            providedStatus: status,
+            allowedStatuses: validStatuses,
+            note: 'Use /decline or /end endpoints for terminal states'
+        });
+        throw new ApiError(400, `Invalid call status. Use /accept, /decline, or /end endpoints instead. Allowed statuses: ${validStatuses.join(', ')}`);
     }
 
-    // Update call
-    call.status = status;
-    if (metadata) {
-        call.metadata = { ...call.metadata, ...metadata };
+    // Use transaction for atomic update
+    const session = await mongoose.startSession();
+    let updatedCall;
+
+    try {
+        await session.withTransaction(async () => {
+            // Find the call within transaction
+            const call = await Call.findById(callId).session(session);
+
+            if (!call) {
+                console.error('❌ Call not found:', callId);
+                throw new ApiError(404, 'Call not found');
+            }
+
+            console.log('📋 Call found:', {
+                callId: call._id,
+                currentStatus: call.status,
+                newStatus: status
+            });
+
+            // Check if user is a participant
+            const participantIds = call.participants.map(p => p.toString());
+            if (!participantIds.includes(currentUserId.toString())) {
+                console.error('❌ User not a participant:', { currentUserId, participants: participantIds });
+                throw new ApiError(403, 'You are not a participant in this call');
+            }
+
+            // Check if call is still active (not ended/declined/missed/failed)
+            if (['ended', 'declined', 'missed', 'failed'].includes(call.status)) {
+                console.error('❌ Cannot update status of finished call:', {
+                    currentStatus: call.status,
+                    attemptedStatus: status
+                });
+                throw new ApiError(400, `Call has already finished with status: ${call.status}. Cannot update to ${status}.`);
+            }
+
+            // Update call status
+            call.status = status;
+            if (metadata) {
+                call.metadata = { ...call.metadata, ...metadata };
+                console.log('📝 Updated call metadata:', metadata);
+            }
+
+            // Set startedAt when call becomes active
+            if (status === 'active' && !call.startedAt) {
+                call.startedAt = new Date();
+                console.log('⏱️ Setting call startedAt timestamp');
+            }
+
+            await call.save({ session });
+            updatedCall = call;
+            console.log('✅ Call status updated successfully');
+        });
+    } catch (error) {
+        console.error('❌ Transaction failed:', error);
+        throw error;
+    } finally {
+        await session.endSession();
     }
 
-    // Set startedAt when call becomes active
-    if (status === 'active' && !call.startedAt) {
-        call.startedAt = new Date();
-    }
-
-    // Set endedAt when call ends
-    if (status === 'ended' && !call.endedAt) {
-        call.endedAt = new Date();
-    }
-
-    await call.save();
+    // Fetch populated call
+    const populatedCall = await Call.findById(callId)
+        .populate('participants', 'username fullName profileImageUrl')
+        .populate('initiator', 'username fullName profileImageUrl');
 
     // Emit status update to other participants
+    const participantIds = populatedCall.participants.map(p => p._id.toString());
     const otherParticipants = participantIds.filter(id => id !== currentUserId.toString());
+
+    console.log('📡 Emitting status update to participants:', otherParticipants);
     otherParticipants.forEach(participantId => {
         safeEmitToUser(participantId, 'call_status_update', {
             callId,
@@ -737,8 +784,9 @@ export const updateCallStatus = asyncHandler(async (req, res) => {
         });
     });
 
+    console.log('🎉 Call status updated:', { callId, status });
     res.status(200).json(
-        new ApiResponse(200, call, 'Call status updated successfully')
+        new ApiResponse(200, populatedCall, 'Call status updated successfully')
     );
 });
 
