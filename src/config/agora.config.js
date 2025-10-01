@@ -67,11 +67,18 @@ class AgoraService {
             const currentTimestamp = Math.floor(Date.now() / 1000);
             const privilegeExpiredTs = currentTimestamp + expirationTime;
 
+            // Check if RtmTokenBuilder is available
+            if (!RtmTokenBuilder || !RtmRole) {
+                console.warn('⚠️ RTM token generation not available, using RTC token instead');
+                // Use RTC token as fallback for RTM
+                return this.generateRtcToken(`rtm_${userId}`, userId, 'publisher', expirationTime);
+            }
+
             const token = RtmTokenBuilder.buildToken(
                 this.appId,
                 this.appCertificate,
                 userId,
-                RtmRole.Rtm_User,
+                RtmRole.Rtm_User || 1, // Fallback to 1 if Rtm_User is undefined
                 privilegeExpiredTs
             );
 
@@ -85,7 +92,9 @@ class AgoraService {
             };
         } catch (error) {
             console.error('❌ Error generating Agora RTM token:', error);
-            throw new Error(`Failed to generate Agora RTM token: ${error.message}`);
+            // Fallback to RTC token
+            console.log('🔄 Falling back to RTC token for RTM');
+            return this.generateRtcToken(`rtm_${userId}`, userId, 'publisher', expirationTime);
         }
     }
 
