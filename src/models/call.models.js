@@ -90,32 +90,33 @@ const CallSchema = new mongoose.Schema({
         iceCandidates: [mongoose.Schema.Types.Mixed]
     },
 
-    // 🏠 100ms Room Information
-    hmsRoom: {
-        roomId: {
+    // 📡 Agora Channel Information
+    agoraChannel: {
+        channelName: {
             type: String,
             index: true
         },
-        roomCode: String,
-        enabled: {
-            type: Boolean,
-            default: true
-        },
+        appId: String,
         createdAt: Date,
         endedAt: Date
     },
 
-    // 🔑 100ms Auth Tokens (for participants)
-    hmsTokens: [{
+    // 🔑 Agora Auth Tokens (for participants)
+    agoraTokens: [{
         userId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User'
         },
-        token: String,
+        rtcToken: String,
+        rtmToken: String,
+        uid: {
+            type: Number,
+            default: 0
+        },
         role: {
             type: String,
-            enum: ['host', 'guest'],
-            default: 'guest'
+            enum: ['publisher', 'subscriber'],
+            default: 'publisher'
         },
         generatedAt: {
             type: Date,
@@ -216,31 +217,33 @@ CallSchema.statics.getCallStats = function (userId, days = 30) {
     ]);
 };
 
-// Get call by HMS room ID
-CallSchema.statics.getCallByRoomId = function (roomId) {
-    return this.findOne({ 'hmsRoom.roomId': roomId })
+// Get call by Agora channel name
+CallSchema.statics.getCallByChannelName = function (channelName) {
+    return this.findOne({ 'agoraChannel.channelName': channelName })
         .populate('participants', 'username fullName profileImageUrl')
         .populate('initiator', 'username fullName profileImageUrl');
 };
 
-// Get HMS token for user in a call
-CallSchema.methods.getHMSTokenForUser = function (userId) {
-    return this.hmsTokens.find(token =>
+// Get Agora token for user in a call
+CallSchema.methods.getAgoraTokenForUser = function (userId) {
+    return this.agoraTokens.find(token =>
         token.userId.toString() === userId.toString()
     );
 };
 
-// Add HMS token for user
-CallSchema.methods.addHMSToken = function (userId, token, role = 'guest') {
+// Add Agora token for user
+CallSchema.methods.addAgoraToken = function (userId, rtcToken, rtmToken, role = 'publisher') {
     // Remove existing token for user
-    this.hmsTokens = this.hmsTokens.filter(t =>
+    this.agoraTokens = this.agoraTokens.filter(t =>
         t.userId.toString() !== userId.toString()
     );
 
     // Add new token
-    this.hmsTokens.push({
+    this.agoraTokens.push({
         userId,
-        token,
+        rtcToken,
+        rtmToken,
+        uid: 0, // String-based user accounts
         role,
         generatedAt: new Date(),
         expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours

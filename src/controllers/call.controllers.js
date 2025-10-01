@@ -6,7 +6,7 @@ import { ApiError } from '../utlis/ApiError.js';
 import { ApiResponse } from '../utlis/ApiResponse.js';
 import { asyncHandler } from '../utlis/asyncHandler.js';
 import socketManager from '../config/socket.js';
-import hmsService from '../config/hms.config.js';
+import agoraService from '../config/agora.config.js';
 import mongoose from 'mongoose';
 import moment from 'moment';
 
@@ -42,12 +42,10 @@ const cleanupStaleCalls = async () => {
         for (const call of staleCalls) {
             console.log(`🧹 Cleaning up stale call: ${call._id}`);
 
-            // End HMS room if exists
-            if (call.hmsRoom?.roomId) {
-                await safeHMSOperation(async () => {
-                    await hmsService.endRoom(call.hmsRoom.roomId);
-                    call.hmsRoom.endedAt = new Date();
-                }, `Failed to end HMS room ${call.hmsRoom.roomId} during cleanup`);
+            // Mark Agora channel as ended if exists
+            if (call.agoraChannel?.channelName) {
+                call.agoraChannel.endedAt = new Date();
+                console.log(`📡 Marked Agora channel ${call.agoraChannel.channelName} as ended`);
             }
 
             // Update call status
@@ -77,12 +75,12 @@ const cleanupStaleCalls = async () => {
 // Start cleanup interval
 setInterval(cleanupStaleCalls, CLEANUP_INTERVAL_MINUTES * 60 * 1000);
 
-// Helper function to safely execute HMS operations
-const safeHMSOperation = async (operation, fallbackMessage) => {
+// Helper function to safely execute Agora operations
+const safeAgoraOperation = async (operation, fallbackMessage) => {
     try {
         return await operation();
     } catch (error) {
-        console.warn(`HMS operation failed: ${error.message}. ${fallbackMessage}`);
+        console.warn(`Agora operation failed: ${error.message}. ${fallbackMessage}`);
         return null;
     }
 };
@@ -201,34 +199,44 @@ export const initiateCall = asyncHandler(async (req, res) => {
             await session.endSession();
         }
 
-        // Create 100ms room for the call with better error handling
-        console.log('🏠 Creating HMS room...');
-        const hmsRoom = await safeHMSOperation(async () => {
-            const room = await hmsService.createRoom(callType, newCall._id.toString(), [currentUserId, receiverId]);
+        // Create Agora channel for the call with better error handling
+        console.log('📡 Creating Agora channel...');
+        const agoraChannel = await safeAgoraOperation(async () => {
+            const channelName = `call_${newCall._id.toString()}`;
 
-            // Update call with HMS room data
-            newCall.hmsRoom = {
-                roomId: room.roomId,
-                roomCode: room.roomCode,
-                enabled: room.enabled,
-                createdAt: new Date(room.createdAt)
+            // Update call with Agora channel data
+            newCall.agoraChannel = {
+                channelName: channelName,
+                appId: agoraService.getAppId(),
+                createdAt: new Date()
             };
 
             // Generate auth tokens for both participants
-            const initiatorTokenResponse = await hmsService.generateAuthToken(room.roomId, req.user, 'host');
-            const receiverUser = await User.findById(receiverId);
-            const receiverTokenResponse = await hmsService.generateAuthToken(room.roomId, receiverUser, 'guest');
+            const initiatorUserId = currentUserId.toString();
+            const receiverUserId = receiverId.toString();
 
-            // Extract token strings from response
-            const initiatorToken = typeof initiatorTokenResponse === 'string' ? initiatorTokenResponse : initiatorTokenResponse.token;
-            const receiverToken = typeof receiverTokenResponse === 'string' ? receiverTokenResponse : receiverTokenResponse.token;
+            const initiatorTokens = agoraService.generateTokens(channelName, initiatorUserId, 'publisher');
+            const receiverTokens = agoraService.generateTokens(channelName, receiverUserId, 'publisher');
 
             // Store tokens in the call
-            await newCall.addHMSToken(currentUserId, initiatorToken, 'host');
-            await newCall.addHMSToken(receiverId, receiverToken, 'guest');
+            await newCall.addAgoraToken(
+                currentUserId,
+                initiatorTokens.rtc.token,
+                initiatorTokens.rtm.token,
+                'publisher'
+            );
+            await newCall.addAgoraToken(
+                receiverId,
+                receiverTokens.rtc.token,
+                receiverTokens.rtm.token,
+                'publisher'
+            );
 
-            console.log(`🎉 Created 100ms room ${room.roomId} for call ${newCall._id}`);
-            return room;
+            console.log(`🎉 Created Agora channel ${channelName} for call ${newCall._id}`);
+            return {
+                channelName,
+                appId: agoraService.getAppId()
+            };
         }, 'Continuing with WebRTC fallback');
 
         // Populate the call with user details
@@ -253,13 +261,15 @@ export const initiateCall = asyncHandler(async (req, res) => {
                 timestamp: new Date()
             };
 
-            // Include HMS room data if available
-            if (newCall.hmsRoom && newCall.hmsRoom.roomId) {
-                const receiverToken = newCall.getHMSTokenForUser(receiverId);
-                callData.hmsRoom = {
-                    roomId: newCall.hmsRoom.roomId,
-                    roomCode: newCall.hmsRoom.roomCode,
-                    authToken: receiverToken ? receiverToken.token : null
+            // Include Agora channel data if available
+            if (newCall.agoraChannel && newCall.agoraChannel.channelName) {
+                const receiverToken = newCall.getAgoraTokenForUser(receiverId);
+                callData.agoraChannel = {
+                    channelName: newCall.agoraChannel.channelName,
+                    appId: newCall.agoraChannel.appId,
+                    rtcToken: receiverToken ? receiverToken.rtcToken : null,
+                    rtmToken: receiverToken ? receiverToken.rtmToken : null,
+                    uid: receiverToken ? receiverToken.uid : 0
                 };
             }
 
@@ -360,23 +370,24 @@ export const acceptCall = asyncHandler(async (req, res) => {
         });
     });
 
-    // Prepare response data with roomID
+    // Prepare response data with Agora channel info
     const responseData = {
         ...call.toObject(),
-        roomID: call.hmsRoom?.roomId || null, // Include roomID from HMS room
-        hmsRoom: call.hmsRoom ? {
-            roomId: call.hmsRoom.roomId,
-            roomCode: call.hmsRoom.roomCode,
-            enabled: call.hmsRoom.enabled,
-            createdAt: call.hmsRoom.createdAt
+        channelName: call.agoraChannel?.channelName || null,
+        agoraChannel: call.agoraChannel ? {
+            channelName: call.agoraChannel.channelName,
+            appId: call.agoraChannel.appId,
+            createdAt: call.agoraChannel.createdAt
         } : null
     };
 
     // Include user's auth token if available
-    if (call.hmsRoom?.roomId) {
-        const userToken = call.getHMSTokenForUser(currentUserId);
+    if (call.agoraChannel?.channelName) {
+        const userToken = call.getAgoraTokenForUser(currentUserId);
         if (userToken) {
-            responseData.authToken = userToken.token;
+            responseData.rtcToken = userToken.rtcToken;
+            responseData.rtmToken = userToken.rtmToken;
+            responseData.uid = userToken.uid;
             responseData.userRole = userToken.role;
         }
     }
@@ -487,14 +498,13 @@ export const endCall = asyncHandler(async (req, res) => {
         await session.endSession();
     }
 
-    // End 100ms room if it exists (outside transaction for safety)
-    if (call.hmsRoom && call.hmsRoom.roomId) {
-        await safeHMSOperation(async () => {
-            await hmsService.endRoom(call.hmsRoom.roomId);
-            call.hmsRoom.endedAt = new Date();
+    // Mark Agora channel as ended if it exists (outside transaction for safety)
+    if (call.agoraChannel && call.agoraChannel.channelName) {
+        await safeAgoraOperation(async () => {
+            call.agoraChannel.endedAt = new Date();
             await call.save();
-            console.log(`🏠 Ended 100ms room ${call.hmsRoom.roomId} for call ${call._id}`);
-        }, 'HMS room cleanup failed but call ended successfully');
+            console.log(`📡 Ended Agora channel ${call.agoraChannel.channelName} for call ${call._id}`);
+        }, 'Agora channel cleanup failed but call ended successfully');
     }
 
     // Emit call end to other participants
@@ -673,13 +683,13 @@ export const storeSessionData = asyncHandler(async (req, res) => {
     );
 });
 
-// Generate or refresh 100ms auth token for a call participant
-export const getHMSAuthToken = asyncHandler(async (req, res) => {
+// Generate or refresh Agora auth token for a call participant
+export const getAgoraAuthToken = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;
     const { callId } = req.params;
-    const { role = 'guest' } = req.body;
+    const { role = 'publisher' } = req.body;
 
-    console.log('🔑 HMS token request:', { callId, currentUserId, role });
+    console.log('🔑 Agora token request:', { callId, currentUserId, role });
 
     // Validate call ID format
     if (!isValidObjectId(callId)) {
@@ -695,7 +705,7 @@ export const getHMSAuthToken = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Call not found');
     }
 
-    console.log('✅ Call found:', { callId: call._id, status: call.status, hmsRoom: !!call.hmsRoom });
+    console.log('✅ Call found:', { callId: call._id, status: call.status, agoraChannel: !!call.agoraChannel });
 
     // Check if user is a participant
     const participantIds = call.participants.map(p => p.toString());
@@ -704,10 +714,10 @@ export const getHMSAuthToken = asyncHandler(async (req, res) => {
         throw new ApiError(403, 'You are not a participant in this call');
     }
 
-    // Check if call has HMS room
-    if (!call.hmsRoom || !call.hmsRoom.roomId) {
-        console.error('❌ Call does not have HMS room configured:', { hmsRoom: call.hmsRoom });
-        throw new ApiError(400, 'Call does not have 100ms room configured');
+    // Check if call has Agora channel
+    if (!call.agoraChannel || !call.agoraChannel.channelName) {
+        console.error('❌ Call does not have Agora channel configured:', { agoraChannel: call.agoraChannel });
+        throw new ApiError(400, 'Call does not have Agora channel configured');
     }
 
     // Check if call is still active
@@ -717,37 +727,39 @@ export const getHMSAuthToken = asyncHandler(async (req, res) => {
     }
 
     try {
-        // Generate new auth token
-        console.log('🔑 Generating HMS auth token...');
-        const tokenResponse = await hmsService.generateAuthToken(call.hmsRoom.roomId, req.user, role);
-
-        // Extract token string from response (HMS SDK returns { token: "jwt_string" })
-        const token = typeof tokenResponse === 'string' ? tokenResponse : tokenResponse.token;
+        // Generate new auth tokens
+        console.log('🔑 Generating Agora auth tokens...');
+        const userId = currentUserId.toString();
+        const tokens = agoraService.generateTokens(call.agoraChannel.channelName, userId, role);
 
         // Store/update token in call
-        await call.addHMSToken(currentUserId, token, role);
+        await call.addAgoraToken(currentUserId, tokens.rtc.token, tokens.rtm.token, role);
 
-        console.log('✅ HMS token generated successfully');
+        console.log('✅ Agora tokens generated successfully');
         res.status(200).json({
             success: true,
             data: {
-                token: token,
-                room_id: call.hmsRoom.roomId
+                rtcToken: tokens.rtc.token,
+                rtmToken: tokens.rtm.token,
+                channelName: call.agoraChannel.channelName,
+                appId: agoraService.getAppId(),
+                uid: 0,
+                userId: userId
             }
         });
     } catch (error) {
-        console.error('❌ Error generating HMS token:', {
+        console.error('❌ Error generating Agora tokens:', {
             message: error.message,
             stack: error.stack,
             callId,
-            roomId: call.hmsRoom?.roomId
+            channelName: call.agoraChannel?.channelName
         });
-        throw new ApiError(500, 'Failed to generate HMS auth token');
+        throw new ApiError(500, 'Failed to generate Agora auth tokens');
     }
 });
 
-// Get 100ms room details for a call
-export const getHMSRoomDetails = asyncHandler(async (req, res) => {
+// Get Agora channel details for a call
+export const getAgoraChannelDetails = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;
     const { callId } = req.params;
 
@@ -770,20 +782,14 @@ export const getHMSRoomDetails = asyncHandler(async (req, res) => {
         throw new ApiError(403, 'You are not a participant in this call');
     }
 
-    // Check if call has HMS room
-    if (!call.hmsRoom || !call.hmsRoom.roomId) {
-        throw new ApiError(400, 'Call does not have 100ms room configured');
+    // Check if call has Agora channel
+    if (!call.agoraChannel || !call.agoraChannel.channelName) {
+        throw new ApiError(400, 'Call does not have Agora channel configured');
     }
 
     try {
-        // Get room details from 100ms
-        const roomDetails = await hmsService.getRoomDetails(call.hmsRoom.roomId);
-
-        // Get active sessions
-        const activeSessions = await hmsService.getActiveSessions(call.hmsRoom.roomId);
-
         // Get user's token
-        const userToken = call.getHMSTokenForUser(currentUserId);
+        const userToken = call.getAgoraTokenForUser(currentUserId);
 
         res.status(200).json(
             new ApiResponse(200, {
@@ -793,153 +799,21 @@ export const getHMSRoomDetails = asyncHandler(async (req, res) => {
                     callType: call.callType,
                     participants: call.participants
                 },
-                hmsRoom: {
-                    ...roomDetails,
-                    activeSessions: activeSessions.length,
-                    authToken: userToken ? userToken.token : null,
+                agoraChannel: {
+                    channelName: call.agoraChannel.channelName,
+                    appId: call.agoraChannel.appId,
+                    rtcToken: userToken ? userToken.rtcToken : null,
+                    rtmToken: userToken ? userToken.rtmToken : null,
+                    uid: userToken ? userToken.uid : 0,
                     userRole: userToken ? userToken.role : null
                 }
-            }, 'HMS room details fetched successfully')
+            }, 'Agora channel details fetched successfully')
         );
     } catch (error) {
-        console.error('❌ Error fetching HMS room details:', error);
-        throw new ApiError(500, 'Failed to fetch HMS room details');
+        console.error('❌ Error fetching Agora channel details:', error);
+        throw new ApiError(500, 'Failed to fetch Agora channel details');
     }
 });
-
-// Handle 100ms webhook events
-export const handleHMSWebhook = asyncHandler(async (req, res) => {
-    const { type, data } = req.body;
-
-    console.log(`📡 Received HMS webhook: ${type}`, data);
-
-    try {
-        switch (type) {
-            case 'session.started':
-                await handleSessionStarted(data);
-                break;
-            case 'session.ended':
-                await handleSessionEnded(data);
-                break;
-            case 'peer.joined':
-                await handlePeerJoined(data);
-                break;
-            case 'peer.left':
-                await handlePeerLeft(data);
-                break;
-            case 'recording.success':
-                await handleRecordingSuccess(data);
-                break;
-            default:
-                console.log(`⚠️ Unhandled webhook type: ${type}`);
-        }
-
-        res.status(200).json({ success: true });
-    } catch (error) {
-        console.error('❌ Error handling HMS webhook:', error);
-        res.status(500).json({ error: 'Webhook processing failed' });
-    }
-});
-
-// Webhook event handlers
-const handleSessionStarted = async (data) => {
-    const { room_id, session_id } = data;
-
-    const call = await Call.getCallByRoomId(room_id);
-    if (call && call.status === 'connecting') {
-        call.status = 'active';
-        call.startedAt = new Date();
-        await call.save();
-
-        // Notify participants via socket
-        call.participants.forEach(participant => {
-            safeEmitToUser(participant._id.toString(), 'call_session_started', {
-                callId: call._id,
-                sessionId: session_id,
-                timestamp: new Date()
-            });
-        });
-    }
-};
-
-const handleSessionEnded = async (data) => {
-    const { room_id, session_id } = data;
-
-    const call = await Call.getCallByRoomId(room_id);
-    if (call && call.status === 'active') {
-        call.status = 'ended';
-        call.endedAt = new Date();
-        call.endReason = 'normal';
-        await call.save();
-
-        // Notify participants via socket
-        call.participants.forEach(participant => {
-            safeEmitToUser(participant._id.toString(), 'call_session_ended', {
-                callId: call._id,
-                sessionId: session_id,
-                timestamp: new Date()
-            });
-        });
-    }
-};
-
-const handlePeerJoined = async (data) => {
-    const { room_id, peer_id, user_id } = data;
-
-    const call = await Call.getCallByRoomId(room_id);
-    if (call) {
-        // Notify other participants
-        const otherParticipants = call.participants.filter(p =>
-            p._id.toString() !== user_id
-        );
-
-        otherParticipants.forEach(participant => {
-            safeEmitToUser(participant._id.toString(), 'peer_joined_call', {
-                callId: call._id,
-                peerId: peer_id,
-                userId: user_id,
-                timestamp: new Date()
-            });
-        });
-    }
-};
-
-const handlePeerLeft = async (data) => {
-    const { room_id, peer_id, user_id } = data;
-
-    const call = await Call.getCallByRoomId(room_id);
-    if (call) {
-        // Notify other participants
-        const otherParticipants = call.participants.filter(p =>
-            p._id.toString() !== user_id
-        );
-
-        otherParticipants.forEach(participant => {
-            safeEmitToUser(participant._id.toString(), 'peer_left_call', {
-                callId: call._id,
-                peerId: peer_id,
-                userId: user_id,
-                timestamp: new Date()
-            });
-        });
-    }
-};
-
-const handleRecordingSuccess = async (data) => {
-    const { room_id, recording_url } = data;
-
-    const call = await Call.getCallByRoomId(room_id);
-    if (call) {
-        // Store recording URL in call metadata
-        call.metadata = {
-            ...call.metadata,
-            recordingUrl: recording_url
-        };
-        await call.save();
-
-        console.log(`📹 Recording saved for call ${call._id}: ${recording_url}`);
-    }
-};
 
 // Get usage analytics for the latest Session in a Room
 export const getSessionAnalyticsByRoom = asyncHandler(async (req, res) => {
