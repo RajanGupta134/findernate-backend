@@ -8,7 +8,6 @@ import {
     getCallHistory,
     getActiveCall,
     getCallStats,
-    storeSessionData,
     getAgoraAuthToken,
     getAgoraChannelDetails
 } from '../controllers/call.controllers.js';
@@ -30,9 +29,6 @@ router.patch('/:callId/status', updateCallStatus); // PATCH /api/v1/calls/:callI
 router.get('/history', getCallHistory);                    // GET /api/v1/calls/history
 router.get('/active', getActiveCall);                      // GET /api/v1/calls/active
 router.get('/stats', getCallStats);                        // GET /api/v1/calls/stats
-
-// WebRTC session data (for debugging/analytics)
-router.post('/:callId/session-data', storeSessionData);    // POST /api/v1/calls/:callId/session-data
 
 // Agora specific routes
 router.post('/:callId/agora-token', getAgoraAuthToken); // POST /api/v1/calls/:callId/agora-token

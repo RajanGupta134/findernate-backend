@@ -83,13 +83,6 @@ const CallSchema = new mongoose.Schema({
         }
     },
 
-    // 🔧 WebRTC session info (for debugging)
-    sessionData: {
-        offer: mongoose.Schema.Types.Mixed,
-        answer: mongoose.Schema.Types.Mixed,
-        iceCandidates: [mongoose.Schema.Types.Mixed]
-    },
-
     // 📡 Agora Channel Information
     agoraChannel: {
         channelName: {

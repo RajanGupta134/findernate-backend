@@ -258,34 +258,28 @@ class SocketManager {
                 }
             });
 
-            // ===== CALL SIGNALING EVENTS =====
-            
-            // Handle call initiation
-            socket.on('call_initiate', (data) => {
-                const { receiverId, chatId, callType, callId } = data;
-                console.log(`User ${socket.userId} initiating ${callType} call to ${receiverId} in chat ${chatId}`);
-                
-                // Emit to receiver
-                this.emitToUser(receiverId, 'incoming_call', {
-                    callId,
-                    chatId,
-                    callType,
-                    caller: {
-                        _id: socket.userId,
-                        username: socket.user.username,
-                        fullName: socket.user.fullName,
-                        profileImageUrl: socket.user.profileImageUrl
-                    },
-                    timestamp: new Date()
-                });
-            });
+            // ===== AGORA CALL SIGNALING EVENTS =====
+            //
+            // CALL FLOW WITH AGORA:
+            // 1. Caller -> HTTP POST /calls/initiate -> Server saves call + generates Agora tokens
+            // 2. Server -> Socket 'incoming_call' (with Agora channel + tokens) -> Receiver
+            // 3. Receiver -> HTTP PATCH /calls/:callId/accept -> Server updates DB
+            // 4. Server -> Socket 'call_accepted' -> Caller
+            // 5. Both clients connect to Agora using tokens from HTTP responses
+            // 6. Agora SDK handles all media streaming (no WebRTC signaling needed)
+            // 7. Either user -> HTTP PATCH /calls/:callId/end -> Server updates DB
+            // 8. Server -> Socket 'call_ended' -> Other participants
+            //
+            // Note: These socket events are OPTIONAL for backwards compatibility
+            // Clients should rely on HTTP endpoints for call state management
 
-            // Handle call acceptance
-            socket.on('call_accept', (data) => {
+            // OPTIONAL: Handle call acceptance signaling (for real-time UI updates)
+            // Main logic is in HTTP PATCH /api/v1/calls/:callId/accept
+            socket.on('call_accept', async (data) => {
                 const { callId, callerId } = data;
-                console.log(`User ${socket.userId} accepted call ${callId} from ${callerId}`);
-                
-                // Emit to caller that call was accepted
+                console.log(`📞 Socket: User ${socket.userId} signaling call acceptance for ${callId}`);
+
+                // Real-time notification only - HTTP endpoint handles DB update
                 this.emitToUser(callerId, 'call_accepted', {
                     callId,
                     acceptedBy: {
@@ -296,14 +290,17 @@ class SocketManager {
                     },
                     timestamp: new Date()
                 });
+
+                console.log(`📡 Socket: Call acceptance signaled to caller ${callerId}`);
             });
 
-            // Handle call decline
+            // OPTIONAL: Handle call decline signaling (for real-time UI updates)
+            // Main logic is in HTTP PATCH /api/v1/calls/:callId/decline
             socket.on('call_decline', (data) => {
                 const { callId, callerId } = data;
-                console.log(`User ${socket.userId} declined call ${callId} from ${callerId}`);
-                
-                // Emit to caller that call was declined
+                console.log(`📞 Socket: User ${socket.userId} signaling call decline for ${callId}`);
+
+                // Real-time notification only - HTTP endpoint handles DB update
                 this.emitToUser(callerId, 'call_declined', {
                     callId,
                     declinedBy: {
@@ -316,12 +313,13 @@ class SocketManager {
                 });
             });
 
-            // Handle call end
+            // OPTIONAL: Handle call end signaling (for real-time UI updates)
+            // Main logic is in HTTP PATCH /api/v1/calls/:callId/end
             socket.on('call_end', (data) => {
                 const { callId, participants, endReason = 'normal' } = data;
-                console.log(`User ${socket.userId} ended call ${callId}, reason: ${endReason}`);
-                
-                // Emit to all participants except the one who ended it
+                console.log(`📞 Socket: User ${socket.userId} signaling call end for ${callId}`);
+
+                // Real-time notification only - HTTP endpoint handles DB update
                 participants
                     .filter(participantId => participantId !== socket.userId)
                     .forEach(participantId => {
@@ -339,62 +337,6 @@ class SocketManager {
                     });
             });
 
-            // ===== WEBRTC SIGNALING EVENTS =====
-            
-            // Handle WebRTC offer
-            socket.on('webrtc_offer', (data) => {
-                const { callId, receiverId, offer } = data;
-                console.log(`User ${socket.userId} sending WebRTC offer for call ${callId} to ${receiverId}`);
-                
-                this.emitToUser(receiverId, 'webrtc_offer', {
-                    callId,
-                    offer,
-                    senderId: socket.userId
-                });
-            });
-
-            // Handle WebRTC answer
-            socket.on('webrtc_answer', (data) => {
-                const { callId, callerId, answer } = data;
-                console.log(`User ${socket.userId} sending WebRTC answer for call ${callId} to ${callerId}`);
-                
-                this.emitToUser(callerId, 'webrtc_answer', {
-                    callId,
-                    answer,
-                    senderId: socket.userId
-                });
-            });
-
-            // Handle ICE candidates
-            socket.on('webrtc_ice_candidate', (data) => {
-                const { callId, receiverId, candidate } = data;
-                console.log(`User ${socket.userId} sending ICE candidate for call ${callId} to ${receiverId}`);
-                
-                this.emitToUser(receiverId, 'webrtc_ice_candidate', {
-                    callId,
-                    candidate,
-                    senderId: socket.userId
-                });
-            });
-
-            // Handle call status updates (connecting, quality, etc.)
-            socket.on('call_status_update', (data) => {
-                const { callId, participants, status, metadata } = data;
-                console.log(`User ${socket.userId} updating call ${callId} status to ${status}`);
-                
-                // Emit to all other participants
-                participants
-                    .filter(participantId => participantId !== socket.userId)
-                    .forEach(participantId => {
-                        this.emitToUser(participantId, 'call_status_update', {
-                            callId,
-                            status,
-                            metadata,
-                            updatedBy: socket.userId,
-                            timestamp: new Date()
-                        });
-                    });
-            });
 
             // Handle disconnect
             socket.on('disconnect', () => {

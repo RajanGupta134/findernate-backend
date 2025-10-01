@@ -8,7 +8,6 @@ import { asyncHandler } from '../utlis/asyncHandler.js';
 import socketManager from '../config/socket.js';
 import agoraService from '../config/agora.config.js';
 import mongoose from 'mongoose';
-import moment from 'moment';
 
 // Constants for call management
 const CALL_TIMEOUT_MINUTES = 2; // Calls timeout after 2 minutes if not answered
@@ -312,51 +311,110 @@ export const acceptCall = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;
     const { callId } = req.params;
 
+    console.log('📞 Call acceptance request:', { callId, currentUserId });
+
     // Validate call ID format
     if (!isValidObjectId(callId)) {
+        console.error('❌ Invalid call ID format:', callId);
         throw new ApiError(400, 'Invalid call ID format');
     }
 
-    // Find the call
-    const call = await Call.findById(callId)
-        .populate('participants', 'username fullName profileImageUrl')
-        .populate('initiator', 'username fullName profileImageUrl');
-
-    if (!call) {
-        throw new ApiError(404, 'Call not found');
-    }
-
-    // Check if user is a participant
-    const participantIds = call.participants.map(p => p._id.toString());
-    if (!participantIds.includes(currentUserId.toString())) {
-        throw new ApiError(403, 'You are not a participant in this call');
-    }
-
-    // Check if call is in the right status
-    if (!['initiated', 'ringing'].includes(call.status)) {
-        throw new ApiError(400, 'Call cannot be accepted in current status');
-    }
-
-    // Update call status with transaction
+    // Update call status with transaction - fetch and update in same transaction
     const session = await mongoose.startSession();
+    let updatedCall;
+
     try {
         await session.withTransaction(async () => {
-            // Double-check call is still in valid state
-            const freshCall = await Call.findById(callId).session(session);
-            if (!['initiated', 'ringing'].includes(freshCall.status)) {
-                throw new ApiError(400, 'Call cannot be accepted in current status');
+            // Fetch call within transaction for atomic operation
+            const call = await Call.findById(callId).session(session);
+
+            if (!call) {
+                console.error('❌ Call not found:', callId);
+                throw new ApiError(404, 'Call not found');
             }
 
+            console.log('📋 Call found:', {
+                callId: call._id,
+                status: call.status,
+                hasAgoraChannel: !!call.agoraChannel?.channelName
+            });
+
+            // Check if user is a participant
+            const participantIds = call.participants.map(p => p.toString());
+            if (!participantIds.includes(currentUserId.toString())) {
+                console.error('❌ User not a participant:', { currentUserId, participants: participantIds });
+                throw new ApiError(403, 'You are not a participant in this call');
+            }
+
+            // Check if call is in the right status
+            if (!['initiated', 'ringing'].includes(call.status)) {
+                console.error('❌ Invalid call status for acceptance:', {
+                    currentStatus: call.status,
+                    allowedStatuses: ['initiated', 'ringing']
+                });
+                throw new ApiError(400, `Call cannot be accepted in current status: ${call.status}`);
+            }
+
+            // Validate Agora channel exists
+            if (!call.agoraChannel || !call.agoraChannel.channelName) {
+                console.error('❌ Call missing Agora channel:', {
+                    callId,
+                    hasAgoraChannel: !!call.agoraChannel,
+                    hasChannelName: !!call.agoraChannel?.channelName
+                });
+                throw new ApiError(400, 'Call does not have a valid Agora channel configured');
+            }
+
+            // Check if user has valid Agora tokens
+            const userToken = call.getAgoraTokenForUser(currentUserId);
+            if (!userToken || !userToken.rtcToken) {
+                console.warn('⚠️ User missing Agora tokens, generating new ones...');
+
+                // Generate tokens for the user
+                try {
+                    const tokens = agoraService.generateTokens(
+                        call.agoraChannel.channelName,
+                        currentUserId.toString(),
+                        'publisher'
+                    );
+                    await call.addAgoraToken(
+                        currentUserId,
+                        tokens.rtc.token,
+                        tokens.rtm.token,
+                        'publisher'
+                    );
+                    console.log('✅ Generated new Agora tokens for user');
+                } catch (tokenError) {
+                    console.error('❌ Failed to generate Agora tokens:', tokenError);
+                    throw new ApiError(500, 'Failed to generate authentication tokens for the call');
+                }
+            }
+
+            // Update call status
             call.status = 'connecting';
             call.startedAt = new Date();
             await call.save({ session });
+
+            updatedCall = call;
+            console.log('✅ Call status updated to connecting');
         });
+    } catch (error) {
+        console.error('❌ Transaction failed:', error);
+        throw error;
     } finally {
         await session.endSession();
     }
 
+    // Fetch populated call data after transaction
+    const populatedCall = await Call.findById(callId)
+        .populate('participants', 'username fullName profileImageUrl')
+        .populate('initiator', 'username fullName profileImageUrl');
+
     // Emit call acceptance to all participants
+    const participantIds = populatedCall.participants.map(p => p._id.toString());
     const otherParticipants = participantIds.filter(id => id !== currentUserId.toString());
+
+    console.log('📡 Emitting call acceptance to participants:', otherParticipants);
     otherParticipants.forEach(participantId => {
         safeEmitToUser(participantId, 'call_accepted', {
             callId,
@@ -372,26 +430,28 @@ export const acceptCall = asyncHandler(async (req, res) => {
 
     // Prepare response data with Agora channel info
     const responseData = {
-        ...call.toObject(),
-        channelName: call.agoraChannel?.channelName || null,
-        agoraChannel: call.agoraChannel ? {
-            channelName: call.agoraChannel.channelName,
-            appId: call.agoraChannel.appId,
-            createdAt: call.agoraChannel.createdAt
+        ...populatedCall.toObject(),
+        channelName: populatedCall.agoraChannel?.channelName || null,
+        agoraChannel: populatedCall.agoraChannel ? {
+            channelName: populatedCall.agoraChannel.channelName,
+            appId: populatedCall.agoraChannel.appId,
+            createdAt: populatedCall.agoraChannel.createdAt
         } : null
     };
 
-    // Include user's auth token if available
-    if (call.agoraChannel?.channelName) {
-        const userToken = call.getAgoraTokenForUser(currentUserId);
-        if (userToken) {
-            responseData.rtcToken = userToken.rtcToken;
-            responseData.rtmToken = userToken.rtmToken;
-            responseData.uid = userToken.uid;
-            responseData.userRole = userToken.role;
-        }
+    // Include user's auth token
+    const userToken = populatedCall.getAgoraTokenForUser(currentUserId);
+    if (userToken) {
+        responseData.rtcToken = userToken.rtcToken;
+        responseData.rtmToken = userToken.rtmToken;
+        responseData.uid = userToken.uid;
+        responseData.userRole = userToken.role;
+        console.log('✅ Including user tokens in response');
+    } else {
+        console.warn('⚠️ No user token found in response');
     }
 
+    console.log('🎉 Call accepted successfully:', { callId });
     res.status(200).json(
         new ApiResponse(200, responseData, 'Call accepted successfully')
     );
@@ -402,43 +462,82 @@ export const declineCall = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;
     const { callId } = req.params;
 
+    console.log('🚫 Call decline request:', { callId, currentUserId });
+
     // Validate call ID format
     if (!isValidObjectId(callId)) {
+        console.error('❌ Invalid call ID format:', callId);
         throw new ApiError(400, 'Invalid call ID format');
     }
 
-    // Find the call
-    const call = await Call.findById(callId);
-    if (!call) {
-        throw new ApiError(404, 'Call not found');
-    }
-
-    // Check if user is a participant
-    const participantIds = call.participants.map(p => p.toString());
-    if (!participantIds.includes(currentUserId.toString())) {
-        throw new ApiError(403, 'You are not a participant in this call');
-    }
-
-    // Check if call can be declined
-    if (!['initiated', 'ringing'].includes(call.status)) {
-        throw new ApiError(400, 'Call cannot be declined in current status');
-    }
-
-    // Update call status with transaction
+    // Update call status with transaction - fetch and update in same transaction
     const session = await mongoose.startSession();
+    let updatedCall;
+
     try {
         await session.withTransaction(async () => {
+            // Fetch call within transaction for atomic operation
+            const call = await Call.findById(callId).session(session);
+
+            if (!call) {
+                console.error('❌ Call not found:', callId);
+                throw new ApiError(404, 'Call not found');
+            }
+
+            console.log('📋 Call found:', {
+                callId: call._id,
+                status: call.status,
+                initiator: call.initiator
+            });
+
+            // Check if user is a participant
+            const participantIds = call.participants.map(p => p.toString());
+            if (!participantIds.includes(currentUserId.toString())) {
+                console.error('❌ User not a participant:', { currentUserId, participants: participantIds });
+                throw new ApiError(403, 'You are not a participant in this call');
+            }
+
+            // Check if call can be declined
+            if (!['initiated', 'ringing'].includes(call.status)) {
+                console.error('❌ Invalid call status for decline:', {
+                    currentStatus: call.status,
+                    allowedStatuses: ['initiated', 'ringing']
+                });
+                throw new ApiError(400, `Call cannot be declined in current status: ${call.status}`);
+            }
+
+            // Update call status
             call.status = 'declined';
             call.endedAt = new Date();
             call.endReason = 'declined';
+
+            // Mark Agora channel as ended if exists
+            if (call.agoraChannel?.channelName) {
+                call.agoraChannel.endedAt = new Date();
+                console.log(`📡 Marked Agora channel ${call.agoraChannel.channelName} as ended`);
+            }
+
             await call.save({ session });
+            updatedCall = call;
+            console.log('✅ Call status updated to declined');
         });
+    } catch (error) {
+        console.error('❌ Transaction failed:', error);
+        throw error;
     } finally {
         await session.endSession();
     }
 
+    // Fetch populated call data after transaction
+    const populatedCall = await Call.findById(callId)
+        .populate('participants', 'username fullName profileImageUrl')
+        .populate('initiator', 'username fullName profileImageUrl');
+
     // Emit call decline to other participants
+    const participantIds = populatedCall.participants.map(p => p._id.toString());
     const otherParticipants = participantIds.filter(id => id !== currentUserId.toString());
+
+    console.log('📡 Emitting call decline to participants:', otherParticipants);
     otherParticipants.forEach(participantId => {
         safeEmitToUser(participantId, 'call_declined', {
             callId,
@@ -452,8 +551,9 @@ export const declineCall = asyncHandler(async (req, res) => {
         });
     });
 
+    console.log('🎉 Call declined successfully:', { callId });
     res.status(200).json(
-        new ApiResponse(200, call, 'Call declined successfully')
+        new ApiResponse(200, populatedCall, 'Call declined successfully')
     );
 });
 
@@ -463,52 +563,95 @@ export const endCall = asyncHandler(async (req, res) => {
     const { callId } = req.params;
     const { endReason = 'normal' } = req.body;
 
+    console.log('📵 Call end request:', { callId, currentUserId, endReason });
+
     // Validate call ID format
     if (!isValidObjectId(callId)) {
+        console.error('❌ Invalid call ID format:', callId);
         throw new ApiError(400, 'Invalid call ID format');
     }
 
-    // Find the call
-    const call = await Call.findById(callId);
-    if (!call) {
-        throw new ApiError(404, 'Call not found');
+    // Validate endReason
+    const validReasons = ['normal', 'declined', 'missed', 'failed', 'network_error', 'cancelled', 'timeout'];
+    if (!validReasons.includes(endReason)) {
+        console.error('❌ Invalid end reason:', endReason);
+        throw new ApiError(400, `Invalid end reason. Must be one of: ${validReasons.join(', ')}`);
     }
 
-    // Check if user is a participant
-    const participantIds = call.participants.map(p => p.toString());
-    if (!participantIds.includes(currentUserId.toString())) {
-        throw new ApiError(403, 'You are not a participant in this call');
-    }
-
-    // Check if call can be ended
-    if (call.status === 'ended') {
-        throw new ApiError(400, 'Call has already ended');
-    }
-
-    // Update call status with transaction
+    // Update call status with transaction - fetch and update in same transaction
     const session = await mongoose.startSession();
+    let updatedCall;
+
     try {
         await session.withTransaction(async () => {
+            // Fetch call within transaction for atomic operation
+            const call = await Call.findById(callId).session(session);
+
+            if (!call) {
+                console.error('❌ Call not found:', callId);
+                throw new ApiError(404, 'Call not found');
+            }
+
+            console.log('📋 Call found:', {
+                callId: call._id,
+                status: call.status,
+                hasStarted: !!call.startedAt
+            });
+
+            // Check if user is a participant
+            const participantIds = call.participants.map(p => p.toString());
+            if (!participantIds.includes(currentUserId.toString())) {
+                console.error('❌ User not a participant:', { currentUserId, participants: participantIds });
+                throw new ApiError(403, 'You are not a participant in this call');
+            }
+
+            // Check if call can be ended
+            if (call.status === 'ended' || call.status === 'declined' || call.status === 'missed') {
+                console.error('❌ Call already finished:', {
+                    currentStatus: call.status,
+                    endedAt: call.endedAt
+                });
+                throw new ApiError(400, `Call has already ended with status: ${call.status}`);
+            }
+
+            // Update call status
             call.status = 'ended';
             call.endedAt = new Date();
             call.endReason = endReason;
+
+            // If call was never started (e.g., ended during ringing), set startedAt to now for duration calculation
+            if (!call.startedAt) {
+                call.startedAt = call.endedAt;
+                console.log('⏱️ Call ended before being started, setting startedAt = endedAt');
+            }
+
+            // Mark Agora channel as ended if exists (within transaction)
+            if (call.agoraChannel?.channelName) {
+                call.agoraChannel.endedAt = new Date();
+                console.log(`📡 Marking Agora channel ${call.agoraChannel.channelName} as ended`);
+            }
+
             await call.save({ session });
+            updatedCall = call;
+            console.log('✅ Call status updated to ended');
         });
+    } catch (error) {
+        console.error('❌ Transaction failed:', error);
+        throw error;
     } finally {
         await session.endSession();
     }
 
-    // Mark Agora channel as ended if it exists (outside transaction for safety)
-    if (call.agoraChannel && call.agoraChannel.channelName) {
-        await safeAgoraOperation(async () => {
-            call.agoraChannel.endedAt = new Date();
-            await call.save();
-            console.log(`📡 Ended Agora channel ${call.agoraChannel.channelName} for call ${call._id}`);
-        }, 'Agora channel cleanup failed but call ended successfully');
-    }
+    // Fetch populated call data after transaction
+    const populatedCall = await Call.findById(callId)
+        .populate('participants', 'username fullName profileImageUrl')
+        .populate('initiator', 'username fullName profileImageUrl');
 
     // Emit call end to other participants
+    const participantIds = populatedCall.participants.map(p => p._id.toString());
     const otherParticipants = participantIds.filter(id => id !== currentUserId.toString());
+
+    console.log('📡 Emitting call end to participants:', otherParticipants);
     otherParticipants.forEach(participantId => {
         safeEmitToUser(participantId, 'call_ended', {
             callId,
@@ -519,12 +662,19 @@ export const endCall = asyncHandler(async (req, res) => {
                 profileImageUrl: req.user.profileImageUrl
             },
             endReason,
+            duration: populatedCall.duration,
             timestamp: new Date()
         });
     });
 
+    console.log('🎉 Call ended successfully:', {
+        callId,
+        duration: populatedCall.duration,
+        formattedDuration: populatedCall.formattedDuration
+    });
+
     res.status(200).json(
-        new ApiResponse(200, call, 'Call ended successfully')
+        new ApiResponse(200, populatedCall, 'Call ended successfully')
     );
 });
 
@@ -638,48 +788,6 @@ export const getCallStats = asyncHandler(async (req, res) => {
 
     res.status(200).json(
         new ApiResponse(200, stats[0] || {}, 'Call statistics fetched successfully')
-    );
-});
-
-// Store WebRTC session data (for debugging/analytics)
-export const storeSessionData = asyncHandler(async (req, res) => {
-    const currentUserId = req.user._id;
-    const { callId } = req.params;
-    const { sessionData } = req.body;
-
-    // Validate call ID format
-    if (!isValidObjectId(callId)) {
-        throw new ApiError(400, 'Invalid call ID format');
-    }
-
-    // Find the call
-    const call = await Call.findById(callId);
-    if (!call) {
-        throw new ApiError(404, 'Call not found');
-    }
-
-    // Check if user is a participant
-    const participantIds = call.participants.map(p => p.toString());
-    if (!participantIds.includes(currentUserId.toString())) {
-        throw new ApiError(403, 'You are not a participant in this call');
-    }
-
-    // Update session data
-    if (!call.sessionData) {
-        call.sessionData = {};
-    }
-
-    if (sessionData.offer) call.sessionData.offer = sessionData.offer;
-    if (sessionData.answer) call.sessionData.answer = sessionData.answer;
-    if (sessionData.iceCandidates) {
-        if (!call.sessionData.iceCandidates) call.sessionData.iceCandidates = [];
-        call.sessionData.iceCandidates.push(...sessionData.iceCandidates);
-    }
-
-    await call.save();
-
-    res.status(200).json(
-        new ApiResponse(200, null, 'Session data stored successfully')
     );
 });
 
@@ -812,242 +920,5 @@ export const getAgoraChannelDetails = asyncHandler(async (req, res) => {
     } catch (error) {
         console.error('❌ Error fetching Agora channel details:', error);
         throw new ApiError(500, 'Failed to fetch Agora channel details');
-    }
-});
-
-// Get usage analytics for the latest Session in a Room
-export const getSessionAnalyticsByRoom = asyncHandler(async (req, res) => {
-    const currentUserId = req.user._id;
-    const { roomId } = req.query;
-
-    if (!roomId) {
-        throw new ApiError(400, 'Room ID is required');
-    }
-
-    try {
-        // Get the call associated with this room
-        const call = await Call.getCallByRoomId(roomId);
-        if (!call) {
-            throw new ApiError(404, 'Call not found for this room');
-        }
-
-        // Check if user is a participant
-        const participantIds = call.participants.map(p => p.toString());
-        if (!participantIds.includes(currentUserId.toString())) {
-            throw new ApiError(403, 'You are not authorized to view analytics for this call');
-        }
-
-        // Get session data from 100ms API
-        const sessionListData = await hmsService.getSessionsByRoom(roomId);
-
-        if (!sessionListData || !sessionListData.data || sessionListData.data.length === 0) {
-            return res.status(404).json(
-                new ApiResponse(404, null, "No session found for this room")
-            );
-        }
-
-        const sessionData = sessionListData.data[0]; // Get latest session
-        console.log('📊 Processing session data:', sessionData);
-
-        // Calculate individual participants' duration
-        const peers = Object.values(sessionData.peers || {});
-        const detailsByUser = peers.reduce((acc, peer) => {
-            const joinedAt = moment(peer.joined_at);
-            const leftAt = moment(peer.left_at || sessionData.updated_at);
-            const duration = moment.duration(leftAt.diff(joinedAt)).asMinutes();
-            const roundedDuration = Math.round(duration * 100) / 100;
-
-            const userId = peer.user_id;
-            if (!acc[userId]) {
-                acc[userId] = {
-                    name: peer.name,
-                    user_id: userId,
-                    duration: 0
-                };
-            }
-            acc[userId].duration += roundedDuration;
-            return acc;
-        }, {});
-
-        const userDurationList = Object.values(detailsByUser);
-        console.log('👥 User durations:', userDurationList);
-
-        // Calculate aggregated participants' duration
-        const totalPeerDuration = userDurationList
-            .reduce((total, user) => total + user.duration, 0)
-            .toFixed(2);
-        console.log(`⏱️ Total duration for all peers: ${totalPeerDuration} minutes`);
-
-        // Calculate total session duration
-        const sessionStartTime = moment(sessionData.created_at);
-        const sessionEndTime = moment(sessionData.updated_at);
-        const sessionDuration = moment.duration(sessionEndTime.diff(sessionStartTime))
-            .asMinutes()
-            .toFixed(2);
-        console.log(`📅 Session duration: ${sessionDuration} minutes`);
-
-        // Include call metadata
-        const analytics = {
-            user_duration_list: userDurationList,
-            session_duration: sessionDuration,
-            total_peer_duration: totalPeerDuration,
-            call_metadata: {
-                call_id: call._id,
-                call_type: call.callType,
-                status: call.status,
-                initiated_at: call.initiatedAt,
-                started_at: call.startedAt,
-                ended_at: call.endedAt,
-                duration_seconds: call.duration,
-                formatted_duration: call.formattedDuration,
-                participants_count: call.participants.length
-            },
-            session_metadata: {
-                session_id: sessionData.id,
-                room_id: roomId,
-                peers_count: peers.length,
-                session_created_at: sessionData.created_at,
-                session_updated_at: sessionData.updated_at
-            }
-        };
-
-        res.status(200).json(
-            new ApiResponse(200, analytics, 'Session analytics retrieved successfully')
-        );
-
-    } catch (error) {
-        console.error('❌ Error fetching session analytics:', error);
-
-        // If 100ms API fails, return basic analytics from our database
-        if (error.message?.includes('100ms') || error.response?.status >= 400) {
-            const call = await Call.getCallByRoomId(roomId)
-                .populate('participants', 'username fullName profileImageUrl');
-
-            if (call) {
-                const fallbackAnalytics = {
-                    user_duration_list: call.participants.map(participant => ({
-                        name: participant.fullName,
-                        user_id: participant._id.toString(),
-                        duration: call.duration ? (call.duration / 60).toFixed(2) : 0 // Convert seconds to minutes
-                    })),
-                    session_duration: call.duration ? (call.duration / 60).toFixed(2) : 0,
-                    total_peer_duration: call.duration && call.participants.length ?
-                        ((call.duration * call.participants.length) / 60).toFixed(2) : 0,
-                    call_metadata: {
-                        call_id: call._id,
-                        call_type: call.callType,
-                        status: call.status,
-                        initiated_at: call.initiatedAt,
-                        started_at: call.startedAt,
-                        ended_at: call.endedAt,
-                        duration_seconds: call.duration,
-                        formatted_duration: call.formattedDuration,
-                        participants_count: call.participants.length
-                    },
-                    note: 'Analytics generated from local database due to 100ms API unavailability'
-                };
-
-                return res.status(200).json(
-                    new ApiResponse(200, fallbackAnalytics, 'Fallback session analytics retrieved from database')
-                );
-            }
-        }
-
-        throw new ApiError(500, 'Failed to fetch session analytics');
-    }
-});
-
-// Create a new room following 100ms guide pattern
-export const createRoom = asyncHandler(async (req, res) => {
-    const currentUserId = req.user._id;
-    const { name, description, template_id, region, callType } = req.body;
-
-    try {
-        // Determine template ID based on callType if not provided
-        let finalTemplateId = template_id;
-        if (!finalTemplateId && callType) {
-            finalTemplateId = callType === 'video' ?
-                process.env.HMS_VIDEO_TEMPLATE_ID :
-                process.env.HMS_VOICE_TEMPLATE_ID;
-        }
-
-        const payload = {
-            name: name || `room-${Date.now()}`,
-            description: description || `Room created by ${req.user.username}`,
-            template_id: finalTemplateId,
-            region: region || 'in' // Default to India region
-        };
-
-        // Use the new APIService for room creation
-        const roomData = await hmsService.createRoomDirect(payload);
-
-        // Log room creation for analytics
-        console.log(`🏠 Room created: ${roomData.id} by user: ${req.user.username}`);
-
-        // Return room data in the format expected by clients
-        const responseData = {
-            id: roomData.id,
-            name: roomData.name,
-            description: roomData.description,
-            room_code: roomData.room_code,
-            enabled: roomData.enabled,
-            template_id: roomData.template_id,
-            region: roomData.region,
-            created_at: roomData.created_at,
-            created_by: {
-                _id: currentUserId,
-                username: req.user.username,
-                fullName: req.user.fullName
-            }
-        };
-
-        res.status(201).json(
-            new ApiResponse(201, responseData, 'Room created successfully')
-        );
-
-    } catch (error) {
-        console.error('❌ Error creating room:', error);
-        throw new ApiError(500, `Unable to create room: ${error.message}`);
-    }
-});
-
-// Generate auth token for a client to join a room (following 100ms guide)
-export const generateAuthToken = asyncHandler(async (req, res) => {
-    const { room_id, user_id, role } = req.body;
-
-    // Validate required fields
-    if (!room_id || !user_id) {
-        throw new ApiError(400, 'room_id and user_id are required');
-    }
-
-    // Validate role
-    const validRoles = ['participant', 'guest', 'host', 'moderator'];
-    const finalRole = role && validRoles.includes(role) ? role : 'participant';
-
-    try {
-        // Use the enhanced TokenService to generate auth token
-        const token = hmsService.tokenService.getAuthToken({
-            room_id,
-            user_id,
-            role: finalRole
-        });
-
-        // Log token generation for security audit
-        console.log(`🔑 Auth token generated for user ${user_id} in room ${room_id} with role ${finalRole}`);
-
-        res.status(200).json(
-            new ApiResponse(200, {
-                token,
-                room_id,
-                user_id,
-                role: finalRole,
-                expires_in: '1h', // Auth tokens expire in 1 hour
-                success: true
-            }, 'Auth token generated successfully')
-        );
-
-    } catch (error) {
-        console.error('❌ Error generating auth token:', error);
-        throw new ApiError(500, `Failed to generate auth token: ${error.message}`);
     }
 });
