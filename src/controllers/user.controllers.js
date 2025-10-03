@@ -190,7 +190,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
     const userId = req.user?._id;
 
     const user = await User.findById(userId).select(
-        "username fullName email phoneNumber address gender dateOfBirth bio profileImageUrl location link followers following posts isBusinessProfile businessProfileId isEmailVerified isPhoneVerified isPhoneNumberHidden isAddressHidden privacy createdAt"
+        "username fullName email phoneNumber address gender dateOfBirth bio profileImageUrl location link followers following posts isBusinessProfile businessProfileId isEmailVerified isPhoneVerified isPhoneNumberHidden isAddressHidden privacy isFullPrivate createdAt"
     );
 
     if (!user) {
@@ -210,35 +210,33 @@ const getUserProfile = asyncHandler(async (req, res) => {
 
     const userProfile = {
         _id: user._id,
-        userId: {
-            _id: user._id,
-            username: user.username,
-            email: user.email,
-            fullName: user.fullName,
-            phoneNumber: user.isPhoneNumberHidden ? null : user.phoneNumber,
-            address: user.isAddressHidden ? null : user.address,
-            dateOfBirth: user.dateOfBirth,
-            gender: user.gender,
-            isBusinessProfile: user.isBusinessProfile,
-            businessProfileId: user.businessProfileId,
-            isEmailVerified: user.isEmailVerified,
-            isPhoneVerified: user.isPhoneVerified,
-            isPhoneNumberHidden: user.isPhoneNumberHidden,
-            isAddressHidden: user.isAddressHidden,
-            privacy: user.privacy,
-            // Add business-specific fields
-            productEnabled: user.isBusinessProfile ? (businessInfo?.postSettings?.allowProductPosts ?? true) : null,
-            serviceEnabled: user.isBusinessProfile ? (businessInfo?.postSettings?.allowServicePosts ?? true) : null,
-            isVerified: user.isBusinessProfile ? (businessInfo?.isVerified ?? false) : null,
-            createdAt: user.createdAt,
-            bio: user.bio,
-            link: user.link,
-            location: user.location,
-            profileImageUrl: user.profileImageUrl,
-            followersCount,
-            followingCount,
-            postsCount
-        }
+        username: user.username,
+        email: user.email,
+        fullName: user.fullName,
+        phoneNumber: user.isPhoneNumberHidden ? null : user.phoneNumber,
+        address: user.isAddressHidden ? null : user.address,
+        dateOfBirth: user.dateOfBirth,
+        gender: user.gender,
+        isBusinessProfile: user.isBusinessProfile,
+        businessProfileId: user.businessProfileId,
+        isEmailVerified: user.isEmailVerified,
+        isPhoneVerified: user.isPhoneVerified,
+        isPhoneNumberHidden: user.isPhoneNumberHidden,
+        isAddressHidden: user.isAddressHidden,
+        privacy: user.privacy,
+        isFullPrivate: user.isFullPrivate,
+        // Add business-specific fields
+        productEnabled: user.isBusinessProfile ? (businessInfo?.postSettings?.allowProductPosts ?? true) : null,
+        serviceEnabled: user.isBusinessProfile ? (businessInfo?.postSettings?.allowServicePosts ?? true) : null,
+        isVerified: user.isBusinessProfile ? (businessInfo?.isVerified ?? false) : null,
+        createdAt: user.createdAt,
+        bio: user.bio,
+        link: user.link,
+        location: user.location,
+        profileImageUrl: user.profileImageUrl,
+        followersCount,
+        followingCount,
+        postsCount
     };
 
     // Cache the response if caching is available
