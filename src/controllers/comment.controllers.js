@@ -3,6 +3,7 @@ import { ApiError } from "../utlis/ApiError.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import Comment from "../models/comment.models.js";
 import Post from "../models/userPost.models.js";
+import Like from "../models/like.models.js";
 import { createCommentNotification } from "./notification.controllers.js";
 
 // Create a new comment (or reply)
@@ -54,6 +55,7 @@ export const createComment = asyncHandler(async (req, res) => {
 export const getCommentsByPost = asyncHandler(async (req, res) => {
     const { postId, page = 1, limit = 20 } = req.query;
     if (!postId) throw new ApiError(400, "postId is required");
+    const userId = req.user?._id;
     const pageNum = parseInt(page) || 1;
     const pageLimit = parseInt(limit) || 20;
     const skip = (pageNum - 1) * pageLimit;
@@ -63,16 +65,46 @@ export const getCommentsByPost = asyncHandler(async (req, res) => {
             .populate('userId', 'username fullName bio location')
             .sort({ createdAt: 1 })
             .skip(skip)
-            .limit(pageLimit),
+            .limit(pageLimit)
+            .lean(),
         Comment.countDocuments({ postId, isDeleted: false })
     ]);
+
+    // Populate likes from Like collection for each comment
+    const commentIds = comments.map(c => c._id);
+    const likes = await Like.find({ commentId: { $in: commentIds } })
+        .populate('userId', 'username profileImageUrl fullName')
+        .lean();
+
+    // Group likes by commentId
+    const likesByComment = {};
+    likes.forEach(like => {
+        const commentId = like.commentId.toString();
+        if (!likesByComment[commentId]) {
+            likesByComment[commentId] = [];
+        }
+        likesByComment[commentId].push(like.userId);
+    });
+
+    // Add likes and isLikedBy to each comment
+    const enrichedComments = comments.map(comment => {
+        const commentLikes = likesByComment[comment._id.toString()] || [];
+        const isLikedBy = userId ? commentLikes.some(u => u._id.toString() === userId.toString()) : false;
+
+        return {
+            ...comment,
+            likes: commentLikes,
+            isLikedBy,
+            likesCount: commentLikes.length
+        };
+    });
 
     return res.status(200).json(
         new ApiResponse(200, {
             totalComments: total,
             page: pageNum,
             totalPages: Math.ceil(total / pageLimit),
-            comments
+            comments: enrichedComments
         }, "Comments fetched successfully")
     );
 });
@@ -81,12 +113,14 @@ export const getCommentsByPost = asyncHandler(async (req, res) => {
 export const getCommentById = asyncHandler(async (req, res) => {
     const { commentId } = req.params;
     const { page = 1, limit = 10 } = req.query;
+    const userId = req.user?._id;
     const pageNum = parseInt(page) || 1;
     const pageLimit = parseInt(limit) || 10;
     const skip = (pageNum - 1) * pageLimit;
 
     const comment = await Comment.findById(commentId)
-        .populate('userId', 'username fullName bio location');
+        .populate('userId', 'username fullName bio location')
+        .lean();
     if (!comment || comment.isDeleted) throw new ApiError(404, "Comment not found");
 
     // Paginate replies (child comments)
@@ -95,18 +129,58 @@ export const getCommentById = asyncHandler(async (req, res) => {
             .populate('userId', 'username fullName bio location')
             .sort({ createdAt: 1 })
             .skip(skip)
-            .limit(pageLimit),
+            .limit(pageLimit)
+            .lean(),
         Comment.countDocuments({ parentCommentId: commentId, isDeleted: false })
     ]);
 
+    // Get likes for the main comment and all replies
+    const allCommentIds = [commentId, ...replies.map(r => r._id)];
+    const likes = await Like.find({ commentId: { $in: allCommentIds } })
+        .populate('userId', 'username profileImageUrl fullName')
+        .lean();
+
+    // Group likes by commentId
+    const likesByComment = {};
+    likes.forEach(like => {
+        const cId = like.commentId.toString();
+        if (!likesByComment[cId]) {
+            likesByComment[cId] = [];
+        }
+        likesByComment[cId].push(like.userId);
+    });
+
+    // Enrich main comment with likes
+    const commentLikes = likesByComment[commentId.toString()] || [];
+    const isLikedBy = userId ? commentLikes.some(u => u._id.toString() === userId.toString()) : false;
+    const enrichedComment = {
+        ...comment,
+        likes: commentLikes,
+        isLikedBy,
+        likesCount: commentLikes.length
+    };
+
+    // Enrich replies with likes
+    const enrichedReplies = replies.map(reply => {
+        const replyLikes = likesByComment[reply._id.toString()] || [];
+        const isReplyLikedBy = userId ? replyLikes.some(u => u._id.toString() === userId.toString()) : false;
+
+        return {
+            ...reply,
+            likes: replyLikes,
+            isLikedBy: isReplyLikedBy,
+            likesCount: replyLikes.length
+        };
+    });
+
     return res.status(200).json(
         new ApiResponse(200, {
-            comment,
+            comment: enrichedComment,
             replies: {
                 totalReplies,
                 page: pageNum,
                 totalPages: Math.ceil(totalReplies / pageLimit),
-                comments: replies
+                comments: enrichedReplies
             }
         }, "Comment fetched successfully")
     );
