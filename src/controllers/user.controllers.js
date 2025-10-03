@@ -187,7 +187,7 @@ const logOutUser = asyncHandler(async (req, res) => {
 });
 
 const getUserProfile = asyncHandler(async (req, res) => {
-    const userId = req.user._id;
+    const userId = req.user?._id;
 
     const user = await User.findById(userId).select(
         "username fullName email phoneNumber address gender dateOfBirth bio profileImageUrl location link followers following posts isBusinessProfile businessProfileId isEmailVerified isPhoneVerified isPhoneNumberHidden isAddressHidden privacy createdAt"
