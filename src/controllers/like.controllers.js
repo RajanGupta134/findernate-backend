@@ -94,7 +94,6 @@ export const likeComment = asyncHandler(async (req, res) => {
 
     try {
         await Like.create({ userId, commentId });
-        await Comment.findByIdAndUpdate(commentId, { $addToSet: { likes: userId } });
         // Notify comment owner (if not self)
         const comment = await Comment.findById(commentId).select("userId postId");
         if (comment && comment.userId.toString() !== userId.toString()) {
@@ -128,7 +127,6 @@ export const unlikeComment = asyncHandler(async (req, res) => {
 
     const like = await Like.findOneAndDelete({ userId, commentId });
     if (like) {
-        await Comment.findByIdAndUpdate(commentId, { $pull: { likes: userId } });
         // Notify comment owner (if not self)
         const comment = await Comment.findById(commentId).select("userId postId");
         if (comment && comment.userId.toString() !== userId.toString()) {
