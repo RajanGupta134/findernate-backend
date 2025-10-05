@@ -255,7 +255,8 @@ const getUserProfile = asyncHandler(async (req, res) => {
 
 
 const updateUserProfile = asyncHandler(async (req, res) => {
-    const updates = req.body;
+    // Access form data from req.body (multer parses it)
+    const updates = { ...req.body };
 
     const disallowedFields = [
         "email",
@@ -277,6 +278,17 @@ const updateUserProfile = asyncHandler(async (req, res) => {
 
     if (updates.fullName) {
         updates.fullNameLower = updates.fullName.toLowerCase();
+    }
+
+    // Handle profile image upload if file is provided
+    if (req.file) {
+        const uploadResult = await uploadBufferToBunny(req.file.buffer, "profiles");
+
+        if (!uploadResult || !uploadResult.secure_url) {
+            throw new ApiError(500, "Failed to upload image to Bunny.net");
+        }
+
+        updates.profileImageUrl = uploadResult.secure_url;
     }
 
     const updatedUser = await User.findByIdAndUpdate(

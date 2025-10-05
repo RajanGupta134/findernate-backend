@@ -14,7 +14,7 @@ router.route("/register").post(registerUser);
 router.route("/login").post(loginUser);
 router.route("/logout").post(verifyJWT, logOutUser);
 router.route("/profile").get(verifyJWT, getUserProfile);
-router.route("/profile").put(verifyJWT, updateUserProfile);
+router.route("/profile").put(verifyJWT, upload.single("profileImage"), updateUserProfile);
 router.route("/profile/change-password").put(verifyJWT, changePassword);
 router.route("/profile").delete(verifyJWT, deleteAccount);
 router.route("/profile/search").get(verifyJWT, getBlockedUsersMiddleware, searchUsers);
