@@ -1,5 +1,6 @@
 import mongoose from 'mongoose';
 
+// Instagram-style saved posts: Always private, only visible to the user who saved them
 const SavedPostSchema = new mongoose.Schema({
     userId: {
         type: mongoose.Schema.Types.ObjectId,
@@ -12,11 +13,6 @@ const SavedPostSchema = new mongoose.Schema({
         ref: 'Post',
         required: true,
         index: true
-    },
-    privacy: {
-        type: String,
-        enum: ["private", "public"],
-        default: 'private'
     },
     savedAt: {
         type: Date,

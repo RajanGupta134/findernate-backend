@@ -20,7 +20,7 @@ import { likePost, unlikePost, likeComment, unlikeComment } from "../controllers
 import { createComment, getCommentsByPost, getCommentById, updateComment, deleteComment } from "../controllers/comment.controllers.js";
 import { getNotifications, markNotificationAsRead, markAllNotificationsAsRead, deleteNotification } from "../controllers/notification.controllers.js";
 import { getProfileTabContent } from "../controllers/switch.controllers.js";
-import { savePost, unsavePost, toggleSavedPostVisibility, checkPostSaved, getPrivateSavedPosts, getPublicSavedPosts, getOtherUserPublicSavedPosts } from "../controllers/savePost.controllers.js";
+import { savePost, unsavePost, getSavedPosts, checkPostSaved } from "../controllers/savePost.controllers.js";
 import { reportContent, getReports, updateReportStatus } from "../controllers/report.controllers.js";
 import { trackPostInteraction, hidePost, batchTrackInteractions, getUserInteractionHistory } from "../controllers/postInteraction.controllers.js";
 
@@ -62,13 +62,10 @@ router.route("/comment/:commentId").get(verifyJWT, getCommentById);
 router.route("/comment/:commentId").put(verifyJWT, updateComment);
 router.route("/comment/:commentId").delete(verifyJWT, deleteComment);
 
-// Save post routes
+// Save post routes (Instagram-style: Always private, only visible to owner)
 router.route("/save").post(verifyJWT, savePost);
 router.route("/save/:postId").delete(verifyJWT, unsavePost);
-router.route("/save/toggle-visibility").patch(verifyJWT, toggleSavedPostVisibility);
-router.route("/saved/private").get(verifyJWT, getPrivateSavedPosts);
-router.route("/saved/public").get(verifyJWT, getPublicSavedPosts);
-router.route("/saved/user/:userId").get(getOtherUserPublicSavedPosts);
+router.route("/saved").get(verifyJWT, getSavedPosts);
 router.route("/saved/check/:postId").get(verifyJWT, checkPostSaved);
 
 // Report routes
