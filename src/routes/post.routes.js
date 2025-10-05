@@ -13,8 +13,6 @@ import {
     getMyPosts,
     getPostById,
     deleteContent,
-    updatePostPrivacy,
-    getPostPrivacyStatus,
     editPost,
 } from "../controllers/post.controllers.js";
 import { getHomeFeed } from "../controllers/homeFeed.controllers.js";
@@ -83,9 +81,6 @@ router.route("/interaction/track").post(verifyJWT, trackPostInteraction);
 router.route("/interaction/batch").post(verifyJWT, batchTrackInteractions);
 router.route("/interaction/hide").post(verifyJWT, hidePost);
 router.route("/interaction/history").get(verifyJWT, getUserInteractionHistory);
-// Post privacy routes
-router.route("/:postId/privacy").put(verifyJWT, updatePostPrivacy);
-router.route("/:postId/privacy").get(verifyJWT, getPostPrivacyStatus);
 
 // Edit post route
 router.route("/edit/:postId").put(verifyJWT, editPost);

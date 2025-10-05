@@ -1268,51 +1268,8 @@ const checkUsernameAvailability = asyncHandler(async (req, res) => {
     }
 });
 
-// Toggle Account Privacy (Private/Public)
-const toggleAccountPrivacy = asyncHandler(async (req, res) => {
-    const userId = req.user._id;
 
-    try {
-        const user = await User.findById(userId);
-
-        if (!user) {
-            throw new ApiError(404, "User not found");
-        }
-
-        // If user is in full private mode, can't use regular privacy toggle
-        if (user.isFullPrivate) {
-            throw new ApiError(400, "Cannot toggle basic privacy while in full private mode. Please disable full private mode first.");
-        }
-
-        // Toggle: private -> public, public -> private
-        const newPrivacy = user.privacy === "private" ? "public" : "private";
-        user.privacy = newPrivacy;
-        await user.save();
-
-        // Update all posts that haven't been manually touched to match account privacy
-        await Post.updateMany(
-            {
-                userId: userId,
-                "settings.isPrivacyTouched": { $ne: true }
-            },
-            {
-                $set: { "settings.privacy": newPrivacy }
-            }
-        );
-
-        return res.status(200).json(
-            new ApiResponse(200, {
-                privacy: user.privacy,
-                isPrivate: user.privacy === "private",
-                isFullPrivate: user.isFullPrivate
-            }, `Account is now ${user.privacy}`)
-        );
-    } catch (error) {
-        throw new ApiError(500, "Error toggling account privacy", [error.message]);
-    }
-});
-
-// Toggle Full Private Account Mode
+// Toggle Account Privacy Mode (like Instagram)
 const toggleFullPrivateAccount = asyncHandler(async (req, res) => {
     const userId = req.user._id;
 
@@ -1323,42 +1280,45 @@ const toggleFullPrivateAccount = asyncHandler(async (req, res) => {
             throw new ApiError(404, "User not found");
         }
 
-        // Toggle full private mode
-        const newFullPrivateState = !user.isFullPrivate;
+        // Toggle privacy: private <-> public
+        const newPrivacyState = user.privacy === "private" ? "public" : "private";
+        const newFullPrivateState = newPrivacyState === "private";
+
+        user.privacy = newPrivacyState;
         user.isFullPrivate = newFullPrivateState;
 
-        // When switching to full private, set basic privacy to private as well
-        if (newFullPrivateState) {
-            user.privacy = 'private';
+        // Update ALL posts to match account privacy (like Instagram)
+        await Post.updateMany(
+            { userId: userId },
+            { $set: { "settings.privacy": newPrivacyState } }
+        );
 
-            // Update all posts that haven't been manually touched to private
-            await Post.updateMany(
-                {
-                    userId: userId,
-                    "settings.isPrivacyTouched": { $ne: true }
-                },
-                {
-                    $set: { "settings.privacy": "private" }
-                }
-            );
-        }
-        // When switching back from full private, restore individual post privacy settings
-        // Individual privacy settings will take effect again automatically
+        // Also update Reels privacy
+        await Reel.updateMany(
+            { userId: userId },
+            { $set: { "settings.privacy": newPrivacyState } }
+        );
+
+        // Also update Stories privacy
+        await Story.updateMany(
+            { userId: userId },
+            { $set: { "settings.privacy": newPrivacyState } }
+        );
 
         await user.save();
 
         return res.status(200).json(
             new ApiResponse(200, {
-                isFullPrivate: user.isFullPrivate,
                 privacy: user.privacy,
                 isPrivate: user.privacy === "private",
+                isFullPrivate: user.isFullPrivate,
                 message: newFullPrivateState
-                    ? "Full private mode enabled - all posts are now private regardless of individual settings"
-                    : "Full private mode disabled - individual post privacy settings will now take effect"
-            }, `Full private account ${newFullPrivateState ? 'enabled' : 'disabled'}`)
+                    ? "Account is now private - all content is private"
+                    : "Account is now public - all content is public"
+            }, `Account privacy ${newFullPrivateState ? 'enabled' : 'disabled'}`)
         );
     } catch (error) {
-        throw new ApiError(500, "Error toggling full private account", [error.message]);
+        throw new ApiError(500, "Error toggling account privacy", [error.message]);
     }
 });
 
@@ -1380,7 +1340,6 @@ export {
     checkTokenExpiry,
     togglePhoneNumberVisibility,
     toggleAddressVisibility,
-    toggleAccountPrivacy,
     trackSearch,
     getPopularSearches,
     blockUser,
