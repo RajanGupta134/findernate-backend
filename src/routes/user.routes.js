@@ -53,7 +53,7 @@ router.get("/profile/other", verifyJWT, getOtherUserProfile);
 // Privacy settings routes
 router.put("/privacy/phone-number", verifyJWT, togglePhoneNumberVisibility);
 router.put("/privacy/address", verifyJWT, toggleAddressVisibility);
-router.put("/privacy/private/account", verifyJWT, toggleFullPrivateAccount);
+router.put("/privacy/account", verifyJWT, toggleFullPrivateAccount);
 
 // Block user routes
 router.post("/block", verifyJWT, blockUser);
