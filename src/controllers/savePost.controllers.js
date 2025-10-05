@@ -70,6 +70,13 @@ const unsavePost = asyncHandler(async (req, res) => {
     }
 
     try {
+        // Check if the post exists
+        const post = await Post.findById(postId);
+
+        if (!post) {
+            throw new ApiError(404, "Post not found");
+        }
+
         const result = await SavedPost.findOneAndDelete({ userId, postId });
 
         if (!result) {
@@ -153,6 +160,13 @@ const checkPostSaved = asyncHandler(async (req, res) => {
     }
 
     try {
+        // Check if the post exists
+        const post = await Post.findById(postId);
+
+        if (!post) {
+            throw new ApiError(404, "Post not found");
+        }
+
         const isSaved = await SavedPost.exists({ userId, postId });
 
         return res.status(200).json(
