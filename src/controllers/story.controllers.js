@@ -4,6 +4,7 @@ import { ApiError } from "../utlis/ApiError.js";
 import { uploadBufferToBunny } from "../utlis/bunny.js";
 import { asyncHandler } from "../utlis/asyncHandler.js";
 import { User } from "../models/user.models.js";
+import { checkContentVisibility } from "../middlewares/privacy.middleware.js";
 
 // 1. Upload Story
 export const uploadStory = asyncHandler(async (req, res) => {
@@ -61,6 +62,14 @@ export const fetchStoriesFeed = asyncHandler(async (req, res) => {
 // 3. Fetch Stories by user id
 export const fetchStoriesByUser = asyncHandler(async (req, res) => {
     const { userId } = req.params;
+    const viewerId = req.user?._id;
+
+    // ✅ Check privacy: verify if viewer can see this user's content
+    const canView = await checkContentVisibility(viewerId, userId);
+    if (!canView) {
+        throw new ApiError(403, "You don't have permission to view this user's stories");
+    }
+
     const now = new Date();
     const stories = await Story.find({
         userId,
@@ -125,7 +134,14 @@ export const fetchStoryViewers = asyncHandler(async (req, res) => {
 // 6. Fetch archived stories by user
 export const fetchArchivedStoriesByUser = asyncHandler(async (req, res) => {
     const { userId } = req.params;
+    const viewerId = req.user?._id;
     const { page = 1, limit = 10 } = req.query;
+
+    // ✅ Check privacy: verify if viewer can see this user's content
+    const canView = await checkContentVisibility(viewerId, userId);
+    if (!canView) {
+        throw new ApiError(403, "You don't have permission to view this user's archived stories");
+    }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);
 

@@ -2,6 +2,7 @@ import { asyncHandler } from "../utlis/asyncHandler.js";
 import Post from "../models/userPost.models.js";
 import { User } from "../models/user.models.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
+import { getViewableUserIds } from "../middlewares/privacy.middleware.js";
 
 
 // Simple in-memory cache
@@ -35,10 +36,15 @@ export const getSuggestedReels = asyncHandler(async (req, res) => {
         const limitNum = Number(limit);
         const skip = (pageNum - 1) * limitNum;
 
-        // Build match criteria (excluding blocked users)
+        // ✅ Get viewable user IDs based on privacy settings and following relationships
+        // For logged-out users (currentUserId is null), this returns only users with public privacy
+        // For logged-in users, this returns their following + their own posts + public users
+        const viewableUserIds = await getViewableUserIds(currentUserId);
+
+        // Build match criteria (excluding blocked users and respecting privacy)
         const matchCriteria = {
             status: { $in: ["published", "scheduled"] },
-            userId: { $nin: blockedUsers }
+            userId: { $in: viewableUserIds, $nin: blockedUsers }
         };
 
         // Filter by postType if specified (reel, photo, video, story)
