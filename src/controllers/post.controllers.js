@@ -12,7 +12,10 @@ import { filterPostsByPrivacy, canViewPost } from "../utlis/postPrivacy.js";
 import { User } from "../models/user.models.js";
 import Follower from "../models/follower.models.js";
 import Like from "../models/like.models.js";
-// import Comment from "../models/comment.models.mjs";
+import { CacheManager } from "../utlis/cache.utils.js";
+import { redisClient } from "../config/redis.config.js";
+import Comment from "../models/comment.models.js";
+import SavedPost from "../models/savedPost.models.js";
 
 const extractMediaFiles = (files) => {
     const allFiles = [];
@@ -957,6 +960,43 @@ export const deleteReel = asyncHandler(async (req, res) => {
     );
 });
 
+/**
+ * Helper function to invalidate all caches when content is deleted
+ * Ensures deleted posts/reels/stories are removed from all feeds immediately
+ */
+const invalidatePostCaches = async (postId, userId) => {
+    try {
+        // 1. Invalidate all user feeds (home feed, explore, trending)
+        const pattern1 = 'fn:user:*:feed:*';
+        const pattern2 = 'fn:posts:trending:*';
+        const pattern3 = 'fn:explore:feed:*';
+        const pattern4 = 'fn:reels:*';
+
+        await Promise.allSettled([
+            CacheManager.delPattern(pattern1),
+            CacheManager.delPattern(pattern2),
+            CacheManager.delPattern(pattern3),
+            CacheManager.delPattern(pattern4)
+        ]);
+
+        // 2. Invalidate Redis cache for reels section
+        // This ensures the reel is removed from the getSuggestedReels cache
+        try {
+            const reelKeys = await redisClient.keys('fn:reels:*');
+            if (reelKeys.length > 0) {
+                await redisClient.del(...reelKeys);
+            }
+        } catch (err) {
+            console.error('Redis reel cache clear error:', err);
+        }
+
+        console.log(`✅ Cache invalidated for deleted content: ${postId}`);
+    } catch (error) {
+        console.error('Cache invalidation error:', error);
+        // Don't throw - cache invalidation failure shouldn't block deletion
+    }
+};
+
 // Common delete function - handles posts, stories, and reels using postId
 export const deleteContent = asyncHandler(async (req, res) => {
     const { postId } = req.params;
@@ -1019,12 +1059,15 @@ export const deleteContent = asyncHandler(async (req, res) => {
                 { $pull: { posts: postId } }
             );
 
-            // Delete related data
+            // Delete related data (likes, comments, saved posts, post interactions)
             await Promise.allSettled([
                 Like.deleteMany({ postId: postId }),
-                // Comment.deleteMany({ postId: postId }), // Uncomment when Comment model is available
-                // SavedPost.deleteMany({ postId: postId }) // Uncomment when SavedPost model is available
+                Comment.deleteMany({ postId: postId }),
+                SavedPost.deleteMany({ postId: postId })
             ]);
+
+            // ✅ Invalidate all caches to remove post from everywhere
+            await invalidatePostCaches(postId, userId);
         }
 
         // 2. If not found in Post, try Story collection
@@ -1058,6 +1101,9 @@ export const deleteContent = asyncHandler(async (req, res) => {
 
                 // Delete story from database
                 await Story.findByIdAndDelete(postId);
+
+                // ✅ Invalidate all caches to remove story from everywhere
+                await invalidatePostCaches(postId, userId);
             }
         }
 
@@ -1094,8 +1140,12 @@ export const deleteContent = asyncHandler(async (req, res) => {
                 // Delete related data
                 await Promise.allSettled([
                     Like.deleteMany({ postId: postId }),
-                    // Comment.deleteMany({ reelId: postId }), // Uncomment when Comment model supports reels
+                    Comment.deleteMany({ postId: postId }),
+                    SavedPost.deleteMany({ postId: postId })
                 ]);
+
+                // ✅ Invalidate all caches to remove reel from everywhere
+                await invalidatePostCaches(postId, userId);
             }
         }
 
