@@ -101,7 +101,7 @@ const shareQRCode = asyncHandler(async (req, res) => {
             },
             qrCode: {
                 dataURL: qrDataURL,
-                shareableURL: `https://findernate-frontend-pq94.vercel.app/userprofile/${username}`,
+                shareableURL: `https://findernate.com/userprofile/${username}`,
                 size: 256,
                 style: 'gold-yellow'
             },
@@ -132,7 +132,7 @@ const shareMyQRCode = asyncHandler(async (req, res) => {
         data: {
             qrCode: {
                 dataURL: qrDataURL,
-                shareableURL: `https://findernate-frontend-pq94.vercel.app/profile`,
+                shareableURL: `https://findernate.com/profile`,
                 size: 256,
                 style: 'gold-yellow'
             },

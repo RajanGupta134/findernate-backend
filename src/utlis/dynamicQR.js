@@ -17,7 +17,7 @@ const generateStyledQR = async (username, styling = {}) => {
             backgroundColor = '#FFFFFF',
             frameStyle = 'none',
             profileImageUrl = null,
-            baseUrl = 'https://findernate-frontend-pq94.vercel.app',
+            baseUrl = 'https://findernate.com',
         } = styling;
 
         const profileUrl = `${baseUrl}/userprofile/${username}?utm_source=qr_styled`;
@@ -63,7 +63,7 @@ const generateOwnStyledQR = async (styling = {}) => {
             backgroundColor = '#FFFFFF',
             frameStyle = 'none',
             profileImageUrl = null,
-            baseUrl = 'https://findernate-frontend-pq94.vercel.app',
+            baseUrl = 'https://findernate.com',
         } = styling;
 
         const profileUrl = `${baseUrl}/profile?utm_source=qr_styled`;
