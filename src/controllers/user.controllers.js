@@ -882,7 +882,6 @@ const resetPasswordWithOTP = asyncHandler(async (req, res) => {
 
 const getOtherUserProfile = asyncHandler(async (req, res) => {
     const { identifier } = req.query;
-    const currentUserId = req.user._id;
     const blockedUsers = req.blockedUsers || [];
 
     if (!identifier) {
@@ -913,7 +912,6 @@ const getOtherUserProfile = asyncHandler(async (req, res) => {
     // Check if current user follows the target user
     const isFollowing = await Follower.findOne({
         userId: targetUser._id,
-        followerId: currentUserId
     });
 
     // Calculate counts

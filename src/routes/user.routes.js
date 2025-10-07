@@ -25,7 +25,7 @@ router.route("/send-reset-otp").post(sendPasswordResetOTP);
 router.route("/reset-password").post(resetPasswordWithOTP);
 router.route("/check-token").post(checkTokenExpiry);
 router.route("/searchAllContent").get(optionalVerifyJWT, getBlockedUsersMiddleware, cacheSearchResults, searchAllContent);
-router.route("/profile/other").get(verifyJWT, getBlockedUsersMiddleware, getOtherUserProfile);
+router.route("/profile/other").get(getBlockedUsersMiddleware, getOtherUserProfile);
 
 // Follower routes
 router.post("/follow", verifyJWT, followUser);
