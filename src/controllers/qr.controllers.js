@@ -69,7 +69,6 @@ const getMyQRCode = asyncHandler(async (req, res) => {
 // Share QR code as base64 data URL for easy sharing
 const shareQRCode = asyncHandler(async (req, res) => {
     const { username } = req.params;
-    const { targetUsername } = req.user; // User who is sharing
     
     if (!isValidUsername(username)) {
         throw new ApiError(400, "Invalid username format");
@@ -105,7 +104,6 @@ const shareQRCode = asyncHandler(async (req, res) => {
                 size: 256,
                 style: 'gold-yellow'
             },
-            sharedBy: targetUsername,
             generatedAt: new Date().toISOString()
         },
         message: "QR code ready for sharing"
@@ -150,7 +148,6 @@ const shareMyQRCode = asyncHandler(async (req, res) => {
 // Share QR code image for chat (returns PNG image)
 const shareQRForChat = asyncHandler(async (req, res) => {
     const { username } = req.params;
-    const { username: senderUsername } = req.user;
     
     if (!isValidUsername(username)) {
         throw new ApiError(400, "Invalid username format");
@@ -175,11 +172,10 @@ const shareQRForChat = asyncHandler(async (req, res) => {
     // Set headers for chat image sharing
     res.set({
         'Content-Type': 'image/png',
-        'Cache-Control': 'private, max-age=300', // 5 minutes cache for chat
+        'Cache-Control': 'public, max-age=300', // 5 minutes cache for chat
         'Content-Disposition': `inline; filename="chat-qr-${username}.png"`,
         'X-Chat-QR': 'true',
         'X-Target-User': targetUser.username,
-        'X-Shared-By': senderUsername,
         'X-Generated-At': new Date().toISOString()
     });
     
