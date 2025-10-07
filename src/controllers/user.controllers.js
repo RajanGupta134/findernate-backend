@@ -19,6 +19,27 @@ import SearchHistory from "../models/searchHistory.models.js";
 import Media from "../models/mediaUser.models.js";
 import Block from "../models/block.models.js";
 import jwt from "jsonwebtoken";
+import SavedPost from "../models/savedPost.models.js";
+import Cart from "../models/cart.models.js";
+import Wishlist from "../models/wishlist.models.js";
+import Product from "../models/product.models.js";
+import Feedback from "../models/feedback.models.js";
+import BusinessRating from "../models/businessRating.models.js";
+import PostInteraction from "../models/postInteraction.models.js";
+import Subscription from "../models/subscription.models.js";
+import PushSubscription from "../models/pushSubscription.models.js";
+import Payment from "../models/payment.models.js";
+import Draft from "../models/draft.models.js";
+import Device from "../models/device.models.js";
+import Chat from "../models/chat.models.js";
+import Message from "../models/message.models.js";
+import Activity from "../models/activity.models.js";
+import Notification from "../models/notification.models.js";
+import Report from "../models/report.models.js";
+import Following from "../models/following.models.js";
+import FollowRequest from "../models/followRequest.models.js";
+import Order from "../models/order.models.js";
+import ContactRequest from "../models/contactRequest.models.js";
 import { 
     generateRealtimeUsernameSuggestions, 
     isUsernameAvailable, 
@@ -376,18 +397,73 @@ const deleteAccount = asyncHandler(async (req, res) => {
     }
     // --- End media cleanup ---
 
+    // Get user's product IDs before deletion
+    const userProductIds = await Product.find({ userId }).distinct('_id');
+
     // Clean up all user-related data
     const cleanupResults = await Promise.allSettled([
         // Delete all posts by the user
         Post.deleteMany({ userId }),
+        // Delete all reels by the user
+        Reel.deleteMany({ userId }),
         // Delete all comments by the user
         Comment.deleteMany({ userId }),
         // Delete all likes by the user
         Like.deleteMany({ userId }),
         // Delete business profile if exists
         Business.deleteOne({ userId }),
+        // Delete business ratings by the user
+        BusinessRating.deleteMany({ userId }),
         // Delete all stories by the user
         Story.deleteMany({ userId }),
+        // Delete all drafts by the user
+        Draft.deleteMany({ userId }),
+        // Delete all products by the user
+        Product.deleteMany({ userId }),
+        // Delete user's cart
+        Cart.deleteOne({ userId }),
+        // Delete user's wishlist
+        Wishlist.deleteOne({ userId }),
+        // Delete user's orders
+        Order.deleteMany({ userId }),
+        // Delete saved posts by the user
+        SavedPost.deleteMany({ userId }),
+        // Delete search history
+        SearchHistory.deleteMany({ userId }),
+        // Delete post interactions
+        PostInteraction.deleteMany({ userId }),
+        // Delete subscriptions
+        Subscription.deleteMany({ userId }),
+        Subscription.deleteMany({ subscriberId: userId }),
+        // Delete push subscriptions
+        PushSubscription.deleteMany({ userId }),
+        // Delete payments
+        Payment.deleteMany({ userId }),
+        // Delete devices
+        Device.deleteMany({ userId }),
+        // Delete chats where user is participant
+        Chat.deleteMany({ participants: userId }),
+        // Delete messages by the user
+        Message.deleteMany({ senderId: userId }),
+        // Delete activities
+        Activity.deleteMany({ userId }),
+        Activity.deleteMany({ targetUserId: userId }),
+        // Delete notifications
+        Notification.deleteMany({ userId }),
+        Notification.deleteMany({ senderId: userId }),
+        // Delete reports by the user
+        Report.deleteMany({ reporterId: userId }),
+        // Delete feedback by the user
+        Feedback.deleteMany({ userId }),
+        // Delete follow requests
+        FollowRequest.deleteMany({ from: userId }),
+        FollowRequest.deleteMany({ to: userId }),
+        // Delete contact requests
+        ContactRequest.deleteMany({ userId }),
+        ContactRequest.deleteMany({ contactUserId: userId }),
+        // Delete blocking records
+        Block.deleteMany({ blockerId: userId }),
+        Block.deleteMany({ blockedUserId: userId }),
         // Remove user from followers/following lists
         User.updateMany(
             { followers: userId },
@@ -406,9 +482,21 @@ const deleteAccount = asyncHandler(async (req, res) => {
         Like.deleteMany({ postId: { $in: user.posts || [] } }),
         // Remove comments on user's posts
         Comment.deleteMany({ postId: { $in: user.posts || [] } }),
-        // Delete follower records
+        // Delete follower/following records
         Follower.deleteMany({ userId }),
-        Follower.deleteMany({ followerId: userId })
+        Follower.deleteMany({ followerId: userId }),
+        Following.deleteMany({ userId }),
+        Following.deleteMany({ followingId: userId }),
+        // Remove user from cart items of other users (if they added this user's products)
+        Cart.updateMany(
+            { 'items.productId': { $in: userProductIds } },
+            { $pull: { items: { productId: { $in: userProductIds } } } }
+        ),
+        // Remove user's products from wishlists
+        Wishlist.updateMany(
+            { 'products': { $in: userProductIds } },
+            { $pull: { products: { $in: userProductIds } } }
+        )
     ]);
 
     // Delete the user account directly from the collection
@@ -426,10 +514,18 @@ const deleteAccount = asyncHandler(async (req, res) => {
                     mediaCleanup,
                     cleanupResults: cleanupResults.map((result, index) => ({
                         operation: [
-                            "posts", "comments", "likes", "business", "stories",
-                            "followers_cleanup", "following_cleanup", "mentions_cleanup",
-                            "post_likes_cleanup", "post_comments_cleanup",
-                            "follower_records_cleanup", "following_records_cleanup"
+                            "posts", "reels", "comments", "likes", "business", "business_ratings",
+                            "stories", "drafts", "products", "cart", "wishlist", "orders",
+                            "saved_posts", "search_history", "post_interactions",
+                            "subscriptions_user", "subscriptions_subscriber", "push_subscriptions",
+                            "payments", "devices", "chats", "messages", "activities_user",
+                            "activities_target", "notifications_user", "notifications_sender",
+                            "reports", "feedback", "follow_requests_from", "follow_requests_to",
+                            "contact_requests_user", "contact_requests_contact", "blocks_blocker",
+                            "blocks_blocked", "followers_cleanup", "following_cleanup",
+                            "mentions_cleanup", "post_likes_cleanup", "post_comments_cleanup",
+                            "follower_records", "follower_records_reverse", "following_records",
+                            "following_records_reverse", "cart_products_cleanup", "wishlist_products_cleanup"
                         ][index],
                         status: result.status,
                         ...(result.status === 'rejected' && { error: result.reason?.message })

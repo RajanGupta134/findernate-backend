@@ -66,21 +66,25 @@ export const switchTobusinessprofile = asyncHandler(async (req, res) => {
             new ApiResponse(200, {
                 alreadyBusiness: true,
                 businessProfile: businessObj,
+                businessId: business._id,
                 message: user.isBusinessProfile ? "Already on business profile" : "Switched to existing business profile"
             }, "Switched to business profile")
         );
     }
 
-    // No business profile exists, just switch to business mode
+    // No business profile exists, just generate businessId and switch mode
+    // Generate a new ObjectId for the future business profile
+    const businessId = new mongoose.Types.ObjectId();
+
     user.isBusinessProfile = true;
-    user.businessProfileId = null; // No business profile created yet
+    user.businessProfileId = businessId;
     await user.save();
 
     return res.status(200).json(
         new ApiResponse(200, {
             alreadyBusiness: false,
             businessProfile: null,
-            businessId: null,
+            businessId: businessId,
             message: "Switched to business account mode. Create your business profile to get started."
         }, "Switched to business account mode")
     );
@@ -94,8 +98,10 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
     if (!user) throw new ApiError(404, "User not found");
 
     // Check if user already has business profile
-    const existingBusiness = await Business.findOne({ userId });
-    if (existingBusiness) {
+    let existingBusiness = await Business.findOne({ userId });
+
+    // If business profile exists and has businessName, it's already complete
+    if (existingBusiness && existingBusiness.businessName) {
         throw new ApiError(409, "Business profile already exists");
     }
 
@@ -210,42 +216,78 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
         }
     }
 
-    // Create the business profile
-    const businessData = {
-        userId,
-        businessName: trimmedBusinessName,
-        businessType,
-        description,
-        category: normalizedCategory,
-        subcategory: normalizedSubcategory,
-        contact,
-        location: resolvedLocation,
-        rating,
-        tags: uniqueTags,
-        website,
-        plan: 'plan1',
-        subscriptionStatus: 'active'
-    };
+    let business;
 
-    // Only include gstNumber if it has a valid value
-    if (gstNumber && gstNumber.trim() !== '') {
-        businessData.gstNumber = gstNumber;
+    if (existingBusiness) {
+        // Update existing minimal business profile
+        existingBusiness.businessName = trimmedBusinessName;
+        if (businessType) existingBusiness.businessType = businessType;
+        if (description) existingBusiness.description = description;
+        if (normalizedCategory) existingBusiness.category = normalizedCategory;
+        if (normalizedSubcategory) existingBusiness.subcategory = normalizedSubcategory;
+        if (contact) existingBusiness.contact = contact;
+        if (resolvedLocation) existingBusiness.location = resolvedLocation;
+        if (rating) existingBusiness.rating = rating;
+        existingBusiness.tags = uniqueTags;
+        if (website) existingBusiness.website = website;
+
+        // Only include gstNumber if it has a valid value
+        if (gstNumber && gstNumber.trim() !== '') {
+            existingBusiness.gstNumber = gstNumber;
+        }
+
+        // Only include aadhaarNumber if it has a valid value
+        if (aadhaarNumber && aadhaarNumber.trim() !== '') {
+            existingBusiness.aadhaarNumber = aadhaarNumber;
+        }
+
+        await existingBusiness.save();
+        business = existingBusiness;
+    } else {
+        // Create new business profile using pre-generated businessProfileId if exists
+        const businessData = {
+            userId,
+            businessName: trimmedBusinessName,
+            businessType,
+            description,
+            category: normalizedCategory,
+            subcategory: normalizedSubcategory,
+            contact,
+            location: resolvedLocation,
+            rating,
+            tags: uniqueTags,
+            website,
+            plan: 'plan1',
+            subscriptionStatus: 'active'
+        };
+
+        // Use pre-generated businessProfileId if it exists
+        if (user.businessProfileId) {
+            businessData._id = user.businessProfileId;
+        }
+
+        // Only include gstNumber if it has a valid value
+        if (gstNumber && gstNumber.trim() !== '') {
+            businessData.gstNumber = gstNumber;
+        }
+
+        // Only include aadhaarNumber if it has a valid value
+        if (aadhaarNumber && aadhaarNumber.trim() !== '') {
+            businessData.aadhaarNumber = aadhaarNumber;
+        }
+
+        business = await Business.create(businessData);
+
+        // Update user profile if businessProfileId wasn't set
+        if (!user.businessProfileId) {
+            user.isBusinessProfile = true;
+            user.businessProfileId = business._id;
+            await user.save();
+        }
     }
 
-    // Only include aadhaarNumber if it has a valid value
-    if (aadhaarNumber && aadhaarNumber.trim() !== '') {
-        businessData.aadhaarNumber = aadhaarNumber;
-    }
-
-    const business = await Business.create(businessData);
-
-    // Update user profile
-    user.isBusinessProfile = true;
-    user.businessProfileId = business._id;
-    await user.save();
-
-    return res.status(201).json(
-        new ApiResponse(201, {
+    return res.status(existingBusiness ? 200 : 201).json(
+        new ApiResponse(existingBusiness ? 200 : 201, {
             business,
             businessId: business._id,
             planSelectionRequired: true
@@ -1057,19 +1099,13 @@ export const switchToPersonalAccount = asyncHandler(async (req, res) => {
         throw new ApiError(400, "User is already on a personal account");
     }
 
-    // Find the business profile
-    const business = await Business.findOne({ userId });
-    if (!business) {
-        throw new ApiError(404, "Business profile not found");
-    }
-
     // Switch back to personal account
     user.isBusinessProfile = false;
-    user.businessProfileId = undefined;
+    // Keep businessProfileId so user can switch back later
     await user.save();
 
-    // Note: We don't delete the business profile, just disable it
-    // This allows users to switch back to business mode later without losing data
+    // Note: We keep the businessProfileId so user can switch back to business mode later
+    // We also don't delete the business profile (if it exists), just disable the mode
 
     return res.status(200).json(
         new ApiResponse(200, {
