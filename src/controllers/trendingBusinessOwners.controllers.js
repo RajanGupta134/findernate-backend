@@ -58,6 +58,7 @@ const getTrendingBusinessOwners = asyncHandler(async (req, res) => {
         // Return only business profiles
         const businessProfiles = trendingBusinesses.map(business => ({
             _id: business._id,
+            userId: business.userId, // Owner's user ID for profile navigation
             businessName: business.businessName,
             category: business.category,
             description: business.description,
