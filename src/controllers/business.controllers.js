@@ -1134,24 +1134,29 @@ export const toggleProductPosts = asyncHandler(async (req, res) => {
         throw new ApiError(403, "Unauthorized to toggle product posts for this business");
     }
 
+    // Find or create business with minimal data using the businessId from switchTobusinessprofile
     let business = await Business.findById(businessId);
 
-    // If business doesn't exist, create minimal profile
     if (!business) {
+        // Create minimal business profile with just the businessId
         business = await Business.create({
             _id: businessId,
             userId,
             plan: 'plan1',
-            subscriptionStatus: 'active',
-            postSettings: {
-                allowProductPosts: true,
-                allowServicePosts: true
-            }
+            subscriptionStatus: 'active'
         });
     }
 
+    // Initialize postSettings if not exists
+    if (!business.postSettings) {
+        business.postSettings = {
+            allowProductPosts: true,
+            allowServicePosts: true
+        };
+    }
+
     // Toggle the current state
-    const currentState = business.postSettings?.allowProductPosts ?? true;
+    const currentState = business.postSettings.allowProductPosts ?? true;
     business.postSettings.allowProductPosts = !currentState;
     await business.save();
 
@@ -1182,24 +1187,29 @@ export const toggleServicePosts = asyncHandler(async (req, res) => {
         throw new ApiError(403, "Unauthorized to toggle service posts for this business");
     }
 
+    // Find or create business with minimal data using the businessId from switchTobusinessprofile
     let business = await Business.findById(businessId);
 
-    // If business doesn't exist, create minimal profile
     if (!business) {
+        // Create minimal business profile with just the businessId
         business = await Business.create({
             _id: businessId,
             userId,
             plan: 'plan1',
-            subscriptionStatus: 'active',
-            postSettings: {
-                allowProductPosts: true,
-                allowServicePosts: true
-            }
+            subscriptionStatus: 'active'
         });
     }
 
+    // Initialize postSettings if not exists
+    if (!business.postSettings) {
+        business.postSettings = {
+            allowProductPosts: true,
+            allowServicePosts: true
+        };
+    }
+
     // Toggle the current state
-    const currentState = business.postSettings?.allowServicePosts ?? true;
+    const currentState = business.postSettings.allowServicePosts ?? true;
     business.postSettings.allowServicePosts = !currentState;
     await business.save();
 
