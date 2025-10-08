@@ -62,7 +62,7 @@ export const getCommentsByPost = asyncHandler(async (req, res) => {
 
     const [comments, total] = await Promise.all([
         Comment.find({ postId, isDeleted: false })
-            .populate('userId', 'username fullName bio location')
+            .populate('userId', 'username fullName profileImageUrl bio location')
             .sort({ createdAt: 1 })
             .skip(skip)
             .limit(pageLimit)
@@ -119,7 +119,7 @@ export const getCommentById = asyncHandler(async (req, res) => {
     const skip = (pageNum - 1) * pageLimit;
 
     const comment = await Comment.findById(commentId)
-        .populate('userId', 'username fullName bio location')
+        .populate('userId', 'username fullName profileImageUrl bio location')
         .lean();
     if (!comment || comment.isDeleted) throw new ApiError(404, "Comment not found");
 
