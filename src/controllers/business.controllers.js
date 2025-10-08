@@ -1120,8 +1120,8 @@ export const toggleProductPosts = asyncHandler(async (req, res) => {
     const userId = req.user._id;
 
     const user = await User.findById(userId);
-    if (!user || !user.isBusinessProfile) {
-        throw new ApiError(403, "Only business profiles can toggle product posts");
+    if (!user || !user.businessProfileId) {
+        throw new ApiError(403, "Only users with a business ID can toggle product posts");
     }
 
     const business = await Business.findOne({ userId });
@@ -1146,8 +1146,8 @@ export const toggleServicePosts = asyncHandler(async (req, res) => {
     const userId = req.user._id;
 
     const user = await User.findById(userId);
-    if (!user || !user.isBusinessProfile) {
-        throw new ApiError(403, "Only business profiles can toggle service posts");
+    if (!user || !user.businessProfileId) {
+        throw new ApiError(403, "Only users with a business ID can toggle service posts");
     }
 
     const business = await Business.findOne({ userId });
