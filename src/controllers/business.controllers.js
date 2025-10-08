@@ -1134,9 +1134,20 @@ export const toggleProductPosts = asyncHandler(async (req, res) => {
         throw new ApiError(403, "Unauthorized to toggle product posts for this business");
     }
 
-    const business = await Business.findById(businessId);
+    let business = await Business.findById(businessId);
+
+    // If business doesn't exist, create minimal profile
     if (!business) {
-        throw new ApiError(404, "Business profile not found");
+        business = await Business.create({
+            _id: businessId,
+            userId,
+            plan: 'plan1',
+            subscriptionStatus: 'active',
+            postSettings: {
+                allowProductPosts: true,
+                allowServicePosts: true
+            }
+        });
     }
 
     // Toggle the current state
@@ -1171,9 +1182,20 @@ export const toggleServicePosts = asyncHandler(async (req, res) => {
         throw new ApiError(403, "Unauthorized to toggle service posts for this business");
     }
 
-    const business = await Business.findById(businessId);
+    let business = await Business.findById(businessId);
+
+    // If business doesn't exist, create minimal profile
     if (!business) {
-        throw new ApiError(404, "Business profile not found");
+        business = await Business.create({
+            _id: businessId,
+            userId,
+            plan: 'plan1',
+            subscriptionStatus: 'active',
+            postSettings: {
+                allowProductPosts: true,
+                allowServicePosts: true
+            }
+        });
     }
 
     // Toggle the current state
