@@ -1118,13 +1118,23 @@ export const switchToPersonalAccount = asyncHandler(async (req, res) => {
 // ✅ POST /api/v1/business/toggle-product-posts - Toggle product posts
 export const toggleProductPosts = asyncHandler(async (req, res) => {
     const userId = req.user._id;
+    const { businessId } = req.body;
 
-    const user = await User.findById(userId);
-    if (!user || !user.businessProfileId) {
-        throw new ApiError(403, "Only users with a business ID can toggle product posts");
+    if (!businessId) {
+        throw new ApiError(400, "Business ID is required");
     }
 
-    const business = await Business.findOne({ userId });
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new ApiError(404, "User not found");
+    }
+
+    // Verify the businessId belongs to this user
+    if (!user.businessProfileId || user.businessProfileId.toString() !== businessId) {
+        throw new ApiError(403, "Unauthorized to toggle product posts for this business");
+    }
+
+    const business = await Business.findById(businessId);
     if (!business) {
         throw new ApiError(404, "Business profile not found");
     }
@@ -1136,7 +1146,8 @@ export const toggleProductPosts = asyncHandler(async (req, res) => {
 
     return res.status(200).json(
         new ApiResponse(200, {
-            allowProductPosts: business.postSettings.allowProductPosts
+            allowProductPosts: business.postSettings.allowProductPosts,
+            businessId: business._id
         }, `Product posts ${business.postSettings.allowProductPosts ? 'enabled' : 'disabled'} successfully`)
     );
 });
@@ -1144,13 +1155,23 @@ export const toggleProductPosts = asyncHandler(async (req, res) => {
 // ✅ POST /api/v1/business/toggle-service-posts - Toggle service posts
 export const toggleServicePosts = asyncHandler(async (req, res) => {
     const userId = req.user._id;
+    const { businessId } = req.body;
 
-    const user = await User.findById(userId);
-    if (!user || !user.businessProfileId) {
-        throw new ApiError(403, "Only users with a business ID can toggle service posts");
+    if (!businessId) {
+        throw new ApiError(400, "Business ID is required");
     }
 
-    const business = await Business.findOne({ userId });
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new ApiError(404, "User not found");
+    }
+
+    // Verify the businessId belongs to this user
+    if (!user.businessProfileId || user.businessProfileId.toString() !== businessId) {
+        throw new ApiError(403, "Unauthorized to toggle service posts for this business");
+    }
+
+    const business = await Business.findById(businessId);
     if (!business) {
         throw new ApiError(404, "Business profile not found");
     }
@@ -1162,7 +1183,8 @@ export const toggleServicePosts = asyncHandler(async (req, res) => {
 
     return res.status(200).json(
         new ApiResponse(200, {
-            allowServicePosts: business.postSettings.allowServicePosts
+            allowServicePosts: business.postSettings.allowServicePosts,
+            businessId: business._id
         }, `Service posts ${business.postSettings.allowServicePosts ? 'enabled' : 'disabled'} successfully`)
     );
 });
