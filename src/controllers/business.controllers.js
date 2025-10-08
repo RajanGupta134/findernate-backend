@@ -72,12 +72,16 @@ export const switchTobusinessprofile = asyncHandler(async (req, res) => {
         );
     }
 
-    // No business profile exists, just generate businessId and switch mode
-    // Generate a new ObjectId for the future business profile
-    const businessId = new mongoose.Types.ObjectId();
+    // No business profile exists, use existing businessProfileId or generate a new one
+    let businessId = user.businessProfileId;
+
+    if (!businessId) {
+        // Generate a new ObjectId for the future business profile only if user doesn't have one
+        businessId = new mongoose.Types.ObjectId();
+        user.businessProfileId = businessId;
+    }
 
     user.isBusinessProfile = true;
-    user.businessProfileId = businessId;
     await user.save();
 
     return res.status(200).json(
