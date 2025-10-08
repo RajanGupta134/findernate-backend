@@ -1124,6 +1124,11 @@ export const toggleProductPosts = asyncHandler(async (req, res) => {
         throw new ApiError(403, "Only users with a business ID can toggle product posts");
     }
 
+    const business = await Business.findOne({ userId });
+    if (!business) {
+        throw new ApiError(404, "Business profile not found");
+    }
+
     // Toggle the current state
     const currentState = business.postSettings?.allowProductPosts ?? true;
     business.postSettings.allowProductPosts = !currentState;
@@ -1145,7 +1150,11 @@ export const toggleServicePosts = asyncHandler(async (req, res) => {
         throw new ApiError(403, "Only users with a business ID can toggle service posts");
     }
 
-   
+    const business = await Business.findOne({ userId });
+    if (!business) {
+        throw new ApiError(404, "Business profile not found");
+    }
+
     // Toggle the current state
     const currentState = business.postSettings?.allowServicePosts ?? true;
     business.postSettings.allowServicePosts = !currentState;
