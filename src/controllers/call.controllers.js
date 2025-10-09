@@ -605,13 +605,16 @@ export const endCall = asyncHandler(async (req, res) => {
                 throw new ApiError(403, 'You are not a participant in this call');
             }
 
-            // Check if call can be ended
+            // Check if call is already in a terminal state (idempotent behavior)
             if (call.status === 'ended' || call.status === 'declined' || call.status === 'missed') {
-                console.error('❌ Call already finished:', {
+                console.warn('⚠️  Call already finished (idempotent request):', {
                     currentStatus: call.status,
-                    endedAt: call.endedAt
+                    endedAt: call.endedAt,
+                    requestedEndReason: endReason
                 });
-                throw new ApiError(400, `Call has already ended with status: ${call.status}`);
+                // Don't throw error - return existing call data (idempotent behavior)
+                updatedCall = call;
+                return; // Exit transaction early, proceed to response
             }
 
             // Update call status
