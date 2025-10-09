@@ -514,6 +514,52 @@ export const updateUserStatus = asyncHandler(async (req, res) => {
     );
 });
 
+// PUT /api/v1/admin/users/:userId/blue-tick
+export const verifyBlueTick = asyncHandler(async (req, res) => {
+    if (!req.admin.permissions.manageUsers) {
+        throw new ApiError(403, "Insufficient permissions to manage users");
+    }
+
+    const { userId } = req.params;
+    const { isBlueTickVerified, reason } = req.body;
+
+    if (typeof isBlueTickVerified !== 'boolean') {
+        throw new ApiError(400, "isBlueTickVerified must be a boolean value");
+    }
+
+    const user = await User.findById(userId).select('-password -refreshToken');
+
+    if (!user) {
+        throw new ApiError(404, "User not found");
+    }
+
+    // Check if user has a business profile
+    if (!user.isBusinessProfile) {
+        throw new ApiError(400, "User must have a business profile to get blue tick verification");
+    }
+
+    user.isBlueTickVerified = isBlueTickVerified;
+    await user.save();
+
+    // Log admin activity
+    await req.admin.logActivity(
+        `blue_tick_${isBlueTickVerified ? 'verified' : 'unverified'}`,
+        'user',
+        userId,
+        `Blue tick verification ${isBlueTickVerified ? 'granted' : 'revoked'} for user: ${user.username}. Reason: ${reason || 'none'}`
+    );
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            userId: user._id,
+            username: user.username,
+            fullName: user.fullName,
+            isBusinessProfile: user.isBusinessProfile,
+            isBlueTickVerified: user.isBlueTickVerified
+        }, `Blue tick verification ${isBlueTickVerified ? 'granted' : 'revoked'} successfully`)
+    );
+});
+
 // ===============================
 // BUSINESS MANAGEMENT
 // ===============================

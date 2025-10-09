@@ -17,6 +17,7 @@ import {
     // User Management
     getAllUsers,
     updateUserStatus,
+    verifyBlueTick,
 
     // Business Management
     getAllBusinesses,
@@ -106,6 +107,11 @@ router.route("/users").get(
 router.route("/users/:userId/status").put(
     requirePermission('manageUsers'),
     updateUserStatus
+);
+
+router.route("/users/:userId/blue-tick").put(
+    requirePermission('manageUsers'),
+    verifyBlueTick
 );
 
 // ===============================

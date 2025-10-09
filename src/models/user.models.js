@@ -27,6 +27,7 @@ const UserSchema = new mongoose.Schema({
     posts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Post' }],
     isBusinessProfile: { type: Boolean, default: false },
     businessProfileId: { type: mongoose.Schema.Types.ObjectId, ref: 'Business' },
+    isBlueTickVerified: { type: Boolean, default: false },
     isEmailVerified: { type: Boolean, default: false },
     emailVerificationToken: { type: String },
     emailOTPExpiry: { type: Date },
