@@ -881,8 +881,19 @@ export const getAgoraAuthToken = asyncHandler(async (req, res) => {
 
     // Check if call is still active
     if (!['initiated', 'ringing', 'connecting', 'active'].includes(call.status)) {
-        console.error('❌ Call is not active:', { status: call.status });
-        throw new ApiError(400, 'Call is not active');
+        console.warn('⚠️  Token requested for inactive call:', {
+            status: call.status,
+            endedAt: call.endedAt,
+            endReason: call.endReason
+        });
+
+        // Return more descriptive error for recently ended calls
+        if (call.status === 'ended' && call.endedAt) {
+            const secondsSinceEnd = Math.floor((Date.now() - call.endedAt.getTime()) / 1000);
+            throw new ApiError(410, `Call has already ended (${secondsSinceEnd}s ago). Reason: ${call.endReason || 'unknown'}`);
+        }
+
+        throw new ApiError(400, `Call is not active. Current status: ${call.status}`);
     }
 
     try {
