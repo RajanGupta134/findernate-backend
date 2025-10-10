@@ -67,6 +67,12 @@ const CallSchema = new mongoose.Schema({
         default: 'normal'
     },
 
+    // 👤 Who ended the call
+    endedBy: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User'
+    },
+
     // 📱 Device/quality information
     metadata: {
         initiatorDevice: String,

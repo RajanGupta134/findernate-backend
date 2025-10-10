@@ -336,7 +336,9 @@ export const acceptCall = asyncHandler(async (req, res) => {
             console.log('📋 Call found:', {
                 callId: call._id,
                 status: call.status,
-                hasAgoraChannel: !!call.agoraChannel?.channelName
+                hasAgoraChannel: !!call.agoraChannel?.channelName,
+                initiatedAt: call.initiatedAt,
+                endedAt: call.endedAt
             });
 
             // Check if user is a participant
@@ -347,12 +349,28 @@ export const acceptCall = asyncHandler(async (req, res) => {
             }
 
             // Check if call is in the right status
-            if (!['initiated', 'ringing'].includes(call.status)) {
+            if (!['initiated', 'ringing', 'connecting'].includes(call.status)) {
                 console.error('❌ Invalid call status for acceptance:', {
                     currentStatus: call.status,
-                    allowedStatuses: ['initiated', 'ringing']
+                    allowedStatuses: ['initiated', 'ringing', 'connecting']
                 });
-                throw new ApiError(400, `Call cannot be accepted in current status: ${call.status}`);
+
+                // Provide more detailed error message
+                const statusMessages = {
+                    'ended': 'The call has already ended',
+                    'declined': 'The call was declined',
+                    'missed': 'The call was missed',
+                    'active': 'The call is already active'
+                };
+                const errorMessage = statusMessages[call.status] || `Call cannot be accepted in current status: ${call.status}`;
+                throw new ApiError(400, errorMessage);
+            }
+
+            // Idempotent behavior: If already connecting, just return the current call data
+            if (call.status === 'connecting' && call.startedAt) {
+                console.warn('⚠️ Call already in connecting state (idempotent request)');
+                updatedCall = call;
+                return; // Exit transaction early, proceed to response
             }
 
             // Validate Agora channel exists
@@ -592,10 +610,14 @@ export const endCall = asyncHandler(async (req, res) => {
                 throw new ApiError(404, 'Call not found');
             }
 
-            console.log('📋 Call found:', {
+            console.log('📋 Call found for ending:', {
                 callId: call._id,
                 status: call.status,
-                hasStarted: !!call.startedAt
+                hasStarted: !!call.startedAt,
+                initiatedAt: call.initiatedAt,
+                ageInSeconds: Math.floor((Date.now() - call.initiatedAt) / 1000),
+                requestedBy: currentUserId,
+                requestedReason: endReason
             });
 
             // Check if user is a participant
@@ -621,6 +643,7 @@ export const endCall = asyncHandler(async (req, res) => {
             call.status = 'ended';
             call.endedAt = new Date();
             call.endReason = endReason;
+            call.endedBy = currentUserId; // Track who ended the call
 
             // If call was never started (e.g., ended during ringing), set startedAt to now for duration calculation
             if (!call.startedAt) {
