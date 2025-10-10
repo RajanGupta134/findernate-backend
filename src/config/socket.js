@@ -120,7 +120,9 @@ class SocketManager {
             );
 
             // Join user to their personal room
-            socket.join(`user_${socket.userId}`);
+            const userRoom = `user_${socket.userId}`;
+            socket.join(userRoom);
+            console.log(`✅ User ${socket.userId} joined personal room: ${userRoom}`);
 
             // Note: No Redis pattern subscriptions needed - Socket.IO rooms handle routing
 
@@ -398,10 +400,21 @@ class SocketManager {
             return;
         }
 
-        // Emit to user's personal room (works across all PM2 processes via Redis adapter)
-        this.io.to(`user_${userId}`).emit(event, data);
+        const roomName = `user_${userId}`;
 
-        console.log(`📡 Emitted '${event}' to user room: user_${userId}`);
+        // Get all sockets in the user's room for debugging
+        const socketsInRoom = this.io.sockets.adapter.rooms.get(roomName);
+        const socketCount = socketsInRoom ? socketsInRoom.size : 0;
+
+        console.log(`📡 Emitting '${event}' to user room: ${roomName}`);
+        console.log(`   User ID: ${userId}`);
+        console.log(`   Sockets in room: ${socketCount}`);
+        console.log(`   Event data:`, JSON.stringify(data).substring(0, 200));
+
+        // Emit to user's personal room (works across all PM2 processes via Redis adapter)
+        this.io.to(roomName).emit(event, data);
+
+        console.log(`✅ Event '${event}' emitted to room ${roomName}`);
     }
 
     emitToChat(chatId, event, data) {

@@ -273,7 +273,12 @@ export const initiateCall = asyncHandler(async (req, res) => {
             }
 
             console.log('📡 Emitting incoming_call to receiver:', receiverId, 'for call:', newCall._id);
-            socketManager.emitToUser(receiverId, 'incoming_call', callData);
+            console.log('   Receiver ID type:', typeof receiverId);
+            console.log('   Call data:', JSON.stringify(callData).substring(0, 300));
+
+            // Ensure receiverId is string
+            const receiverIdStr = receiverId.toString();
+            socketManager.emitToUser(receiverIdStr, 'incoming_call', callData);
             console.log('✅ incoming_call event emitted successfully');
         } else {
             console.error('❌ Socket manager not ready - cannot emit incoming_call event');
