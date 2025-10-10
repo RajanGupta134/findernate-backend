@@ -921,14 +921,31 @@ export const getAgoraAuthToken = asyncHandler(async (req, res) => {
 
     try {
         // Generate new auth tokens
-        console.log('🔑 Generating Agora auth tokens...');
+        console.log('🔑 Generating Agora auth tokens...', {
+            channelName: call.agoraChannel.channelName,
+            userId: currentUserId.toString(),
+            role,
+            agoraConfigured: agoraService.isConfigured()
+        });
+
+        if (!agoraService.isConfigured()) {
+            console.error('❌ Agora service not configured - missing credentials');
+            throw new Error('Agora service not configured. Please check AGORA_APP_ID and AGORA_APP_CERTIFICATE in environment variables');
+        }
+
         const userId = currentUserId.toString();
         const tokens = agoraService.generateTokens(call.agoraChannel.channelName, userId, role);
+
+        console.log('✅ Agora tokens generated:', {
+            hasRtcToken: !!tokens.rtc.token,
+            hasRtmToken: !!tokens.rtm.token,
+            channelName: call.agoraChannel.channelName
+        });
 
         // Store/update token in call
         await call.addAgoraToken(currentUserId, tokens.rtc.token, tokens.rtm.token, role);
 
-        console.log('✅ Agora tokens generated successfully');
+        console.log('✅ Agora tokens saved to call successfully');
         res.status(200).json({
             success: true,
             data: {
@@ -945,9 +962,12 @@ export const getAgoraAuthToken = asyncHandler(async (req, res) => {
             message: error.message,
             stack: error.stack,
             callId,
-            channelName: call.agoraChannel?.channelName
+            channelName: call.agoraChannel?.channelName,
+            userId: currentUserId.toString(),
+            role,
+            errorType: error.constructor.name
         });
-        throw new ApiError(500, 'Failed to generate Agora auth tokens');
+        throw new ApiError(500, `Failed to generate Agora auth tokens: ${error.message}`);
     }
 });
 
