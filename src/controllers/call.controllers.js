@@ -272,7 +272,11 @@ export const initiateCall = asyncHandler(async (req, res) => {
                 };
             }
 
+            console.log('📡 Emitting incoming_call to receiver:', receiverId, 'for call:', newCall._id);
             socketManager.emitToUser(receiverId, 'incoming_call', callData);
+            console.log('✅ incoming_call event emitted successfully');
+        } else {
+            console.error('❌ Socket manager not ready - cannot emit incoming_call event');
         }
 
         // Create a call message in the chat (non-critical, don't let this fail the call)

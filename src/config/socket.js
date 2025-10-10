@@ -397,10 +397,11 @@ class SocketManager {
             console.warn('Socket.IO not initialized, skipping emitToUser');
             return;
         }
-        const socketId = this.connectedUsers.get(userId);
-        if (socketId) {
-            this.io.to(socketId).emit(event, data);
-        }
+
+        // Emit to user's personal room (works across all PM2 processes via Redis adapter)
+        this.io.to(`user_${userId}`).emit(event, data);
+
+        console.log(`📡 Emitted '${event}' to user room: user_${userId}`);
     }
 
     emitToChat(chatId, event, data) {
