@@ -25,7 +25,8 @@ class SocketManager {
                 "https://localhost:4000",
                 "http://127.0.0.1:3000",
                 "http://127.0.0.1:3001",
-                "http://127.0.0.1:4000"
+                "http://127.0.0.1:4000",
+                "https://z0n8vrlt-4000.inc1.devtunnels.ms",
             ];
 
             this.io = new Server(server, {

@@ -2,11 +2,24 @@ import express from 'express';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import compression from 'compression';
+import morgan from 'morgan';
 import { errorHandler } from './middlewares/errorHandler.js';
 import { redisHealthCheck } from './config/redis.config.js';
 import { generalRateLimit, healthCheckRateLimit } from './middlewares/rateLimiter.middleware.js';
 
 const app = express();
+
+// Morgan logging middleware - Only in development mode
+if (process.env.NODE_ENV === 'development') {
+    // Dev format: Colored output with method, url, status, response time
+    app.use(morgan('dev'));
+    console.log('📝 Morgan logging enabled in development mode');
+} else if (process.env.ENABLE_MORGAN === 'true') {
+    // Production: Can be enabled via environment variable if needed for debugging
+    // Combined format: Standard Apache combined log output
+    app.use(morgan('combined'));
+    console.log('📝 Morgan logging enabled via ENABLE_MORGAN flag');
+}
 
 // Performance middleware - Enable gzip compression
 app.use(compression({
@@ -48,7 +61,8 @@ const allowedOrigins = [
         "http://127.0.0.1:3000",
         "http://127.0.0.1:3001",
         "http://127.0.0.1:4000",
-        // Add environment variable for additional origins
+        "https://z0n8vrlt-4000.inc1.devtunnels.ms",
+        
         ...(process.env.ADDITIONAL_CORS_ORIGINS ? process.env.ADDITIONAL_CORS_ORIGINS.split(',') : [])
 ];
 
@@ -85,9 +99,15 @@ app.use(cors({
 
 app.use(cookieParser());
 
-// Trust proxy for production (behind load balancer/reverse proxy)
+// Trust proxy for production AND development (for rate limiting to work correctly)
+// This is needed when behind nginx, load balancer, or using X-Forwarded-For headers
 if (process.env.NODE_ENV === 'production') {
     app.set('trust proxy', 1);
+    console.log('🔒 Trust proxy enabled for production');
+} else if (process.env.NODE_ENV === 'development') {
+    // Enable in development too to avoid rate limit warnings
+    app.set('trust proxy', true);
+    console.log('🔒 Trust proxy enabled for development (for rate limiting)');
 }
 
 // Apply general rate limiting to all routes (but not to OPTIONS)
