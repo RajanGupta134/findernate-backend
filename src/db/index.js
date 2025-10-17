@@ -18,13 +18,15 @@ const connectDB = async (retries = 3) => {
         }
 
         const connectionInstance = await mongoose.connect(process.env.MONGODB_URI, {
-            maxPoolSize: 10,
+            maxPoolSize: 50, // ✅ OPTIMIZED: Increased from 10 to 50 for better concurrency
+            minPoolSize: 10, // ✅ ADDED: Maintain minimum connections for faster response
             serverSelectionTimeoutMS: 30000,
             socketTimeoutMS: 45000,
             connectTimeoutMS: 30000,
             bufferCommands: false,
             retryWrites: true,
             retryReads: true,
+            maxIdleTimeMS: 30000, // ✅ ADDED: Close idle connections after 30s
         });
 
         console.log(`✅ MongoDB connected successfully! Host: ${connectionInstance.connection.host}`);

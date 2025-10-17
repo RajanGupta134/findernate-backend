@@ -13,7 +13,7 @@ const REDIS_CONFIG = {
     // Connection options
     connectTimeout: 10000,
     commandTimeout: 5000,
-    lazyConnect: true,
+    lazyConnect: false, // ✅ FIXED: Connect immediately instead of waiting for first command
 
     // Pool settings optimized for limited connections
     family: 4,
