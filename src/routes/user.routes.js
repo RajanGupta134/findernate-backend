@@ -25,7 +25,7 @@ router.route("/send-reset-otp").post(sendPasswordResetOTP);
 router.route("/reset-password").post(resetPasswordWithOTP);
 router.route("/check-token").post(checkTokenExpiry);
 router.route("/searchAllContent").get(optionalVerifyJWT, getBlockedUsersMiddleware, cacheSearchResults, searchAllContent);
-router.route("/profile/other").get(getBlockedUsersMiddleware, getOtherUserProfile);
+router.route("/profile/other").get(verifyJWT, getBlockedUsersMiddleware, getOtherUserProfile);
 
 // Follower routes
 router.post("/follow", verifyJWT, followUser);
@@ -47,8 +47,8 @@ router.post("/track-search", trackSearch);
 router.get("/popular-searches", getPopularSearches);
 
 
-// Get other user profile by userId or username
-router.get("/profile/other", verifyJWT, getOtherUserProfile);
+// Get other user profile by userId or username (already defined above with middleware)
+// router.get("/profile/other", verifyJWT, getOtherUserProfile);
 
 // Privacy settings routes
 router.put("/privacy/phone-number", verifyJWT, togglePhoneNumberVisibility);

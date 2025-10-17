@@ -1,14 +1,29 @@
 import { User } from "../models/user.models.js";
 import Follower from "../models/follower.models.js";
+import Block from "../models/block.models.js";
 
 /**
  * Privacy middleware to check if a user can view another user's content
- * based on account privacy settings and following relationship
+ * based on account privacy settings, following relationship, and blocking
  */
 export const checkContentVisibility = async (viewerId, targetUserId) => {
     // If viewing own content, always allow
     if (viewerId?.toString() === targetUserId?.toString()) {
         return true;
+    }
+
+    // Check for blocking relationship (either direction)
+    if (viewerId) {
+        const isBlocked = await Block.exists({
+            $or: [
+                { blockerId: viewerId, blockedId: targetUserId },
+                { blockerId: targetUserId, blockedId: viewerId }
+            ]
+        });
+
+        if (isBlocked) {
+            return false; // Blocked users cannot view each other's content
+        }
     }
 
     // Get the target user's privacy setting
@@ -27,9 +42,9 @@ export const checkContentVisibility = async (viewerId, targetUserId) => {
         return false; // No viewer (anonymous), can't view private content
     }
 
-    const isFollowing = await Follower.exists({ 
-        userId: targetUserId, 
-        followerId: viewerId 
+    const isFollowing = await Follower.exists({
+        userId: targetUserId,
+        followerId: viewerId
     });
 
     return !!isFollowing;

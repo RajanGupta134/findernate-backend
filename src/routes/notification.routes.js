@@ -1,8 +1,9 @@
 import { Router } from "express";
 import { verifyJWT } from "../middlewares/auth.middleware.js";
-import { 
-    notificationRateLimit, 
-    unreadCountsRateLimit 
+import { getBlockedUsers as getBlockedUsersMiddleware } from "../middlewares/blocking.middleware.js";
+import {
+    notificationRateLimit,
+    unreadCountsRateLimit
 } from "../middlewares/rateLimiter.middleware.js";
 import {
     getNotifications,
@@ -22,7 +23,7 @@ router.use(verifyJWT);
 router.use(notificationRateLimit);
 
 // Get all notifications for the logged-in user
-router.get("/", getNotifications);
+router.get("/", getBlockedUsersMiddleware, getNotifications);
 
 // 🚀 NEW: Get initial unread counts (for app startup only)
 router.get("/initial-counts", getInitialUnreadCounts);

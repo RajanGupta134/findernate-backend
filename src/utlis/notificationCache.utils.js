@@ -2,6 +2,7 @@ import { redisClient } from '../config/redis.config.js';
 import Notification from '../models/notification.models.js';
 import Message from '../models/message.models.js';
 import Chat from '../models/chat.models.js';
+import Block from '../models/block.models.js';
 
 class NotificationCacheManager {
     constructor() {
@@ -151,32 +152,48 @@ class NotificationCacheManager {
      */
     async calculateUnreadCounts(userId) {
         try {
-            // Get unread notifications count
-            const unreadNotificationsCount = await Notification.countDocuments({
+            // Get blocked users
+            const blockedByMe = await Block.find({ blockerId: userId }).select('blockedId').lean();
+            const blockedByOthers = await Block.find({ blockedId: userId }).select('blockerId').lean();
+            const blockedUsers = [
+                ...blockedByMe.map(block => block.blockedId.toString()),
+                ...blockedByOthers.map(block => block.blockerId.toString())
+            ];
+
+            // Get unread notifications count (excluding blocked users)
+            const notificationQuery = {
                 receiverId: userId,
                 isRead: false
-            });
+            };
+            if (blockedUsers.length > 0) {
+                notificationQuery.senderId = { $nin: blockedUsers };
+            }
+            const unreadNotificationsCount = await Notification.countDocuments(notificationQuery);
 
             // Get user's chats (try cache first)
             let chatIds = await this.getCachedUserChats(userId);
-            
+
             if (!chatIds) {
                 const userChats = await Chat.find({
                     participants: userId,
                     status: 'active'
                 }).select('_id');
-                
+
                 chatIds = userChats.map(chat => chat._id);
                 await this.setCachedUserChats(userId, chatIds);
             }
 
-            // Get unread messages count
-            const unreadMessagesCount = await Message.countDocuments({
+            // Get unread messages count (excluding blocked users)
+            const messageQuery = {
                 chatId: { $in: chatIds },
                 sender: { $ne: userId },
                 readBy: { $ne: userId },
                 isDeleted: false
-            });
+            };
+            if (blockedUsers.length > 0) {
+                messageQuery.sender = { $nin: [...blockedUsers, userId] };
+            }
+            const unreadMessagesCount = await Message.countDocuments(messageQuery);
 
             return {
                 unreadNotifications: unreadNotificationsCount,

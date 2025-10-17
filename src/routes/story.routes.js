@@ -13,13 +13,13 @@ router.post("/upload", verifyJWT, upload.single("media"), uploadStory);
 router.get("/feed", verifyJWT, getBlockedUsersMiddleware, fetchStoriesFeed);
 
 // Fetch stories by user id - allow both authenticated and unauthenticated users with privacy checks
-router.get("/user/:userId", optionalVerifyJWT, fetchStoriesByUser);
+router.get("/user/:userId", optionalVerifyJWT, getBlockedUsersMiddleware, fetchStoriesByUser);
 
 // Mark story as seen
 router.post("/seen", verifyJWT, markStorySeen);
 
 // Fetch archived stories by user - allow both authenticated and unauthenticated users with privacy checks
-router.get("/archived/:userId", optionalVerifyJWT, fetchArchivedStoriesByUser);
+router.get("/archived/:userId", optionalVerifyJWT, getBlockedUsersMiddleware, fetchArchivedStoriesByUser);
 
 // Fetch viewers of a story
 router.get("/:storyId/viewers", verifyJWT, fetchStoryViewers);

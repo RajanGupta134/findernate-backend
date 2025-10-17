@@ -118,8 +118,15 @@ export const createUnlikeNotification = asyncHandler(async ({ recipientId, sourc
 //  Get Logged-in User's Notifications
 export const getNotifications = asyncHandler(async (req, res) => {
     const receiverId = req.user._id;
+    const blockedUsers = req.blockedUsers || [];
 
-    const notifications = await Notification.find({ receiverId })
+    // Build query to exclude notifications from blocked users
+    const query = { receiverId };
+    if (blockedUsers.length > 0) {
+        query.senderId = { $nin: blockedUsers };
+    }
+
+    const notifications = await Notification.find(query)
         .sort({ createdAt: -1 })
         .populate("senderId", "username profileImageUrl");
 
