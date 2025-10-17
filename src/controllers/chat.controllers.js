@@ -45,8 +45,11 @@ export const createChat = asyncHandler(async (req, res) => {
         participants.push(currentUserId.toString());
     }
 
-    // Validate participants exist
-    const validParticipants = participants.filter(p => mongoose.Types.ObjectId.isValid(p));
+    // Validate participants exist and convert to ObjectIds
+    const validParticipants = participants
+        .filter(p => mongoose.Types.ObjectId.isValid(p))
+        .map(p => new mongoose.Types.ObjectId(p)); // ✅ Convert to ObjectIds
+
     if (validParticipants.length !== participants.length) {
         throw new ApiError(400, 'Invalid participant IDs');
     }
@@ -60,16 +63,21 @@ export const createChat = asyncHandler(async (req, res) => {
         throw new ApiError(400, 'Group chats must have at least 3 participants');
     }
 
-    // Sort participants for consistent ordering (fixes duplication check)
-    validParticipants.sort();
+    // ✅ FIXED: Sort participants as ObjectIds for consistent ordering
+    validParticipants.sort((a, b) => a.toString().localeCompare(b.toString()));
+
+    console.log('💬 Create Chat Debug - Current User:', currentUserId);
+    console.log('💬 Create Chat Debug - Valid Participants:', validParticipants.map(p => p.toString()));
 
     // Prevent duplicate 1-on-1 chats
     if (chatType === 'direct') {
-        // More robust duplicate detection for direct chats
+        // ✅ IMPROVED: More robust duplicate detection for direct chats
         const existingChat = await Chat.findOne({
-            participants: { $all: validParticipants, $size: 2 },
-            chatType: 'direct'
+            chatType: 'direct',
+            participants: { $all: validParticipants, $size: 2 }
         });
+
+        console.log('💬 Create Chat Debug - Existing chat found:', !!existingChat);
 
         if (existingChat) {
             // Before returning, make sure we're not showing deleted messages
@@ -227,6 +235,45 @@ export const getUserChats = asyncHandler(async (req, res) => {
         )
     );
 
+    // ✅ DEDUPLICATION: Remove duplicate direct chats (keep most recent based on lastMessageAt)
+    const deduplicatedChats = [];
+    const seenParticipants = new Map();
+
+    for (const chat of secureChats) {
+        if (chat.chatType === 'direct' && chat.participants.length === 2) {
+            // Create a unique key for this participant pair
+            const participantKey = chat.participants
+                .map(p => p.toString())
+                .sort()
+                .join(',');
+
+            const existingChat = seenParticipants.get(participantKey);
+
+            if (!existingChat) {
+                // First chat with this participant pair - keep it
+                seenParticipants.set(participantKey, chat);
+                deduplicatedChats.push(chat);
+            } else {
+                // Duplicate found - keep the one with more recent activity
+                const existingTimestamp = existingChat.lastMessageAt?.getTime() || existingChat.createdAt?.getTime() || 0;
+                const currentTimestamp = chat.lastMessageAt?.getTime() || chat.createdAt?.getTime() || 0;
+
+                if (currentTimestamp > existingTimestamp) {
+                    // Replace with newer chat
+                    const indexToReplace = deduplicatedChats.indexOf(existingChat);
+                    if (indexToReplace !== -1) {
+                        deduplicatedChats[indexToReplace] = chat;
+                        seenParticipants.set(participantKey, chat);
+                    }
+                }
+                console.log(`⚠️ Duplicate chat detected for participants ${participantKey}. Kept chat ${seenParticipants.get(participantKey)._id}`);
+            }
+        } else {
+            // Group chats or non-standard chats - keep all
+            deduplicatedChats.push(chat);
+        }
+    }
+
     // Debug logging to help identify the issue
     if (chats.length !== secureChats.length) {
         console.warn(`Security filter removed ${chats.length - secureChats.length} unauthorized chats for user ${currentUserId}`);
@@ -234,8 +281,12 @@ export const getUserChats = asyncHandler(async (req, res) => {
         console.warn('Secure chats:', secureChats.map(c => ({ id: c._id, participants: c.participants })));
     }
 
-    // Get all chat IDs from securely filtered chats
-    const chatIds = secureChats.map(chat => chat._id);
+    if (secureChats.length !== deduplicatedChats.length) {
+        console.warn(`⚠️ Deduplication removed ${secureChats.length - deduplicatedChats.length} duplicate chats for user ${currentUserId}`);
+    }
+
+    // Get all chat IDs from deduplicated chats
+    const chatIds = deduplicatedChats.map(chat => chat._id);
 
     // For each chat, find the last non-deleted message
     const lastMessagesPromises = chatIds.map(chatId =>
@@ -300,7 +351,7 @@ export const getUserChats = asyncHandler(async (req, res) => {
     });
 
     // Populate the chats with participants
-    const populatedChatsPromise = Promise.all(secureChats.map(async (chat) => {
+    const populatedChatsPromise = Promise.all(deduplicatedChats.map(async (chat) => {
         const chatWithUsers = await Chat.populate(chat, [
             { path: 'participants', select: 'username fullName profileImageUrl' },
             { path: 'createdBy', select: 'username fullName profileImageUrl' }
@@ -366,8 +417,8 @@ export const getUserChats = asyncHandler(async (req, res) => {
 
     const populatedChats = await populatedChatsPromise;
 
-    // Update total count to reflect secure filtering
-    const secureTotal = secureChats.length;
+    // Update total count to reflect deduplication
+    const deduplicatedTotal = deduplicatedChats.length;
     const actualTotal = total; // Keep original total for pagination logic
 
     return res.status(200).json(
@@ -378,7 +429,7 @@ export const getUserChats = asyncHandler(async (req, res) => {
                 currentPage: pageNum,
                 totalPages: Math.ceil(actualTotal / pageLimit),
                 totalChats: actualTotal,
-                secureChatsReturned: secureTotal, // Add this for debugging
+                deduplicatedChatsReturned: deduplicatedTotal, // Add this for debugging
                 hasNextPage: pageNum < Math.ceil(actualTotal / pageLimit),
                 hasPrevPage: pageNum > 1
             }
