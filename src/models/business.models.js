@@ -98,7 +98,10 @@ const BusinessSchema = new mongoose.Schema({
     postSettings: {
         allowProductPosts: { type: Boolean, default: true },
         allowServicePosts: { type: Boolean, default: true }
-    }
+    },
+
+    // Flag to track if business profile is fully created (one-time creation)
+    isProfileCompleted: { type: Boolean, default: false }
 }, { timestamps: true });
 
 // 🚀 Auto-verify business when subscription becomes active

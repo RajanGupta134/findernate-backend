@@ -104,9 +104,9 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
     // Check if user already has business profile
     let existingBusiness = await Business.findOne({ userId });
 
-    // If business profile exists and has businessName, it's already complete
-    if (existingBusiness && existingBusiness.businessName) {
-        throw new ApiError(409, "Business profile already exists");
+    // If business profile is already completed, prevent re-creation
+    if (existingBusiness && existingBusiness.isProfileCompleted) {
+        throw new ApiError(409, "Business profile already exists. Please use the update endpoint to modify your business details.");
     }
 
     // Extract and normalize input
@@ -223,7 +223,7 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
     let business;
 
     if (existingBusiness) {
-        // Update existing minimal business profile
+        // Update existing minimal business profile and mark as completed
         existingBusiness.businessName = trimmedBusinessName;
         if (businessType) existingBusiness.businessType = businessType;
         if (description) existingBusiness.description = description;
@@ -245,6 +245,9 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
             existingBusiness.aadhaarNumber = aadhaarNumber;
         }
 
+        // Mark profile as completed (one-time creation done)
+        existingBusiness.isProfileCompleted = true;
+
         await existingBusiness.save();
         business = existingBusiness;
     } else {
@@ -262,7 +265,8 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
             tags: uniqueTags,
             website,
             plan: 'plan1',
-            subscriptionStatus: 'active'
+            subscriptionStatus: 'active',
+            isProfileCompleted: true // Mark as completed on creation
         };
 
         // Use pre-generated businessProfileId if it exists
@@ -295,7 +299,7 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
             business,
             businessId: business._id,
             planSelectionRequired: true
-        }, "Business profile created successfully.")
+        }, "Business profile created successfully. You can now update your business details using the update endpoint.")
     );
 });
 
