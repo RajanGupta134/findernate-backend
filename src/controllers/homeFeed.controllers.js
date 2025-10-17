@@ -10,19 +10,29 @@ import PostInteraction from '../models/postInteraction.models.js';
 import { setCache } from '../middlewares/cache.middleware.js';
 import { redisClient } from '../config/redis.config.js';
 import { getViewableUserIds } from '../middlewares/privacy.middleware.js';
+import mongoose from 'mongoose';
 
 export const getHomeFeed = asyncHandler(async (req, res) => {
     try {
-        const userId = req.user?._id;
-        const blockedUsers = req.blockedUsers || [];
+        // ✅ FIXED: Handle both Mongoose document and plain object from cache
+        const userId = req.user?._id ? (typeof req.user._id === 'string' ? req.user._id : req.user._id.toString()) : null;
+        // ✅ FIXED: Convert blocked user IDs to ObjectIds for MongoDB aggregation
+        const blockedUsersRaw = req.blockedUsers || [];
+        const blockedUsers = blockedUsersRaw.map(id =>
+            typeof id === 'string' ? new mongoose.Types.ObjectId(id) : id
+        );
         const page = parseInt(req.query.page, 10) || 1;
         const limit = parseInt(req.query.limit, 10) || 20;
         const skip = (page - 1) * limit;
+
+        console.log('🔍 Feed Debug - userId:', userId);
+        console.log('🔍 Feed Debug - blockedUsers count:', blockedUsers.length);
 
         // Check cache first
         if (res.locals.cacheKey) {
             const cachedData = await redisClient.get(res.locals.cacheKey);
             if (cachedData) {
+                console.log('📦 Returning cached feed');
                 return res.status(200).json(JSON.parse(cachedData));
             }
         }
@@ -34,8 +44,13 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
         // ✅ 1. Get viewable user IDs based on privacy settings and following relationships
         // For logged-out users (userId is null), this returns only users with public privacy
         // For logged-in users, this returns their following + their own posts + public users
-        const viewableUserIds = await getViewableUserIds(userId);
-        
+        const viewableUserIdsRaw = await getViewableUserIds(userId);
+        // ✅ FIXED: Convert string IDs back to ObjectIds for MongoDB aggregation
+        const viewableUserIds = viewableUserIdsRaw.map(id =>
+            typeof id === 'string' ? new mongoose.Types.ObjectId(id) : id
+        );
+        console.log('🔍 Feed Debug - viewableUserIds count:', viewableUserIds.length);
+
         // ✅ 2. Get following and followers for prioritization (only if user is authenticated)
         let feedUserIds = [];
         if (userId) {
@@ -45,27 +60,33 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
             const following = user?.following || [];
             const followers = user?.followers || [];
 
+            // ✅ FIXED: Convert to ObjectIds for aggregation
             feedUserIds = [...new Set([
-                ...following.map(id => id.toString()),
-                ...followers.map(id => id.toString())
+                ...following.map(id => typeof id === 'string' ? new mongoose.Types.ObjectId(id) : id),
+                ...followers.map(id => typeof id === 'string' ? new mongoose.Types.ObjectId(id) : id)
             ])];
+            console.log('🔍 Feed Debug - feedUserIds count:', feedUserIds.length);
         }
 
         // ✅ 3. OPTIMIZED: Single aggregation query with privacy filtering
+        const matchQuery = {
+            contentType: { $in: ['normal', 'service', 'product', 'business'] },
+            userId: { $in: viewableUserIds, $nin: blockedUsers },
+            // For logged-out users, only show posts with public visibility
+            ...(userId ? {} : {
+                $or: [
+                    { 'settings.visibility': 'public' },
+                    { 'settings.visibility': { $exists: false } }, // Default to public if no setting
+                    { 'settings.visibility': null } // Null means public
+                ]
+            })
+        };
+
+        console.log('🔍 Feed Debug - Match query:', JSON.stringify(matchQuery, null, 2));
+
         const aggregationPipeline = [
             {
-                $match: {
-                    contentType: { $in: ['normal', 'service', 'product', 'business'] },
-                    userId: { $in: viewableUserIds, $nin: blockedUsers },
-                    // For logged-out users, only show posts with public visibility
-                    ...(userId ? {} : {
-                        $or: [
-                            { 'settings.visibility': 'public' },
-                            { 'settings.visibility': { $exists: false } }, // Default to public if no setting
-                            { 'settings.visibility': null } // Null means public
-                        ]
-                    })
-                }
+                $match: matchQuery
             },
             {
                 $addFields: {
@@ -125,12 +146,23 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
 
         const posts = await Post.aggregate(aggregationPipeline);
 
+        console.log('🔍 Feed Debug - Posts found:', posts.length);
+
         if (posts.length === 0) {
+            // Debug: Check if there are ANY posts in the database
+            const totalPosts = await Post.countDocuments({});
+            const publicPosts = await Post.countDocuments({ 'settings.privacy': 'public' });
+            console.log('⚠️ No posts in feed. Debug info:');
+            console.log('   - Total posts in DB:', totalPosts);
+            console.log('   - Public posts in DB:', publicPosts);
+            console.log('   - Viewable users count:', viewableUserIds.length);
+            console.log('   - Blocked users count:', blockedUsers.length);
+
             const emptyResponse = new ApiResponse(200, {
                 feed: [],
                 pagination: { page, limit, total: 0, totalPages: 0 }
             }, "No posts found");
-            
+
             // Cache empty response for shorter time
             if (res.locals.cacheKey) {
                 await setCache(res.locals.cacheKey, emptyResponse, 60);

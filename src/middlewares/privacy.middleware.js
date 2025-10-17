@@ -108,14 +108,14 @@ export const getViewableUserIds = async (viewerId) => {
     if (!viewerId) {
         // Anonymous users can only see public content
         const publicUsers = await User.find({ privacy: 'public' }).select('_id').lean();
-        viewableUserIds = publicUsers.map(u => u._id);
+        viewableUserIds = publicUsers.map(u => u._id.toString()); // ✅ Convert to string
     } else {
         // Get users the viewer follows
         const following = await Follower.find({ followerId: viewerId }).select('userId').lean();
-        const followingIds = following.map(f => f.userId);
+        const followingIds = following.map(f => f.userId.toString()); // ✅ Convert to string
 
         // Add viewer's own ID
-        followingIds.push(viewerId);
+        followingIds.push(viewerId.toString()); // ✅ Convert to string
 
         // Get all public users not already in the following list
         const publicUsers = await User.find({
@@ -124,7 +124,7 @@ export const getViewableUserIds = async (viewerId) => {
         }).select('_id').lean();
 
         // Combine following + own + public users
-        viewableUserIds = [...followingIds, ...publicUsers.map(u => u._id)];
+        viewableUserIds = [...followingIds, ...publicUsers.map(u => u._id.toString())]; // ✅ Convert to string
     }
 
     // Cache for 5 minutes
