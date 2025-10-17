@@ -3,6 +3,7 @@ import Post from "../models/userPost.models.js";
 import { User } from "../models/user.models.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import { getViewableUserIds } from "../middlewares/privacy.middleware.js";
+import mongoose from "mongoose";
 
 
 // Simple in-memory cache
@@ -30,16 +31,33 @@ export const getSuggestedReels = asyncHandler(async (req, res) => {
             suggested = false
         } = req.query;
 
-        const currentUserId = req.user?._id || userId;
-        const blockedUsers = req.blockedUsers || [];
+        // ✅ FIXED: Handle both Mongoose document and plain object from cache
+        const currentUserIdRaw = req.user?._id || userId;
+        const currentUserId = currentUserIdRaw ? (typeof currentUserIdRaw === 'string' ? currentUserIdRaw : currentUserIdRaw.toString()) : null;
+
+        // ✅ FIXED: Convert blocked user IDs to ObjectIds for MongoDB aggregation
+        const blockedUsersRaw = req.blockedUsers || [];
+        const blockedUsers = blockedUsersRaw.map(id =>
+            typeof id === 'string' ? new mongoose.Types.ObjectId(id) : id
+        );
+
         const pageNum = Number(page);
         const limitNum = Number(limit);
         const skip = (pageNum - 1) * limitNum;
 
+        console.log('🎬 Reels Debug - currentUserId:', currentUserId);
+        console.log('🎬 Reels Debug - blockedUsers count:', blockedUsers.length);
+
         // ✅ Get viewable user IDs based on privacy settings and following relationships
         // For logged-out users (currentUserId is null), this returns only users with public privacy
         // For logged-in users, this returns their following + their own posts + public users
-        const viewableUserIds = await getViewableUserIds(currentUserId);
+        const viewableUserIdsRaw = await getViewableUserIds(currentUserId);
+        // ✅ FIXED: Convert string IDs back to ObjectIds for MongoDB aggregation
+        const viewableUserIds = viewableUserIdsRaw.map(id =>
+            typeof id === 'string' ? new mongoose.Types.ObjectId(id) : id
+        );
+
+        console.log('🎬 Reels Debug - viewableUserIds count:', viewableUserIds.length);
 
         // Build match criteria (excluding blocked users and respecting privacy)
         const matchCriteria = {
@@ -206,10 +224,13 @@ export const getSuggestedReels = asyncHandler(async (req, res) => {
 
         // Add user-specific fields if currentUserId is available
         if (currentUserId) {
+            // ✅ FIXED: Convert currentUserId to ObjectId for aggregation lookups
+            const currentUserObjectId = new mongoose.Types.ObjectId(currentUserId);
+
             pipeline.push({
                 $lookup: {
                     from: "likes",
-                    let: { postId: "$_id", userId: currentUserId },
+                    let: { postId: "$_id", userId: currentUserObjectId },
                     pipeline: [
                         {
                             $match: {
@@ -230,7 +251,7 @@ export const getSuggestedReels = asyncHandler(async (req, res) => {
             pipeline.push({
                 $lookup: {
                     from: "followings",
-                    let: { postUserId: "$userId", currentUserId: currentUserId },
+                    let: { postUserId: "$userId", currentUserId: currentUserObjectId },
                     pipeline: [
                         {
                             $match: {
@@ -271,8 +292,23 @@ export const getSuggestedReels = asyncHandler(async (req, res) => {
             }
         });
 
+        console.log('🎬 Reels Debug - Match criteria:', JSON.stringify(matchCriteria, null, 2));
+
         // Execute aggregation
         const reels = await Post.aggregate(pipeline);
+
+        console.log('🎬 Reels Debug - Reels found:', reels.length);
+
+        if (reels.length === 0) {
+            // Debug: Check if there are ANY reels in the database
+            const totalReelsInDB = await Post.countDocuments({ postType: { $in: ["reel", "video"] } });
+            const publishedReels = await Post.countDocuments({ postType: { $in: ["reel", "video"] }, status: "published" });
+            console.log('⚠️ No reels found. Debug info:');
+            console.log('   - Total reels in DB:', totalReelsInDB);
+            console.log('   - Published reels in DB:', publishedReels);
+            console.log('   - Viewable users count:', viewableUserIds.length);
+            console.log('   - Blocked users count:', blockedUsers.length);
+        }
 
         // Fetch user details using User model
         if (reels.length > 0) {
