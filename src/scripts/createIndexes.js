@@ -199,7 +199,7 @@ const createIndexes = async () => {
         // =============================================================================
         console.log('\n📖 Story Collection Indexes:');
         const storyCollection = db.collection('stories');
-        
+
         const storyIndexes = [
             [{ createdAt: 1 }, { name: 'idx_story_expire', expireAfterSeconds: 86400 }], // 24 hours
             [{ userId: 1, createdAt: -1 }, { name: 'idx_user_stories' }],
@@ -208,6 +208,43 @@ const createIndexes = async () => {
 
         for (const [indexSpec, options] of storyIndexes) {
             const result = await safeCreateIndex(storyCollection, indexSpec, options);
+            totalCreated += result.created ? 1 : 0;
+            totalSkipped += result.skipped ? 1 : 0;
+        }
+
+        // =============================================================================
+        // BLOCK COLLECTION INDEXES
+        // =============================================================================
+        console.log('\n🚫 Block Collection Indexes:');
+        const blockCollection = db.collection('blocks');
+
+        const blockIndexes = [
+            [{ blockerId: 1, blockedId: 1 }, { name: 'idx_blocker_blocked', unique: true }],
+            [{ blockerId: 1, createdAt: -1 }, { name: 'idx_blocker_time' }],
+            [{ blockedId: 1, createdAt: -1 }, { name: 'idx_blocked_time' }],
+        ];
+
+        for (const [indexSpec, options] of blockIndexes) {
+            const result = await safeCreateIndex(blockCollection, indexSpec, options);
+            totalCreated += result.created ? 1 : 0;
+            totalSkipped += result.skipped ? 1 : 0;
+        }
+
+        // =============================================================================
+        // FOLLOWER COLLECTION INDEXES
+        // =============================================================================
+        console.log('\n👥 Follower Collection Indexes:');
+        const followerCollection = db.collection('followers');
+
+        const followerIndexes = [
+            [{ userId: 1, followerId: 1 }, { name: 'idx_user_follower', unique: true }],
+            [{ userId: 1, createdAt: -1 }, { name: 'idx_user_followers_time' }],
+            [{ followerId: 1, createdAt: -1 }, { name: 'idx_follower_following_time' }],
+            [{ status: 1 }, { name: 'idx_follower_status' }],
+        ];
+
+        for (const [indexSpec, options] of followerIndexes) {
+            const result = await safeCreateIndex(followerCollection, indexSpec, options);
             totalCreated += result.created ? 1 : 0;
             totalSkipped += result.skipped ? 1 : 0;
         }
@@ -236,7 +273,7 @@ const listExistingIndexes = async () => {
         console.log('\n📋 Current Database Indexes:\n');
         
         const collections = await mongoose.connection.db.listCollections().toArray();
-        const importantCollections = ['users', 'posts', 'chats', 'messages', 'likes', 'comments', 'notifications', 'businesses', 'stories', 'followers'];
+        const importantCollections = ['users', 'posts', 'chats', 'messages', 'likes', 'comments', 'notifications', 'businesses', 'stories', 'blocks', 'followers'];
         
         for (const collection of collections) {
             if (importantCollections.includes(collection.name)) {

@@ -1,6 +1,7 @@
 import { User } from "../models/user.models.js";
 import Follower from "../models/follower.models.js";
 import Block from "../models/block.models.js";
+import { redisClient } from "../config/redis.config.js";
 
 /**
  * Privacy middleware to check if a user can view another user's content
@@ -86,27 +87,71 @@ export const addPrivacyFilter = async (req, res, next) => {
 /**
  * Get users that the current user can view content from
  * (themselves + users they follow + public users)
+ * ✅ OPTIMIZED: Uses Redis caching to avoid querying thousands of users on every feed request
  */
 export const getViewableUserIds = async (viewerId) => {
-    if (!viewerId) {
-        // Anonymous users can only see public content
-        const publicUsers = await User.find({ privacy: 'public' }).select('_id');
-        return publicUsers.map(u => u._id);
+    const cacheKey = viewerId ? `viewable_users:${viewerId}` : 'viewable_users:public';
+
+    try {
+        // Try to get from cache first
+        const cachedData = await redisClient.get(cacheKey);
+        if (cachedData) {
+            return JSON.parse(cachedData);
+        }
+    } catch (cacheError) {
+        console.error('Error accessing viewable users cache:', cacheError);
+        // Continue with DB query if cache fails
     }
 
-    // Get users the viewer follows
-    const following = await Follower.find({ followerId: viewerId }).select('userId');
-    const followingIds = following.map(f => f.userId);
+    let viewableUserIds;
 
-    // Add viewer's own ID
-    followingIds.push(viewerId);
+    if (!viewerId) {
+        // Anonymous users can only see public content
+        const publicUsers = await User.find({ privacy: 'public' }).select('_id').lean();
+        viewableUserIds = publicUsers.map(u => u._id);
+    } else {
+        // Get users the viewer follows
+        const following = await Follower.find({ followerId: viewerId }).select('userId').lean();
+        const followingIds = following.map(f => f.userId);
 
-    // Get all public users not already in the following list
-    const publicUsers = await User.find({ 
-        privacy: 'public',
-        _id: { $nin: followingIds }
-    }).select('_id');
+        // Add viewer's own ID
+        followingIds.push(viewerId);
 
-    // Combine following + own + public users
-    return [...followingIds, ...publicUsers.map(u => u._id)];
+        // Get all public users not already in the following list
+        const publicUsers = await User.find({
+            privacy: 'public',
+            _id: { $nin: followingIds }
+        }).select('_id').lean();
+
+        // Combine following + own + public users
+        viewableUserIds = [...followingIds, ...publicUsers.map(u => u._id)];
+    }
+
+    // Cache for 5 minutes
+    try {
+        await redisClient.setex(cacheKey, 300, JSON.stringify(viewableUserIds));
+    } catch (cacheError) {
+        console.error('Error caching viewable users:', cacheError);
+        // Continue without caching
+    }
+
+    return viewableUserIds;
+};
+
+/**
+ * Helper function to invalidate viewable users cache
+ * Call this when:
+ * - User follows/unfollows someone
+ * - User changes their privacy settings
+ * - Follow request is accepted/rejected
+ */
+export const invalidateViewableUsersCache = async (userId) => {
+    try {
+        const cacheKey = `viewable_users:${userId}`;
+        await redisClient.del(cacheKey);
+        // Also invalidate public cache as privacy changes affect it
+        await redisClient.del('viewable_users:public');
+    } catch (error) {
+        console.error('Error invalidating viewable users cache:', error);
+    }
 };

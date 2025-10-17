@@ -149,16 +149,39 @@ class NotificationCacheManager {
 
     /**
      * Calculate unread counts from database
+     * ✅ OPTIMIZED: Uses Redis cache for blocked users instead of duplicate DB queries
      */
     async calculateUnreadCounts(userId) {
         try {
-            // Get blocked users
-            const blockedByMe = await Block.find({ blockerId: userId }).select('blockedId').lean();
-            const blockedByOthers = await Block.find({ blockedId: userId }).select('blockerId').lean();
-            const blockedUsers = [
-                ...blockedByMe.map(block => block.blockedId.toString()),
-                ...blockedByOthers.map(block => block.blockerId.toString())
-            ];
+            // Get blocked users from cache (reuse the same cache used by blocking middleware)
+            const blockedCacheKey = `blocked:${userId}`;
+            let blockedUsers = [];
+
+            try {
+                const cachedBlocked = await redisClient.get(blockedCacheKey);
+                if (cachedBlocked) {
+                    blockedUsers = JSON.parse(cachedBlocked);
+                } else {
+                    // Cache miss - query database and cache
+                    const blockedByMe = await Block.find({ blockerId: userId }).select('blockedId').lean();
+                    const blockedByOthers = await Block.find({ blockedId: userId }).select('blockerId').lean();
+                    blockedUsers = [
+                        ...blockedByMe.map(block => block.blockedId.toString()),
+                        ...blockedByOthers.map(block => block.blockerId.toString())
+                    ];
+                    // Cache for 5 minutes (same TTL as blocking middleware)
+                    await redisClient.setex(blockedCacheKey, 300, JSON.stringify(blockedUsers));
+                }
+            } catch (cacheError) {
+                console.error('Error accessing blocked users cache:', cacheError);
+                // Fallback to direct DB query if cache fails
+                const blockedByMe = await Block.find({ blockerId: userId }).select('blockedId').lean();
+                const blockedByOthers = await Block.find({ blockedId: userId }).select('blockerId').lean();
+                blockedUsers = [
+                    ...blockedByMe.map(block => block.blockedId.toString()),
+                    ...blockedByOthers.map(block => block.blockerId.toString())
+                ];
+            }
 
             // Get unread notifications count (excluding blocked users)
             const notificationQuery = {

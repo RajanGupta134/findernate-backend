@@ -40,11 +40,12 @@ import Following from "../models/following.models.js";
 import FollowRequest from "../models/followRequest.models.js";
 import Order from "../models/order.models.js";
 import ContactRequest from "../models/contactRequest.models.js";
-import { 
-    generateRealtimeUsernameSuggestions, 
-    isUsernameAvailable, 
-    validateUsername 
+import {
+    generateRealtimeUsernameSuggestions,
+    isUsernameAvailable,
+    validateUsername
 } from "../utlis/usernameSuggestions.js";
+import { invalidateBlockedUsersCache } from "../middlewares/blocking.middleware.js";
 
 
 const generateAcessAndRefreshToken = async (userId) => {
@@ -1209,6 +1210,9 @@ const blockUser = asyncHandler(async (req, res) => {
         reason: reason || null
     });
 
+    // Invalidate blocked users cache for both users
+    await invalidateBlockedUsersCache(blockerId, blockedUserId);
+
     // Remove follow relationships if they exist
     await Follower.findOneAndDelete({
         followerId: blockerId,
@@ -1246,6 +1250,9 @@ const unblockUser = asyncHandler(async (req, res) => {
 
     // Remove block record
     await Block.findByIdAndDelete(existingBlock._id);
+
+    // Invalidate blocked users cache for both users
+    await invalidateBlockedUsersCache(blockerId, blockedUserId);
 
     return res.status(200).json(
         new ApiResponse(200, null, "User unblocked successfully")
