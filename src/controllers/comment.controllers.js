@@ -55,19 +55,22 @@ export const createComment = asyncHandler(async (req, res) => {
 export const getCommentsByPost = asyncHandler(async (req, res) => {
     const { postId, page = 1, limit = 20 } = req.query;
     if (!postId) throw new ApiError(400, "postId is required");
-    const userId = req.user?._id;
+
+    // ✅ FIXED: Handle both Mongoose document and plain object from cache
+    const userId = req.user?._id ? req.user._id.toString() : null;
     const pageNum = parseInt(page) || 1;
     const pageLimit = parseInt(limit) || 20;
     const skip = (pageNum - 1) * pageLimit;
 
+    // ✅ OPTIMIZED: Only fetch top-level comments (parentCommentId: null)
     const [comments, total] = await Promise.all([
-        Comment.find({ postId, isDeleted: false })
+        Comment.find({ postId, parentCommentId: null, isDeleted: false })
             .populate('userId', 'username fullName profileImageUrl bio location')
             .sort({ createdAt: 1 })
             .skip(skip)
             .limit(pageLimit)
             .lean(),
-        Comment.countDocuments({ postId, isDeleted: false })
+        Comment.countDocuments({ postId, parentCommentId: null, isDeleted: false })
     ]);
 
     // Populate likes from Like collection for each comment
@@ -89,7 +92,7 @@ export const getCommentsByPost = asyncHandler(async (req, res) => {
     // Add likes and isLikedBy to each comment
     const enrichedComments = comments.map(comment => {
         const commentLikes = likesByComment[comment._id.toString()] || [];
-        const isLikedBy = userId ? commentLikes.some(u => u._id.toString() === userId.toString()) : false;
+        const isLikedBy = userId ? commentLikes.some(u => u._id.toString() === userId) : false;
 
         return {
             ...comment,
@@ -113,7 +116,9 @@ export const getCommentsByPost = asyncHandler(async (req, res) => {
 export const getCommentById = asyncHandler(async (req, res) => {
     const { commentId } = req.params;
     const { page = 1, limit = 10 } = req.query;
-    const userId = req.user?._id;
+
+    // ✅ FIXED: Handle both Mongoose document and plain object from cache
+    const userId = req.user?._id ? req.user._id.toString() : null;
     const pageNum = parseInt(page) || 1;
     const pageLimit = parseInt(limit) || 10;
     const skip = (pageNum - 1) * pageLimit;
@@ -152,7 +157,7 @@ export const getCommentById = asyncHandler(async (req, res) => {
 
     // Enrich main comment with likes
     const commentLikes = likesByComment[commentId.toString()] || [];
-    const isLikedBy = userId ? commentLikes.some(u => u._id.toString() === userId.toString()) : false;
+    const isLikedBy = userId ? commentLikes.some(u => u._id.toString() === userId) : false;
     const enrichedComment = {
         ...comment,
         likes: commentLikes,
@@ -163,7 +168,7 @@ export const getCommentById = asyncHandler(async (req, res) => {
     // Enrich replies with likes
     const enrichedReplies = replies.map(reply => {
         const replyLikes = likesByComment[reply._id.toString()] || [];
-        const isReplyLikedBy = userId ? replyLikes.some(u => u._id.toString() === userId.toString()) : false;
+        const isReplyLikedBy = userId ? replyLikes.some(u => u._id.toString() === userId) : false;
 
         return {
             ...reply,
