@@ -182,11 +182,32 @@ export const getUserChats = asyncHandler(async (req, res) => {
     // Filter by chat status (active or requested)
     const statusFilter = ['active', 'requested'].includes(chatStatus) ? chatStatus : 'active';
 
-    // More explicit filtering to ensure security
-    const chatFilter = {
-        participants: { $in: [userObjectId] }, // Use $in operator for explicit array matching
-        status: statusFilter
-    };
+    // ✅ FIXED: Different filtering logic based on requested status
+    let chatFilter;
+
+    if (statusFilter === 'requested') {
+        // Show chats where:
+        // 1. Status is 'requested' AND
+        // 2. Current user is NOT the creator (they are the recipient)
+        chatFilter = {
+            participants: { $in: [userObjectId] },
+            status: 'requested',
+            createdBy: { $ne: userObjectId } // Only show requests sent TO this user
+        };
+    } else {
+        // Show active chats OR requests sent BY this user
+        chatFilter = {
+            participants: { $in: [userObjectId] },
+            $or: [
+                { status: 'active' },
+                { status: 'requested', createdBy: userObjectId } // Show requests sent BY this user
+            ]
+        };
+    }
+
+    console.log('💬 Chat Debug - User:', currentUserId);
+    console.log('💬 Chat Debug - Status filter:', statusFilter);
+    console.log('💬 Chat Debug - Chat filter:', JSON.stringify(chatFilter, null, 2));
 
     const [chats, total] = await Promise.all([
         Chat.find(chatFilter)
@@ -196,6 +217,8 @@ export const getUserChats = asyncHandler(async (req, res) => {
             .lean(),
         Chat.countDocuments(chatFilter)
     ]);
+
+    console.log('💬 Chat Debug - Chats found:', chats.length);
 
     // Additional security check: Double-verify each chat contains the current user
     const secureChats = chats.filter(chat =>
