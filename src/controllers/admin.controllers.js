@@ -642,11 +642,9 @@ export const getPendingBusinessVerifications = asyncHandler(async (req, res) => 
     const { page = 1, limit = 20, search } = req.query;
 
     let filter = {
-        verificationStatus: 'pending',
         $or: [
-            { businessName: { $exists: true, $ne: null, $ne: "" } },
-            { aadhaarNumber: { $exists: true, $ne: null, $ne: "" } },
-            { gstNumber: { $exists: true, $ne: null, $ne: "" } }
+            { verificationStatus: 'pending' },
+            { 'documents': { $elemMatch: { verified: false } } }
         ]
     };
 
@@ -662,7 +660,6 @@ export const getPendingBusinessVerifications = asyncHandler(async (req, res) => 
                 ]
             }
         ];
-        delete filter.$or; // Remove the original $or since we're using $and now
     }
 
     const businesses = await Business.find(filter)
@@ -673,11 +670,27 @@ export const getPendingBusinessVerifications = asyncHandler(async (req, res) => 
         .limit(limit * 1)
         .skip((page - 1) * limit);
 
+    // Filter to show only unverified documents (excluding Aadhaar) for each business
+    const businessesWithUnverifiedDocs = businesses.map(business => {
+        const businessObj = business.toObject();
+        if (businessObj.documents) {
+            // Only show unverified documents that are NOT Aadhaar type
+            businessObj.documents = businessObj.documents.filter(
+                doc => !doc.verified && doc.documentType !== 'aadhaar'
+            );
+        }
+        return businessObj;
+    }).filter(business => {
+        // Only include businesses that have non-Aadhaar documents or pending verification status
+        return (business.documents && business.documents.length > 0) ||
+               business.verificationStatus === 'pending';
+    });
+
     const totalBusinesses = await Business.countDocuments(filter);
 
     return res.status(200).json(
         new ApiResponse(200, {
-            businesses,
+            businesses: businessesWithUnverifiedDocs,
             pagination: {
                 currentPage: parseInt(page),
                 totalPages: Math.ceil(totalBusinesses / limit),
