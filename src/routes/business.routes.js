@@ -1,5 +1,6 @@
 import { Router } from "express";
 import { verifyJWT, optionalVerifyJWT } from "../middlewares/auth.middleware.js";
+import { upload } from "../middlewares/multerConfig.js";
 import {
     switchTobusinessprofile,
     switchToPersonalAccount,
@@ -19,7 +20,8 @@ import {
     rateBusiness,
     getBusinessRatingSummary,
     toggleProductPosts,
-    toggleServicePosts
+    toggleServicePosts,
+    uploadVerificationDocument
 } from "../controllers/business.controllers.js";
 
 const router = Router();
@@ -69,6 +71,10 @@ router.route("/:businessId/rating-summary").get(getBusinessRatingSummary);
 // 📝 Post Settings Routes
 router.route("/toggle-product-posts").post(verifyJWT, toggleProductPosts);
 router.route("/toggle-service-posts").post(verifyJWT, toggleServicePosts);
+
+// 📄 Document Upload Routes
+// Single API: Upload file + Attach to business + Appears in admin panel
+router.route("/upload-document").post(verifyJWT, upload.single("document"), uploadVerificationDocument);
 
 // Helper route to update existing businesses with active subscriptions (admin only)
 router.route("/admin/update-active-businesses").post(optionalVerifyJWT, updateExistingActiveBusinesses);

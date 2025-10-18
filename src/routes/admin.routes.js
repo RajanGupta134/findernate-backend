@@ -25,6 +25,7 @@ import {
     verifyBusinessAccount,
     getBusinessVerificationDetails,
     getBusinessVerificationHistory,
+    verifyBusinessDocument,
 
     // Analytics & Dashboard
     getDashboardStats,
@@ -140,6 +141,11 @@ router.route("/businesses/:businessId/details").get(
 router.route("/businesses/verification-history").get(
     requirePermission('manageBusiness'),
     getBusinessVerificationHistory
+);
+
+router.route("/businesses/:businessId/documents/:documentId/verify").post(
+    requirePermission('manageBusiness'),
+    verifyBusinessDocument
 );
 
 // ===============================

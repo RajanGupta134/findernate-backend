@@ -115,16 +115,26 @@ export const getPendingAadhaarVerifications = asyncHandler(async (req, res) => {
 
     const businesses = await Business.find(filter)
         .populate('userId', 'username fullName email phoneNumber')
-        .select('businessName aadhaarNumber gstNumber contact location createdAt')
+        .populate('documents.verifiedBy', 'username fullName')
+        .select('businessName aadhaarNumber gstNumber contact location documents createdAt')
         .sort({ createdAt: -1 })
         .limit(limit * 1)
         .skip((page - 1) * limit);
+
+    // Filter to only show Aadhaar-type documents for each business
+    const businessesWithAadhaarDocs = businesses.map(business => {
+        const businessObj = business.toObject();
+        if (businessObj.documents) {
+            businessObj.documents = businessObj.documents.filter(doc => doc.documentType === 'aadhaar');
+        }
+        return businessObj;
+    });
 
     const totalBusinesses = await Business.countDocuments(filter);
 
     return res.status(200).json(
         new ApiResponse(200, {
-            businesses,
+            businesses: businessesWithAadhaarDocs,
             pagination: {
                 currentPage: parseInt(page),
                 totalPages: Math.ceil(totalBusinesses / limit),
@@ -646,7 +656,8 @@ export const getPendingBusinessVerifications = asyncHandler(async (req, res) => 
 
     const businesses = await Business.find(filter)
         .populate('userId', 'username fullName email phoneNumber')
-        .select('businessName businessType description category subcategory contact location aadhaarNumber gstNumber website plan subscriptionStatus createdAt verificationStatus')
+        .populate('documents.verifiedBy', 'username fullName')
+        .select('businessName businessType description category subcategory contact location aadhaarNumber gstNumber website plan subscriptionStatus createdAt verificationStatus documents')
         .sort({ createdAt: -1 })
         .limit(limit * 1)
         .skip((page - 1) * limit);
@@ -767,7 +778,8 @@ export const getBusinessVerificationDetails = asyncHandler(async (req, res) => {
     const business = await Business.findById(businessId)
         .populate('userId', 'username fullName email phoneNumber profileImageUrl')
         .populate('verifiedBy', 'username fullName')
-        .populate('rejectedBy', 'username fullName');
+        .populate('rejectedBy', 'username fullName')
+        .populate('documents.verifiedBy', 'username fullName');
 
     if (!business) {
         throw new ApiError(404, "Business not found");
@@ -785,8 +797,65 @@ export const getBusinessVerificationDetails = asyncHandler(async (req, res) => {
                 gstVerifiedBy: business.gstVerifiedBy,
                 aadhaarVerifiedAt: business.aadhaarVerifiedAt,
                 aadhaarVerifiedBy: business.aadhaarVerifiedBy
-            }
+            },
+            documents: business.documents || []
         }, "Business verification details fetched successfully")
+    );
+});
+
+// POST /api/v1/admin/businesses/:businessId/documents/:documentId/verify
+export const verifyBusinessDocument = asyncHandler(async (req, res) => {
+    if (!req.admin.permissions.manageBusiness) {
+        throw new ApiError(403, "Insufficient permissions to manage businesses");
+    }
+
+    const { businessId, documentId } = req.params;
+    const { status, remarks } = req.body;
+
+    if (!['approved', 'rejected'].includes(status)) {
+        throw new ApiError(400, "Status must be either 'approved' or 'rejected'");
+    }
+
+    const business = await Business.findById(businessId);
+    if (!business) {
+        throw new ApiError(404, "Business not found");
+    }
+
+    const document = business.documents.id(documentId);
+    if (!document) {
+        throw new ApiError(404, "Document not found");
+    }
+
+    if (status === 'approved') {
+        document.verified = true;
+        document.verifiedAt = new Date();
+        document.verifiedBy = req.admin._id;
+        document.remarks = remarks || 'Document verified and approved';
+    } else {
+        document.verified = false;
+        document.verifiedAt = new Date();
+        document.verifiedBy = req.admin._id;
+        document.remarks = remarks || 'Document rejected';
+    }
+
+    await business.save();
+
+    // Populate verifiedBy for response
+    await business.populate('documents.verifiedBy', 'username fullName');
+
+    // Log admin activity
+    await req.admin.logActivity(
+        `document_verification_${status}`,
+        'business',
+        businessId,
+        `Document (${document.documentType}) ${status} for business: ${business.businessName}`
+    );
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            document: business.documents.id(documentId),
+            businessName: business.businessName
+        }, `Document ${status} successfully`)
     );
 });
 

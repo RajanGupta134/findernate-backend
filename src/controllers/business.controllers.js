@@ -1176,6 +1176,74 @@ export const toggleProductPosts = asyncHandler(async (req, res) => {
     );
 });
 
+// ✅ POST /api/v1/business/upload-document - Upload document file and attach to business profile
+// Single API call: Upload file + Attach to business profile + Appears in admin panel
+export const uploadVerificationDocument = asyncHandler(async (req, res) => {
+    const userId = req.user._id;
+
+    const business = await Business.findOne({ userId });
+    if (!business) {
+        throw new ApiError(404, "Business profile not found. Please create a business profile first.");
+    }
+
+    // Check if file was uploaded
+    if (!req.file) {
+        throw new ApiError(400, "Document file is required");
+    }
+
+    const { documentType, documentName } = req.body;
+
+    // Validate required fields
+    if (!documentType) {
+        throw new ApiError(400, "documentType is required");
+    }
+
+    // Validate document type
+    const validDocumentTypes = ['gst', 'aadhaar', 'pan', 'license', 'registration', 'other'];
+    if (!validDocumentTypes.includes(documentType)) {
+        throw new ApiError(400, `Invalid document type. Must be one of: ${validDocumentTypes.join(', ')}`);
+    }
+
+    // Import upload service
+    const { uploadBufferToBunny } = await import('../utlis/bunny.js');
+
+    // Determine folder and filename
+    const folder = 'documents';
+    const fileExtension = req.file.originalname.split('.').pop();
+    const fileName = `${Date.now()}-${Math.random().toString(36).substring(7)}.${fileExtension}`;
+
+    // Upload to Bunny CDN
+    const uploadResult = await uploadBufferToBunny(req.file.buffer, folder, fileName);
+
+    if (!uploadResult || !uploadResult.url) {
+        throw new ApiError(500, "Failed to upload document to storage");
+    }
+
+    // Add document to the business documents array
+    business.documents.push({
+        documentType,
+        documentName: documentName || req.file.originalname,
+        documentUrl: uploadResult.url,
+        uploadedAt: new Date(),
+        verified: false
+    });
+
+    await business.save();
+
+    return res.status(201).json(
+        new ApiResponse(201, {
+            document: business.documents[business.documents.length - 1],
+            uploadedFile: {
+                url: uploadResult.url,
+                size: req.file.size,
+                mimetype: req.file.mimetype,
+                originalName: req.file.originalname
+            },
+            totalDocuments: business.documents.length
+        }, "Document uploaded and submitted for verification successfully")
+    );
+});
+
 // ✅ POST /api/v1/business/toggle-service-posts - Toggle service posts
 export const toggleServicePosts = asyncHandler(async (req, res) => {
     const userId = req.user._id;

@@ -12,6 +12,22 @@ const ContactSchema = new mongoose.Schema({
     socialMedia: [SocialMediaSchema]
 }, { _id: false });
 
+// Document Schema for business verification documents
+const DocumentSchema = new mongoose.Schema({
+    documentType: {
+        type: String,
+        required: true,
+        enum: ['gst', 'aadhaar', 'pan', 'license', 'registration', 'other']
+    },
+    documentName: { type: String, required: true },
+    documentUrl: { type: String, required: true },
+    uploadedAt: { type: Date, default: Date.now },
+    verified: { type: Boolean, default: false },
+    verifiedAt: { type: Date },
+    verifiedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'Admin' },
+    remarks: { type: String }
+}, { _id: true });
+
 // 🌐 GeoJSON Point Schema for business location
 const GeoJSONPointSchema = new mongoose.Schema({
     type: {
@@ -55,6 +71,10 @@ const BusinessSchema = new mongoose.Schema({
     website: { type: String },
     gstNumber: { type: String, required: false },
     aadhaarNumber: { type: String, required: false },
+
+    // Array of verification documents
+    documents: [DocumentSchema],
+
     logoUrl: { type: String },
     isVerified: { type: Boolean, default: false },
     followers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
