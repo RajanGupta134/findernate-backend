@@ -101,15 +101,23 @@ export const adminLogout = asyncHandler(async (req, res) => {
 export const getPendingAadhaarVerifications = asyncHandler(async (req, res) => {
     const { page = 1, limit = 20, search } = req.query;
 
+    // Find businesses that have Aadhaar documents (either in documents array OR aadhaarNumber field)
     let filter = {
-        aadhaarNumber: { $exists: true, $ne: null, $ne: "" },
-        isVerified: false
+        $or: [
+            { 'documents': { $elemMatch: { documentType: 'aadhaar', verified: false } } },
+            { aadhaarNumber: { $exists: true, $ne: null, $ne: "" }, isVerified: false }
+        ]
     };
 
     if (search) {
-        filter.$or = [
-            { businessName: { $regex: search, $options: 'i' } },
-            { aadhaarNumber: { $regex: search, $options: 'i' } }
+        filter.$and = [
+            filter,
+            {
+                $or: [
+                    { businessName: { $regex: search, $options: 'i' } },
+                    { aadhaarNumber: { $regex: search, $options: 'i' } }
+                ]
+            }
         ];
     }
 
@@ -125,7 +133,10 @@ export const getPendingAadhaarVerifications = asyncHandler(async (req, res) => {
     const businessesWithAadhaarDocs = businesses.map(business => {
         const businessObj = business.toObject();
         if (businessObj.documents) {
-            businessObj.documents = businessObj.documents.filter(doc => doc.documentType === 'aadhaar');
+            // Only show unverified Aadhaar documents
+            businessObj.documents = businessObj.documents.filter(
+                doc => doc.documentType === 'aadhaar' && !doc.verified
+            );
         }
         return businessObj;
     });
