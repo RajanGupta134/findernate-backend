@@ -20,15 +20,11 @@ import Media from "../models/mediaUser.models.js";
 import Block from "../models/block.models.js";
 import jwt from "jsonwebtoken";
 import SavedPost from "../models/savedPost.models.js";
-import { Cart } from "../models/cart.models.js";
-import { Wishlist } from "../models/wishlist.models.js";
-import Product from "../models/product.models.js";
 import Feedback from "../models/feedback.models.js";
 import BusinessRating from "../models/businessRating.models.js";
 import PostInteraction from "../models/postInteraction.models.js";
 import Subscription from "../models/subscription.models.js";
 import PushSubscription from "../models/pushSubscription.models.js";
-import Payment from "../models/payment.models.js";
 import Draft from "../models/draft.models.js";
 import Device from "../models/device.models.js";
 import Chat from "../models/chat.models.js";
@@ -38,7 +34,6 @@ import Notification from "../models/notification.models.js";
 import Report from "../models/report.models.js";
 import Following from "../models/following.models.js";
 import FollowRequest from "../models/followRequest.models.js";
-import Order from "../models/order.models.js";
 import ContactRequest from "../models/contactRequest.models.js";
 import {
     generateRealtimeUsernameSuggestions,
@@ -399,9 +394,6 @@ const deleteAccount = asyncHandler(async (req, res) => {
     }
     // --- End media cleanup ---
 
-    // Get user's product IDs before deletion
-    const userProductIds = await Product.find({ userId }).distinct('_id');
-
     // Clean up all user-related data
     const cleanupResults = await Promise.allSettled([
         // Delete all posts by the user
@@ -420,14 +412,6 @@ const deleteAccount = asyncHandler(async (req, res) => {
         Story.deleteMany({ userId }),
         // Delete all drafts by the user
         Draft.deleteMany({ userId }),
-        // Delete all products by the user
-        Product.deleteMany({ userId }),
-        // Delete user's cart
-        Cart.deleteOne({ userId }),
-        // Delete user's wishlist
-        Wishlist.deleteOne({ userId }),
-        // Delete user's orders
-        Order.deleteMany({ userId }),
         // Delete saved posts by the user
         SavedPost.deleteMany({ userId }),
         // Delete search history
@@ -439,8 +423,6 @@ const deleteAccount = asyncHandler(async (req, res) => {
         Subscription.deleteMany({ subscriberId: userId }),
         // Delete push subscriptions
         PushSubscription.deleteMany({ userId }),
-        // Delete payments
-        Payment.deleteMany({ userId }),
         // Delete devices
         Device.deleteMany({ userId }),
         // Delete chats where user is participant
@@ -488,17 +470,7 @@ const deleteAccount = asyncHandler(async (req, res) => {
         Follower.deleteMany({ userId }),
         Follower.deleteMany({ followerId: userId }),
         Following.deleteMany({ userId }),
-        Following.deleteMany({ followingId: userId }),
-        // Remove user from cart items of other users (if they added this user's products)
-        Cart.updateMany(
-            { 'items.productId': { $in: userProductIds } },
-            { $pull: { items: { productId: { $in: userProductIds } } } }
-        ),
-        // Remove user's products from wishlists
-        Wishlist.updateMany(
-            { 'products': { $in: userProductIds } },
-            { $pull: { products: { $in: userProductIds } } }
-        )
+        Following.deleteMany({ followingId: userId })
     ]);
 
     // Delete the user account directly from the collection
