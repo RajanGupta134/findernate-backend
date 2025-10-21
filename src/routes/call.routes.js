@@ -8,8 +8,8 @@ import {
     getCallHistory,
     getActiveCall,
     getCallStats,
-    getAgoraAuthToken,
-    getAgoraChannelDetails
+    getZegoToken,
+    getZegoRoomDetails
 } from '../controllers/call.controllers.js';
 import { verifyJWT } from '../middlewares/auth.middleware.js';
 
@@ -30,8 +30,8 @@ router.get('/history', getCallHistory);                    // GET /api/v1/calls/
 router.get('/active', getActiveCall);                      // GET /api/v1/calls/active
 router.get('/stats', getCallStats);                        // GET /api/v1/calls/stats
 
-// Agora specific routes
-router.post('/:callId/agora-token', getAgoraAuthToken); // POST /api/v1/calls/:callId/agora-token
-router.get('/:callId/agora-channel', getAgoraChannelDetails); // GET /api/v1/calls/:callId/agora-channel
+// ZegoCloud specific routes
+router.post('/:callId/zego-token', getZegoToken);          // POST /api/v1/calls/:callId/zego-token
+router.get('/:callId/zego-room', getZegoRoomDetails);      // GET /api/v1/calls/:callId/zego-room
 
 export default router;

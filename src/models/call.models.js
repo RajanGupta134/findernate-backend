@@ -89,34 +89,24 @@ const CallSchema = new mongoose.Schema({
         }
     },
 
-    // 📡 Agora Channel Information
-    agoraChannel: {
-        channelName: {
+    // 📡 ZegoCloud Room Information
+    zegoRoom: {
+        roomId: {
             type: String,
             index: true
         },
-        appId: String,
+        appId: Number,
         createdAt: Date,
         endedAt: Date
     },
 
-    // 🔑 Agora Auth Tokens (for participants)
-    agoraTokens: [{
+    // 🔑 ZegoCloud Auth Tokens (for participants)
+    zegoTokens: [{
         userId: {
             type: mongoose.Schema.Types.ObjectId,
             ref: 'User'
         },
-        rtcToken: String,
-        rtmToken: String,
-        uid: {
-            type: Number,
-            default: 0
-        },
-        role: {
-            type: String,
-            enum: ['publisher', 'subscriber'],
-            default: 'publisher'
-        },
+        token: String,
         generatedAt: {
             type: Date,
             default: Date.now
@@ -216,36 +206,33 @@ CallSchema.statics.getCallStats = function (userId, days = 30) {
     ]);
 };
 
-// Get call by Agora channel name
-CallSchema.statics.getCallByChannelName = function (channelName) {
-    return this.findOne({ 'agoraChannel.channelName': channelName })
+// Get call by ZegoCloud room ID
+CallSchema.statics.getCallByRoomId = function (roomId) {
+    return this.findOne({ 'zegoRoom.roomId': roomId })
         .populate('participants', 'username fullName profileImageUrl')
         .populate('initiator', 'username fullName profileImageUrl');
 };
 
-// Get Agora token for user in a call
-CallSchema.methods.getAgoraTokenForUser = function (userId) {
-    return this.agoraTokens.find(token =>
+// Get ZegoCloud token for user in a call
+CallSchema.methods.getZegoTokenForUser = function (userId) {
+    return this.zegoTokens.find(token =>
         token.userId.toString() === userId.toString()
     );
 };
 
-// Add Agora token for user
-CallSchema.methods.addAgoraToken = function (userId, rtcToken, rtmToken, role = 'publisher') {
+// Add ZegoCloud token for user
+CallSchema.methods.addZegoToken = function (userId, token, expiresAt) {
     // Remove existing token for user
-    this.agoraTokens = this.agoraTokens.filter(t =>
+    this.zegoTokens = this.zegoTokens.filter(t =>
         t.userId.toString() !== userId.toString()
     );
 
     // Add new token
-    this.agoraTokens.push({
+    this.zegoTokens.push({
         userId,
-        rtcToken,
-        rtmToken,
-        uid: 0, // String-based user accounts
-        role,
+        token,
         generatedAt: new Date(),
-        expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
+        expiresAt
     });
 
     return this.save();

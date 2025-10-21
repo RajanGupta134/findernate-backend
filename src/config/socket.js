@@ -261,15 +261,15 @@ class SocketManager {
                 }
             });
 
-            // ===== AGORA CALL SIGNALING EVENTS =====
+            // ===== CALL SIGNALING EVENTS =====
             //
-            // CALL FLOW WITH AGORA:
-            // 1. Caller -> HTTP POST /calls/initiate -> Server saves call + generates Agora tokens
-            // 2. Server -> Socket 'incoming_call' (with Agora channel + tokens) -> Receiver
+            // CALL FLOW WITH ZEGOCLOUD:
+            // 1. Caller -> HTTP POST /calls/initiate -> Server saves call + generates ZegoCloud tokens
+            // 2. Server -> Socket 'incoming_call' (with ZegoCloud room + token) -> Receiver
             // 3. Receiver -> HTTP PATCH /calls/:callId/accept -> Server updates DB
             // 4. Server -> Socket 'call_accepted' -> Caller
-            // 5. Both clients connect to Agora using tokens from HTTP responses
-            // 6. Agora SDK handles all media streaming (no WebRTC signaling needed)
+            // 5. Both clients connect to ZegoCloud using room ID and tokens from HTTP responses
+            // 6. ZegoCloud SDK handles all audio/video streaming
             // 7. Either user -> HTTP PATCH /calls/:callId/end -> Server updates DB
             // 8. Server -> Socket 'call_ended' -> Other participants
             //

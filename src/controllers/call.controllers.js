@@ -6,7 +6,7 @@ import { ApiError } from '../utlis/ApiError.js';
 import { ApiResponse } from '../utlis/ApiResponse.js';
 import { asyncHandler } from '../utlis/asyncHandler.js';
 import socketManager from '../config/socket.js';
-import agoraService from '../config/agora.config.js';
+import zegoService from '../config/zego.config.js';
 import mongoose from 'mongoose';
 
 // Constants for call management
@@ -41,10 +41,10 @@ const cleanupStaleCalls = async () => {
         for (const call of staleCalls) {
             console.log(`🧹 Cleaning up stale call: ${call._id}`);
 
-            // Mark Agora channel as ended if exists
-            if (call.agoraChannel?.channelName) {
-                call.agoraChannel.endedAt = new Date();
-                console.log(`📡 Marked Agora channel ${call.agoraChannel.channelName} as ended`);
+            // Mark ZegoCloud room as ended if exists
+            if (call.zegoRoom?.roomId) {
+                call.zegoRoom.endedAt = new Date();
+                console.log(`📡 Marked ZegoCloud room ${call.zegoRoom.roomId} as ended`);
             }
 
             // Update call status
@@ -73,16 +73,6 @@ const cleanupStaleCalls = async () => {
 
 // Start cleanup interval
 setInterval(cleanupStaleCalls, CLEANUP_INTERVAL_MINUTES * 60 * 1000);
-
-// Helper function to safely execute Agora operations
-const safeAgoraOperation = async (operation, fallbackMessage) => {
-    try {
-        return await operation();
-    } catch (error) {
-        console.warn(`Agora operation failed: ${error.message}. ${fallbackMessage}`);
-        return null;
-    }
-};
 
 // Helper function to check if user has active call
 const hasActiveCall = async (userId, session = null) => {
@@ -198,45 +188,43 @@ export const initiateCall = asyncHandler(async (req, res) => {
             await session.endSession();
         }
 
-        // Create Agora channel for the call with better error handling
-        console.log('📡 Creating Agora channel...');
-        const agoraChannel = await safeAgoraOperation(async () => {
-            const channelName = `call_${newCall._id.toString()}`;
+        // Create ZegoCloud room for the call
+        console.log('📡 Creating ZegoCloud room...');
+        try {
+            const roomId = `call_${newCall._id.toString()}`;
 
-            // Update call with Agora channel data
-            newCall.agoraChannel = {
-                channelName: channelName,
-                appId: agoraService.getAppId(),
+            // Update call with ZegoCloud room data
+            newCall.zegoRoom = {
+                roomId: roomId,
+                appId: zegoService.getAppId(),
                 createdAt: new Date()
             };
 
-            // Generate auth tokens for both participants
+            // Generate auth tokens for both participants with full privileges
             const initiatorUserId = currentUserId.toString();
             const receiverUserId = receiverId.toString();
 
-            const initiatorTokens = agoraService.generateTokens(channelName, initiatorUserId, 'publisher');
-            const receiverTokens = agoraService.generateTokens(channelName, receiverUserId, 'publisher');
+            const initiatorTokenData = zegoService.generateTokenWithPrivileges(initiatorUserId, roomId);
+            const receiverTokenData = zegoService.generateTokenWithPrivileges(receiverUserId, roomId);
 
             // Store tokens in the call
-            await newCall.addAgoraToken(
+            await newCall.addZegoToken(
                 currentUserId,
-                initiatorTokens.rtc.token,
-                initiatorTokens.rtm.token,
-                'publisher'
+                initiatorTokenData.token,
+                initiatorTokenData.expiresAt
             );
-            await newCall.addAgoraToken(
+            await newCall.addZegoToken(
                 receiverId,
-                receiverTokens.rtc.token,
-                receiverTokens.rtm.token,
-                'publisher'
+                receiverTokenData.token,
+                receiverTokenData.expiresAt
             );
 
-            console.log(`🎉 Created Agora channel ${channelName} for call ${newCall._id}`);
-            return {
-                channelName,
-                appId: agoraService.getAppId()
-            };
-        }, 'Continuing with WebRTC fallback');
+            console.log(`🎉 Created ZegoCloud room ${roomId} for call ${newCall._id}`);
+        } catch (error) {
+            console.error('❌ Error creating ZegoCloud room:', error);
+            // Continue without ZegoCloud - clients can fall back to WebRTC
+            console.warn('⚠️ Continuing with WebRTC fallback');
+        }
 
         // Populate the call with user details
         console.log('📋 Populating call details...');
@@ -260,15 +248,13 @@ export const initiateCall = asyncHandler(async (req, res) => {
                 timestamp: new Date()
             };
 
-            // Include Agora channel data if available
-            if (newCall.agoraChannel && newCall.agoraChannel.channelName) {
-                const receiverToken = newCall.getAgoraTokenForUser(receiverId);
-                callData.agoraChannel = {
-                    channelName: newCall.agoraChannel.channelName,
-                    appId: newCall.agoraChannel.appId,
-                    rtcToken: receiverToken ? receiverToken.rtcToken : null,
-                    rtmToken: receiverToken ? receiverToken.rtmToken : null,
-                    uid: receiverToken ? receiverToken.uid : 0
+            // Include ZegoCloud room data if available
+            if (newCall.zegoRoom && newCall.zegoRoom.roomId) {
+                const receiverToken = newCall.getZegoTokenForUser(receiverId);
+                callData.zegoRoom = {
+                    roomId: newCall.zegoRoom.roomId,
+                    appId: newCall.zegoRoom.appId,
+                    token: receiverToken ? receiverToken.token : null
                 };
             }
 
@@ -345,7 +331,6 @@ export const acceptCall = asyncHandler(async (req, res) => {
             console.log('📋 Call found:', {
                 callId: call._id,
                 status: call.status,
-                hasAgoraChannel: !!call.agoraChannel?.channelName,
                 initiatedAt: call.initiatedAt,
                 endedAt: call.endedAt
             });
@@ -382,38 +367,28 @@ export const acceptCall = asyncHandler(async (req, res) => {
                 return; // Exit transaction early, proceed to response
             }
 
-            // Validate Agora channel exists
-            if (!call.agoraChannel || !call.agoraChannel.channelName) {
-                console.error('❌ Call missing Agora channel:', {
-                    callId,
-                    hasAgoraChannel: !!call.agoraChannel,
-                    hasChannelName: !!call.agoraChannel?.channelName
-                });
-                throw new ApiError(400, 'Call does not have a valid Agora channel configured');
-            }
+            // Check if user has valid ZegoCloud token
+            const userToken = call.getZegoTokenForUser(currentUserId);
+            if (!userToken || !userToken.token) {
+                console.warn('⚠️ User missing ZegoCloud token, generating new one...');
 
-            // Check if user has valid Agora tokens
-            const userToken = call.getAgoraTokenForUser(currentUserId);
-            if (!userToken || !userToken.rtcToken) {
-                console.warn('⚠️ User missing Agora tokens, generating new ones...');
-
-                // Generate tokens for the user
+                // Generate token for the user
                 try {
-                    const tokens = agoraService.generateTokens(
-                        call.agoraChannel.channelName,
-                        currentUserId.toString(),
-                        'publisher'
-                    );
-                    await call.addAgoraToken(
-                        currentUserId,
-                        tokens.rtc.token,
-                        tokens.rtm.token,
-                        'publisher'
-                    );
-                    console.log('✅ Generated new Agora tokens for user');
+                    if (call.zegoRoom && call.zegoRoom.roomId) {
+                        const tokenData = zegoService.generateTokenWithPrivileges(
+                            currentUserId.toString(),
+                            call.zegoRoom.roomId
+                        );
+                        await call.addZegoToken(
+                            currentUserId,
+                            tokenData.token,
+                            tokenData.expiresAt
+                        );
+                        console.log('✅ Generated new ZegoCloud token for user');
+                    }
                 } catch (tokenError) {
-                    console.error('❌ Failed to generate Agora tokens:', tokenError);
-                    throw new ApiError(500, 'Failed to generate authentication tokens for the call');
+                    console.error('❌ Failed to generate ZegoCloud token:', tokenError);
+                    // Continue without token - client can fall back to WebRTC
                 }
             }
 
@@ -455,27 +430,21 @@ export const acceptCall = asyncHandler(async (req, res) => {
         });
     });
 
-    // Prepare response data with Agora channel info
+    // Prepare response data with ZegoCloud info
     const responseData = {
         ...populatedCall.toObject(),
-        channelName: populatedCall.agoraChannel?.channelName || null,
-        agoraChannel: populatedCall.agoraChannel ? {
-            channelName: populatedCall.agoraChannel.channelName,
-            appId: populatedCall.agoraChannel.appId,
-            createdAt: populatedCall.agoraChannel.createdAt
+        zegoRoom: populatedCall.zegoRoom ? {
+            roomId: populatedCall.zegoRoom.roomId,
+            appId: populatedCall.zegoRoom.appId,
+            createdAt: populatedCall.zegoRoom.createdAt
         } : null
     };
 
     // Include user's auth token
-    const userToken = populatedCall.getAgoraTokenForUser(currentUserId);
+    const userToken = populatedCall.getZegoTokenForUser(currentUserId);
     if (userToken) {
-        responseData.rtcToken = userToken.rtcToken;
-        responseData.rtmToken = userToken.rtmToken;
-        responseData.uid = userToken.uid;
-        responseData.userRole = userToken.role;
-        console.log('✅ Including user tokens in response');
-    } else {
-        console.warn('⚠️ No user token found in response');
+        responseData.zegoToken = userToken.token;
+        console.log('✅ Including user ZegoCloud token in response');
     }
 
     console.log('🎉 Call accepted successfully:', { callId });
@@ -538,10 +507,10 @@ export const declineCall = asyncHandler(async (req, res) => {
             call.endedAt = new Date();
             call.endReason = 'declined';
 
-            // Mark Agora channel as ended if exists
-            if (call.agoraChannel?.channelName) {
-                call.agoraChannel.endedAt = new Date();
-                console.log(`📡 Marked Agora channel ${call.agoraChannel.channelName} as ended`);
+            // Mark ZegoCloud room as ended if exists
+            if (call.zegoRoom?.roomId) {
+                call.zegoRoom.endedAt = new Date();
+                console.log(`📡 Marked ZegoCloud room ${call.zegoRoom.roomId} as ended`);
             }
 
             await call.save({ session });
@@ -660,10 +629,10 @@ export const endCall = asyncHandler(async (req, res) => {
                 console.log('⏱️ Call ended before being started, setting startedAt = endedAt');
             }
 
-            // Mark Agora channel as ended if exists (within transaction)
-            if (call.agoraChannel?.channelName) {
-                call.agoraChannel.endedAt = new Date();
-                console.log(`📡 Marking Agora channel ${call.agoraChannel.channelName} as ended`);
+            // Mark ZegoCloud room as ended if exists
+            if (call.zegoRoom?.roomId) {
+                call.zegoRoom.endedAt = new Date();
+                console.log(`📡 Marking ZegoCloud room ${call.zegoRoom.roomId} as ended`);
             }
 
             await call.save({ session });
@@ -874,29 +843,25 @@ export const getCallStats = asyncHandler(async (req, res) => {
     );
 });
 
-// Generate or refresh Agora auth token for a call participant
-export const getAgoraAuthToken = asyncHandler(async (req, res) => {
+// Generate or refresh ZegoCloud token for a call participant
+export const getZegoToken = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;
     const { callId } = req.params;
-    const { role = 'publisher' } = req.body;
 
-    console.log('🔑 Agora token request:', { callId, currentUserId, role });
+    console.log('🔑 ZegoCloud token request:', { callId, currentUserId });
 
     // Validate call ID format
     if (!isValidObjectId(callId)) {
-        console.error('❌ Invalid call ID format:', { callId, isValid: false });
-        throw new ApiError(400, `Invalid call ID format: ${callId}. Must be a valid 24-character MongoDB ObjectId.`);
+        console.error('❌ Invalid call ID format:', callId);
+        throw new ApiError(400, 'Invalid call ID format');
     }
 
     // Find the call
-    console.log('🔍 Looking for call:', callId);
     const call = await Call.findById(callId);
     if (!call) {
         console.error('❌ Call not found:', callId);
         throw new ApiError(404, 'Call not found');
     }
-
-    console.log('✅ Call found:', { callId: call._id, status: call.status, agoraChannel: !!call.agoraChannel });
 
     // Check if user is a participant
     const participantIds = call.participants.map(p => p.toString());
@@ -905,83 +870,46 @@ export const getAgoraAuthToken = asyncHandler(async (req, res) => {
         throw new ApiError(403, 'You are not a participant in this call');
     }
 
-    // Check if call has Agora channel
-    if (!call.agoraChannel || !call.agoraChannel.channelName) {
-        console.error('❌ Call does not have Agora channel configured:', { agoraChannel: call.agoraChannel });
-        throw new ApiError(400, 'Call does not have Agora channel configured');
+    // Check if call has ZegoCloud room
+    if (!call.zegoRoom || !call.zegoRoom.roomId) {
+        console.error('❌ Call does not have ZegoCloud room configured');
+        throw new ApiError(400, 'Call does not have ZegoCloud room configured');
     }
 
     // Check if call is still active
     if (!['initiated', 'ringing', 'connecting', 'active'].includes(call.status)) {
-        console.warn('⚠️  Token requested for inactive call:', {
-            status: call.status,
-            endedAt: call.endedAt,
-            endReason: call.endReason
-        });
-
-        // Return more descriptive error for recently ended calls
-        if (call.status === 'ended' && call.endedAt) {
-            const secondsSinceEnd = Math.floor((Date.now() - call.endedAt.getTime()) / 1000);
-            throw new ApiError(410, `Call has already ended (${secondsSinceEnd}s ago). Reason: ${call.endReason || 'unknown'}`);
-        }
-
+        console.warn('⚠️ Token requested for inactive call:', { status: call.status });
         throw new ApiError(400, `Call is not active. Current status: ${call.status}`);
     }
 
     try {
-        // Generate new auth tokens
-        console.log('🔑 Generating Agora auth tokens...', {
-            channelName: call.agoraChannel.channelName,
-            userId: currentUserId.toString(),
-            role,
-            agoraConfigured: agoraService.isConfigured()
-        });
+        // Generate new token
+        const tokenData = zegoService.generateTokenWithPrivileges(
+            currentUserId.toString(),
+            call.zegoRoom.roomId
+        );
 
-        if (!agoraService.isConfigured()) {
-            console.error('❌ Agora service not configured - missing credentials');
-            throw new Error('Agora service not configured. Please check AGORA_APP_ID and AGORA_APP_CERTIFICATE in environment variables');
-        }
+        // Store token in call
+        await call.addZegoToken(currentUserId, tokenData.token, tokenData.expiresAt);
 
-        const userId = currentUserId.toString();
-        const tokens = agoraService.generateTokens(call.agoraChannel.channelName, userId, role);
-
-        console.log('✅ Agora tokens generated:', {
-            hasRtcToken: !!tokens.rtc.token,
-            hasRtmToken: !!tokens.rtm.token,
-            channelName: call.agoraChannel.channelName
-        });
-
-        // Store/update token in call
-        await call.addAgoraToken(currentUserId, tokens.rtc.token, tokens.rtm.token, role);
-
-        console.log('✅ Agora tokens saved to call successfully');
-        res.status(200).json({
-            success: true,
-            data: {
-                rtcToken: tokens.rtc.token,
-                rtmToken: tokens.rtm.token,
-                channelName: call.agoraChannel.channelName,
-                appId: agoraService.getAppId(),
-                uid: 0,
-                userId: userId
-            }
-        });
+        console.log('✅ ZegoCloud token generated successfully');
+        res.status(200).json(
+            new ApiResponse(200, {
+                token: tokenData.token,
+                roomId: call.zegoRoom.roomId,
+                appId: call.zegoRoom.appId,
+                userId: currentUserId.toString(),
+                expiresAt: tokenData.expiresAt
+            }, 'ZegoCloud token generated successfully')
+        );
     } catch (error) {
-        console.error('❌ Error generating Agora tokens:', {
-            message: error.message,
-            stack: error.stack,
-            callId,
-            channelName: call.agoraChannel?.channelName,
-            userId: currentUserId.toString(),
-            role,
-            errorType: error.constructor.name
-        });
-        throw new ApiError(500, `Failed to generate Agora auth tokens: ${error.message}`);
+        console.error('❌ Error generating ZegoCloud token:', error);
+        throw new ApiError(500, `Failed to generate ZegoCloud token: ${error.message}`);
     }
 });
 
-// Get Agora channel details for a call
-export const getAgoraChannelDetails = asyncHandler(async (req, res) => {
+// Get ZegoCloud room details for a call
+export const getZegoRoomDetails = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;
     const { callId } = req.params;
 
@@ -1004,14 +932,14 @@ export const getAgoraChannelDetails = asyncHandler(async (req, res) => {
         throw new ApiError(403, 'You are not a participant in this call');
     }
 
-    // Check if call has Agora channel
-    if (!call.agoraChannel || !call.agoraChannel.channelName) {
-        throw new ApiError(400, 'Call does not have Agora channel configured');
+    // Check if call has ZegoCloud room
+    if (!call.zegoRoom || !call.zegoRoom.roomId) {
+        throw new ApiError(400, 'Call does not have ZegoCloud room configured');
     }
 
     try {
         // Get user's token
-        const userToken = call.getAgoraTokenForUser(currentUserId);
+        const userToken = call.getZegoTokenForUser(currentUserId);
 
         res.status(200).json(
             new ApiResponse(200, {
@@ -1021,18 +949,17 @@ export const getAgoraChannelDetails = asyncHandler(async (req, res) => {
                     callType: call.callType,
                     participants: call.participants
                 },
-                agoraChannel: {
-                    channelName: call.agoraChannel.channelName,
-                    appId: call.agoraChannel.appId,
-                    rtcToken: userToken ? userToken.rtcToken : null,
-                    rtmToken: userToken ? userToken.rtmToken : null,
-                    uid: userToken ? userToken.uid : 0,
-                    userRole: userToken ? userToken.role : null
+                zegoRoom: {
+                    roomId: call.zegoRoom.roomId,
+                    appId: call.zegoRoom.appId,
+                    token: userToken ? userToken.token : null,
+                    expiresAt: userToken ? userToken.expiresAt : null
                 }
-            }, 'Agora channel details fetched successfully')
+            }, 'ZegoCloud room details fetched successfully')
         );
     } catch (error) {
-        console.error('❌ Error fetching Agora channel details:', error);
-        throw new ApiError(500, 'Failed to fetch Agora channel details');
+        console.error('❌ Error fetching ZegoCloud room details:', error);
+        throw new ApiError(500, 'Failed to fetch ZegoCloud room details');
     }
 });
+
