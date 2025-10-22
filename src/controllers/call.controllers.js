@@ -963,3 +963,80 @@ export const getZegoRoomDetails = asyncHandler(async (req, res) => {
     }
 });
 
+// Force end all active calls for current user (cleanup endpoint)
+export const forceEndActiveCalls = asyncHandler(async (req, res) => {
+    const currentUserId = req.user._id;
+
+    console.log('🧹 Force ending active calls for user:', currentUserId);
+
+    // Find all active calls for this user
+    const activeCalls = await Call.find({
+        participants: currentUserId,
+        status: { $in: ['initiated', 'ringing', 'connecting', 'active'] }
+    });
+
+    if (activeCalls.length === 0) {
+        return res.status(200).json(
+            new ApiResponse(200, { endedCount: 0 }, 'No active calls to end')
+        );
+    }
+
+    console.log(`🧹 Found ${activeCalls.length} active call(s) to end`);
+
+    const endedCalls = [];
+
+    for (const call of activeCalls) {
+        try {
+            // Mark ZegoCloud room as ended
+            if (call.zegoRoom?.roomId && !call.zegoRoom.endedAt) {
+                call.zegoRoom.endedAt = new Date();
+            }
+
+            // Calculate duration if call was active
+            if (call.startedAt && !call.endedAt) {
+                call.endedAt = new Date();
+                call.duration = Math.floor((call.endedAt - call.startedAt) / 1000);
+            } else if (!call.endedAt) {
+                call.endedAt = new Date();
+            }
+
+            // Update status
+            call.status = call.startedAt ? 'ended' : 'missed';
+            call.endReason = 'force_cleanup';
+            call.endedBy = currentUserId;
+
+            await call.save();
+
+            // Notify other participants
+            const otherParticipants = call.participants
+                .filter(p => p.toString() !== currentUserId.toString());
+
+            otherParticipants.forEach(participantId => {
+                safeEmitToUser(participantId, 'call_ended', {
+                    callId: call._id,
+                    endedBy: currentUserId,
+                    reason: 'force_cleanup',
+                    timestamp: new Date()
+                });
+            });
+
+            endedCalls.push({
+                callId: call._id,
+                status: call.status,
+                duration: call.duration
+            });
+
+            console.log(`✅ Force ended call: ${call._id}`);
+        } catch (error) {
+            console.error(`❌ Error ending call ${call._id}:`, error);
+        }
+    }
+
+    res.status(200).json(
+        new ApiResponse(200, {
+            endedCount: endedCalls.length,
+            endedCalls
+        }, `Successfully force-ended ${endedCalls.length} call(s)`)
+    );
+});
+
