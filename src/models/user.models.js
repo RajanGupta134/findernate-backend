@@ -47,6 +47,10 @@ const UserSchema = new mongoose.Schema({
     // Service post preferences
     servicePostPreferences: {
         enableAutoFill: { type: Boolean, default: true }
+    },
+    // Product post preferences
+    productPostPreferences: {
+        enableAutoFill: { type: Boolean, default: true }
     }
 }, { timestamps: true });
 

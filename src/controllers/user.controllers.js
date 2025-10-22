@@ -1469,6 +1469,82 @@ const getPreviousServicePostData = asyncHandler(async (req, res) => {
     );
 });
 
+// Toggle product post auto-fill preference
+const toggleProductAutoFill = asyncHandler(async (req, res) => {
+    const userId = req.user?._id;
+    if (!userId) throw new ApiError(400, "User ID is required");
+
+    const user = await User.findById(userId);
+    if (!user) throw new ApiError(404, "User not found");
+
+    // Toggle the auto-fill preference
+    const currentSetting = user.productPostPreferences?.enableAutoFill ?? true;
+    user.productPostPreferences = {
+        enableAutoFill: !currentSetting
+    };
+
+    await user.save({ validateBeforeSave: false });
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            enableAutoFill: user.productPostPreferences.enableAutoFill
+        }, "Product auto-fill preference updated successfully")
+    );
+});
+
+// Get previous product post data for auto-fill
+const getPreviousProductPostData = asyncHandler(async (req, res) => {
+    const userId = req.user?._id;
+    if (!userId) throw new ApiError(400, "User ID is required");
+
+    // Check if auto-fill is enabled for this user
+    const user = await User.findById(userId).select('productPostPreferences');
+    const autoFillEnabled = user?.productPostPreferences?.enableAutoFill ?? true;
+
+    if (!autoFillEnabled) {
+        return res.status(200).json(
+            new ApiResponse(200, { autoFillEnabled: false, data: null }, "Auto-fill is disabled")
+        );
+    }
+
+    // Find the most recent product post by this user
+    const latestProductPost = await Post.findOne({
+        userId,
+        contentType: "product"
+    })
+    .sort({ createdAt: -1 })
+    .select('customization.product')
+    .lean();
+
+    if (!latestProductPost || !latestProductPost.customization?.product) {
+        return res.status(200).json(
+            new ApiResponse(200, {
+                autoFillEnabled: true,
+                data: null
+            }, "No previous product post found")
+        );
+    }
+
+    // Extract relevant fields for auto-fill
+    const productData = latestProductPost.customization.product;
+    const autoFillData = {
+        productName: productData.name || "",
+        currency: productData.currency || "INR",
+        description: productData.description || "",
+        price: productData.price || null,
+        brand: productData.brand || "",
+        category: productData.category || "",
+        subcategory: productData.subcategory || ""
+    };
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            autoFillEnabled: true,
+            data: autoFillData
+        }, "Previous product post data retrieved successfully")
+    );
+});
+
 export {
     registerUser,
     loginUser,
@@ -1497,5 +1573,7 @@ export {
     checkUsernameAvailability,
     toggleFullPrivateAccount,
     toggleServiceAutoFill,
-    getPreviousServicePostData
+    getPreviousServicePostData,
+    toggleProductAutoFill,
+    getPreviousProductPostData
 };
