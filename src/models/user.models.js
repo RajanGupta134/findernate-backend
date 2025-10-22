@@ -43,6 +43,10 @@ const UserSchema = new mongoose.Schema({
         type: String,
         enum: ['active', 'deactivated', 'banned'],
         default: 'active'
+    },
+    // Service post preferences
+    servicePostPreferences: {
+        enableAutoFill: { type: Boolean, default: true }
     }
 }, { timestamps: true });
 
