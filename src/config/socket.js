@@ -42,12 +42,14 @@ class SocketManager {
                     credentials: true
                 },
                 // Add these options for better compatibility with nginx/reverse proxies
-                transports: ['websocket', 'polling'],
+                transports: ['polling', 'websocket'],  // Try polling first, then upgrade to websocket
                 allowEIO3: true,
                 pingTimeout: 60000,
                 pingInterval: 25000,
                 connectTimeout: 45000,
-                path: '/socket.io/'
+                path: '/socket.io/',
+                upgradeTimeout: 30000,  // Add upgrade timeout
+                allowUpgrades: true     // Allow protocol upgrades
             });
 
             // Wait for Redis connections to be ready before setting up adapter
