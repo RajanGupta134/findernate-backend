@@ -1458,7 +1458,8 @@ const getPreviousServicePostData = asyncHandler(async (req, res) => {
         serviceName: serviceData.serviceName || "",
         currency: serviceData.currency || "INR",
         description: serviceData.description || "",
-        price: serviceData.price || null
+        price: serviceData.price || null,
+        location: serviceData.location || null
     };
 
     return res.status(200).json(
@@ -1534,7 +1535,8 @@ const getPreviousProductPostData = asyncHandler(async (req, res) => {
         price: productData.price || null,
         brand: productData.brand || "",
         category: productData.category || "",
-        subcategory: productData.subcategory || ""
+        subcategory: productData.subcategory || "",
+        location: productData.location || null
     };
 
     return res.status(200).json(
