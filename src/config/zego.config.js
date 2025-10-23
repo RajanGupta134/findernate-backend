@@ -6,6 +6,8 @@ import { generateToken04 } from './zegoServerAssistant.js';
  * Reference: https://github.com/ZEGOCLOUD/zego_server_assistant
  */
 
+
+
 class ZegoService {
     constructor() {
         this.appId = parseInt(process.env.ZEGO_APP_ID);
