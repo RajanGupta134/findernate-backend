@@ -11,8 +11,21 @@ class ZegoService {
         this.appId = parseInt(process.env.ZEGO_APP_ID);
         this.serverSecret = process.env.ZEGO_SERVER_SECRET;
 
+        // Debug logging to verify credentials are loaded
+        console.log('🔍 ZegoCloud Configuration:', {
+            appId: this.appId,
+            appIdType: typeof this.appId,
+            appIdIsValid: !isNaN(this.appId),
+            hasServerSecret: !!this.serverSecret,
+            serverSecretLength: this.serverSecret?.length || 0,
+            serverSecretLast8: this.serverSecret?.slice(-8) || 'MISSING',
+            isConfigured: !!(this.appId && this.serverSecret && !isNaN(this.appId))
+        });
+
         if (!this.appId || !this.serverSecret) {
             console.warn('⚠️ ZegoCloud credentials not found in environment variables');
+        } else if (isNaN(this.appId)) {
+            console.error('❌ ZegoCloud AppID is NaN - check ZEGO_APP_ID environment variable');
         }
     }
 
