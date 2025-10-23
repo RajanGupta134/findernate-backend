@@ -1,9 +1,9 @@
-import crypto from 'crypto';
+import { generateToken04 } from './zegoServerAssistant.js';
 
 /**
- * ZegoCloud Token Generator
- * Based on ZEGOCLOUD token04 algorithm
- * Reference: https://github.com/zegocloud/zego_server_assistant
+ * ZegoCloud Service
+ * Using official Token04 generator from ZegoCloud
+ * Reference: https://github.com/ZEGOCLOUD/zego_server_assistant
  */
 
 class ZegoService {
@@ -23,56 +23,34 @@ class ZegoService {
         });
 
         if (!this.appId || !this.serverSecret) {
-            console.warn('⚠️ ZegoCloud credentials not found in environment variables');
+            console.warn('⚠️  ZegoCloud credentials not found in environment variables');
         } else if (isNaN(this.appId)) {
             console.error('❌ ZegoCloud AppID is NaN - check ZEGO_APP_ID environment variable');
+        } else if (this.serverSecret.length !== 32) {
+            console.error('❌ ZegoCloud ServerSecret must be exactly 32 bytes long');
         }
     }
 
     /**
-     * Generate Token04 for ZegoCloud
+     * Generate Token04 for ZegoCloud using official algorithm
      * @param {string} userId - User ID (string)
      * @param {number} effectiveTimeInSeconds - Token validity duration in seconds (default: 7200 = 2 hours)
-     * @param {object} payload - Additional payload (optional)
+     * @param {string} payload - Additional payload as JSON string (optional)
      * @returns {string} Generated token
      */
-    generateToken04(userId, effectiveTimeInSeconds = 7200, payload = null) {
+    generateToken04Internal(userId, effectiveTimeInSeconds = 7200, payload = '') {
         if (!this.isConfigured()) {
             throw new Error('ZegoCloud is not properly configured. Please check ZEGO_APP_ID and ZEGO_SERVER_SECRET');
         }
 
-        const time = Math.floor(Date.now() / 1000);
-        const nonce = Math.floor(Math.random() * 2147483647); // Random nonce
-
-        // Create header
-        const header = {
-            alg: 'HS256',
-            typ: 'JWT'
-        };
-
-        // Create payload
-        const body = {
-            app_id: this.appId,
-            user_id: userId,
-            nonce: nonce,
-            ctime: time,
-            expire: time + effectiveTimeInSeconds
-        };
-
-        // Add optional payload if provided
-        if (payload) {
-            body.payload = payload;
-        }
-
-        // Encode header and body
-        const headerEnc = this._base64UrlEncode(JSON.stringify(header));
-        const bodyEnc = this._base64UrlEncode(JSON.stringify(body));
-
-        // Create signature
-        const signature = this._generateSignature(headerEnc, bodyEnc, this.serverSecret);
-
-        // Combine to create token
-        const token = `${headerEnc}.${bodyEnc}.${signature}`;
+        // Use official ZegoCloud Token04 generator
+        const token = generateToken04(
+            this.appId,
+            userId,
+            this.serverSecret,
+            effectiveTimeInSeconds,
+            payload
+        );
 
         return token;
     }
@@ -87,19 +65,20 @@ class ZegoService {
      */
     generateRoomToken(userId, roomId, effectiveTimeInSeconds = 7200, privilege = null) {
         try {
-            let payload = null;
+            let payload = '';
 
-            // If privilege is specified, add room_id to payload
+            // If privilege is specified, create payload with room_id and privilege
             if (privilege) {
-                payload = {
+                const payloadObject = {
                     room_id: roomId,
                     privilege: privilege
                 };
+                payload = JSON.stringify(payloadObject);
             }
 
-            const token = this.generateToken04(userId, effectiveTimeInSeconds, payload);
+            const token = this.generateToken04Internal(userId, effectiveTimeInSeconds, payload);
 
-            console.log(`🔑 Generated ZegoCloud token for user: ${userId} in room: ${roomId}`);
+            console.log(`🔑 Generated ZegoCloud Token04 for user: ${userId} in room: ${roomId}`);
 
             return {
                 token,
@@ -131,45 +110,11 @@ class ZegoService {
     }
 
     /**
-     * Base64 URL encoding (JWT standard)
-     * @param {string} str - String to encode
-     * @returns {string} Base64 URL encoded string
-     */
-    _base64UrlEncode(str) {
-        const base64 = Buffer.from(str, 'utf8').toString('base64');
-        // Replace characters for URL-safe encoding
-        return base64
-            .replace(/\+/g, '-')
-            .replace(/\//g, '_')
-            .replace(/=/g, '');
-    }
-
-    /**
-     * Generate HMAC SHA256 signature
-     * @param {string} header - Encoded header
-     * @param {string} body - Encoded body
-     * @param {string} secret - Server secret
-     * @returns {string} Base64 URL encoded signature
-     */
-    _generateSignature(header, body, secret) {
-        const data = `${header}.${body}`;
-        const hmac = crypto.createHmac('sha256', secret);
-        hmac.update(data);
-        const signature = hmac.digest('base64');
-
-        // Convert to URL-safe base64
-        return signature
-            .replace(/\+/g, '-')
-            .replace(/\//g, '_')
-            .replace(/=/g, '');
-    }
-
-    /**
      * Check if ZegoCloud is properly configured
      * @returns {boolean}
      */
     isConfigured() {
-        return !!(this.appId && this.serverSecret);
+        return !!(this.appId && this.serverSecret && this.serverSecret.length === 32);
     }
 
     /**
