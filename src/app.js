@@ -6,8 +6,16 @@ import morgan from 'morgan';
 import { errorHandler } from './middlewares/errorHandler.js';
 import { redisHealthCheck } from './config/redis.config.js';
 import { generalRateLimit, healthCheckRateLimit } from './middlewares/rateLimiter.middleware.js';
+import zegoService from './config/zego.config.js'; // Initialize ZegoCloud service on startup
 
 const app = express();
+
+// Log ZegoCloud service initialization status
+if (zegoService.isConfigured()) {
+    console.log('✅ ZegoCloud service initialized and configured');
+} else {
+    console.warn('⚠️  ZegoCloud service loaded but NOT configured - check environment variables');
+}
 
 // Morgan logging middleware - Only in development mode
 if (process.env.NODE_ENV === 'development') {
