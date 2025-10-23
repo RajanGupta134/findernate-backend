@@ -193,7 +193,7 @@ Create a test HTML file to isolate if it's a backend or frontend issue:
     <script>
         async function testZego() {
             const appID = 860837939;
-            const server = 'wss://webliveroom860837939-api.coolzcloud.com/ws';
+            const server = 'wss://webliveroom860837939-api.zegocloud.com/ws';
             const token = 'GET_TOKEN_FROM_BACKEND_API'; // Call your API first
 
             const zg = new ZegoExpressEngine(appID, server);
