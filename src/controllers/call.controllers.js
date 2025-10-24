@@ -6,7 +6,6 @@ import { ApiError } from '../utlis/ApiError.js';
 import { ApiResponse } from '../utlis/ApiResponse.js';
 import { asyncHandler } from '../utlis/asyncHandler.js';
 import socketManager from '../config/socket.js';
-import zegoService from '../config/zego.config.js';
 import mongoose from 'mongoose';
 
 // Constants for call management
@@ -40,12 +39,6 @@ const cleanupStaleCalls = async () => {
 
         for (const call of staleCalls) {
             console.log(`🧹 Cleaning up stale call: ${call._id}`);
-
-            // Mark ZegoCloud room as ended if exists
-            if (call.zegoRoom?.roomId) {
-                call.zegoRoom.endedAt = new Date();
-                console.log(`📡 Marked ZegoCloud room ${call.zegoRoom.roomId} as ended`);
-            }
 
             // Update call status
             call.status = 'missed';
@@ -188,44 +181,6 @@ export const initiateCall = asyncHandler(async (req, res) => {
             await session.endSession();
         }
 
-        // Create ZegoCloud room for the call
-        console.log('📡 Creating ZegoCloud room...');
-        try {
-            const roomId = `call_${newCall._id.toString()}`;
-
-            // Update call with ZegoCloud room data
-            newCall.zegoRoom = {
-                roomId: roomId,
-                appId: zegoService.getAppId(),
-                createdAt: new Date()
-            };
-
-            // Generate auth tokens for both participants with full privileges
-            const initiatorUserId = currentUserId.toString();
-            const receiverUserId = receiverId.toString();
-
-            const initiatorTokenData = zegoService.generateTokenWithPrivileges(initiatorUserId, roomId);
-            const receiverTokenData = zegoService.generateTokenWithPrivileges(receiverUserId, roomId);
-
-            // Store tokens in the call
-            await newCall.addZegoToken(
-                currentUserId,
-                initiatorTokenData.token,
-                initiatorTokenData.expiresAt
-            );
-            await newCall.addZegoToken(
-                receiverId,
-                receiverTokenData.token,
-                receiverTokenData.expiresAt
-            );
-
-            console.log(`🎉 Created ZegoCloud room ${roomId} for call ${newCall._id}`);
-        } catch (error) {
-            console.error('❌ Error creating ZegoCloud room:', error);
-            // Continue without ZegoCloud - clients can fall back to WebRTC
-            console.warn('⚠️ Continuing with WebRTC fallback');
-        }
-
         // Populate the call with user details
         console.log('📋 Populating call details...');
         const populatedCall = await Call.findById(newCall._id)
@@ -247,16 +202,6 @@ export const initiateCall = asyncHandler(async (req, res) => {
                 },
                 timestamp: new Date()
             };
-
-            // Include ZegoCloud room data if available
-            if (newCall.zegoRoom && newCall.zegoRoom.roomId) {
-                const receiverToken = newCall.getZegoTokenForUser(receiverId);
-                callData.zegoRoom = {
-                    roomId: newCall.zegoRoom.roomId,
-                    appId: newCall.zegoRoom.appId,
-                    token: receiverToken ? receiverToken.token : null
-                };
-            }
 
             console.log('📡 Emitting incoming_call to receiver:', receiverId, 'for call:', newCall._id);
             console.log('   Receiver ID type:', typeof receiverId);
@@ -367,31 +312,6 @@ export const acceptCall = asyncHandler(async (req, res) => {
                 return; // Exit transaction early, proceed to response
             }
 
-            // Check if user has valid ZegoCloud token
-            const userToken = call.getZegoTokenForUser(currentUserId);
-            if (!userToken || !userToken.token) {
-                console.warn('⚠️ User missing ZegoCloud token, generating new one...');
-
-                // Generate token for the user
-                try {
-                    if (call.zegoRoom && call.zegoRoom.roomId) {
-                        const tokenData = zegoService.generateTokenWithPrivileges(
-                            currentUserId.toString(),
-                            call.zegoRoom.roomId
-                        );
-                        await call.addZegoToken(
-                            currentUserId,
-                            tokenData.token,
-                            tokenData.expiresAt
-                        );
-                        console.log('✅ Generated new ZegoCloud token for user');
-                    }
-                } catch (tokenError) {
-                    console.error('❌ Failed to generate ZegoCloud token:', tokenError);
-                    // Continue without token - client can fall back to WebRTC
-                }
-            }
-
             // Update call status
             call.status = 'connecting';
             call.startedAt = new Date();
@@ -430,26 +350,9 @@ export const acceptCall = asyncHandler(async (req, res) => {
         });
     });
 
-    // Prepare response data with ZegoCloud info
-    const responseData = {
-        ...populatedCall.toObject(),
-        zegoRoom: populatedCall.zegoRoom ? {
-            roomId: populatedCall.zegoRoom.roomId,
-            appId: populatedCall.zegoRoom.appId,
-            createdAt: populatedCall.zegoRoom.createdAt
-        } : null
-    };
-
-    // Include user's auth token
-    const userToken = populatedCall.getZegoTokenForUser(currentUserId);
-    if (userToken) {
-        responseData.zegoToken = userToken.token;
-        console.log('✅ Including user ZegoCloud token in response');
-    }
-
     console.log('🎉 Call accepted successfully:', { callId });
     res.status(200).json(
-        new ApiResponse(200, responseData, 'Call accepted successfully')
+        new ApiResponse(200, populatedCall, 'Call accepted successfully')
     );
 });
 
@@ -506,12 +409,6 @@ export const declineCall = asyncHandler(async (req, res) => {
             call.status = 'declined';
             call.endedAt = new Date();
             call.endReason = 'declined';
-
-            // Mark ZegoCloud room as ended if exists
-            if (call.zegoRoom?.roomId) {
-                call.zegoRoom.endedAt = new Date();
-                console.log(`📡 Marked ZegoCloud room ${call.zegoRoom.roomId} as ended`);
-            }
 
             await call.save({ session });
             updatedCall = call;
@@ -627,12 +524,6 @@ export const endCall = asyncHandler(async (req, res) => {
             if (!call.startedAt) {
                 call.startedAt = call.endedAt;
                 console.log('⏱️ Call ended before being started, setting startedAt = endedAt');
-            }
-
-            // Mark ZegoCloud room as ended if exists
-            if (call.zegoRoom?.roomId) {
-                call.zegoRoom.endedAt = new Date();
-                console.log(`📡 Marking ZegoCloud room ${call.zegoRoom.roomId} as ended`);
             }
 
             await call.save({ session });
@@ -843,126 +734,6 @@ export const getCallStats = asyncHandler(async (req, res) => {
     );
 });
 
-// Generate or refresh ZegoCloud token for a call participant
-export const getZegoToken = asyncHandler(async (req, res) => {
-    const currentUserId = req.user._id;
-    const { callId } = req.params;
-
-    console.log('🔑 ZegoCloud token request:', { callId, currentUserId });
-
-    // Validate call ID format
-    if (!isValidObjectId(callId)) {
-        console.error('❌ Invalid call ID format:', callId);
-        throw new ApiError(400, 'Invalid call ID format');
-    }
-
-    // Find the call
-    const call = await Call.findById(callId);
-    if (!call) {
-        console.error('❌ Call not found:', callId);
-        throw new ApiError(404, 'Call not found');
-    }
-
-    // Check if user is a participant
-    const participantIds = call.participants.map(p => p.toString());
-    if (!participantIds.includes(currentUserId.toString())) {
-        console.error('❌ User not a participant:', { currentUserId, participants: participantIds });
-        throw new ApiError(403, 'You are not a participant in this call');
-    }
-
-    // Check if call has ZegoCloud room
-    if (!call.zegoRoom || !call.zegoRoom.roomId) {
-        console.error('❌ Call does not have ZegoCloud room configured');
-        throw new ApiError(400, 'Call does not have ZegoCloud room configured');
-    }
-
-    // Check if call is still active
-    if (!['initiated', 'ringing', 'connecting', 'active'].includes(call.status)) {
-        console.warn('⚠️ Token requested for inactive call:', { status: call.status });
-        throw new ApiError(400, `Call is not active. Current status: ${call.status}`);
-    }
-
-    try {
-        // Generate new token
-        const tokenData = zegoService.generateTokenWithPrivileges(
-            currentUserId.toString(),
-            call.zegoRoom.roomId
-        );
-
-        // Store token in call
-        await call.addZegoToken(currentUserId, tokenData.token, tokenData.expiresAt);
-
-        console.log('✅ ZegoCloud token generated successfully');
-        res.status(200).json(
-            new ApiResponse(200, {
-                token: tokenData.token,
-                roomId: call.zegoRoom.roomId,
-                appId: call.zegoRoom.appId,
-                userId: currentUserId.toString(),
-                expiresAt: tokenData.expiresAt
-            }, 'ZegoCloud token generated successfully')
-        );
-    } catch (error) {
-        console.error('❌ Error generating ZegoCloud token:', error);
-        throw new ApiError(500, `Failed to generate ZegoCloud token: ${error.message}`);
-    }
-});
-
-// Get ZegoCloud room details for a call
-export const getZegoRoomDetails = asyncHandler(async (req, res) => {
-    const currentUserId = req.user._id;
-    const { callId } = req.params;
-
-    // Validate call ID format
-    if (!isValidObjectId(callId)) {
-        throw new ApiError(400, 'Invalid call ID format');
-    }
-
-    // Find the call
-    const call = await Call.findById(callId)
-        .populate('participants', 'username fullName profileImageUrl');
-
-    if (!call) {
-        throw new ApiError(404, 'Call not found');
-    }
-
-    // Check if user is a participant
-    const participantIds = call.participants.map(p => p._id.toString());
-    if (!participantIds.includes(currentUserId.toString())) {
-        throw new ApiError(403, 'You are not a participant in this call');
-    }
-
-    // Check if call has ZegoCloud room
-    if (!call.zegoRoom || !call.zegoRoom.roomId) {
-        throw new ApiError(400, 'Call does not have ZegoCloud room configured');
-    }
-
-    try {
-        // Get user's token
-        const userToken = call.getZegoTokenForUser(currentUserId);
-
-        res.status(200).json(
-            new ApiResponse(200, {
-                call: {
-                    id: call._id,
-                    status: call.status,
-                    callType: call.callType,
-                    participants: call.participants
-                },
-                zegoRoom: {
-                    roomId: call.zegoRoom.roomId,
-                    appId: call.zegoRoom.appId,
-                    token: userToken ? userToken.token : null,
-                    expiresAt: userToken ? userToken.expiresAt : null
-                }
-            }, 'ZegoCloud room details fetched successfully')
-        );
-    } catch (error) {
-        console.error('❌ Error fetching ZegoCloud room details:', error);
-        throw new ApiError(500, 'Failed to fetch ZegoCloud room details');
-    }
-});
-
 // Force end all active calls for current user (cleanup endpoint)
 export const forceEndActiveCalls = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id;
@@ -987,11 +758,6 @@ export const forceEndActiveCalls = asyncHandler(async (req, res) => {
 
     for (const call of activeCalls) {
         try {
-            // Mark ZegoCloud room as ended
-            if (call.zegoRoom?.roomId && !call.zegoRoom.endedAt) {
-                call.zegoRoom.endedAt = new Date();
-            }
-
             // Calculate duration if call was active
             if (call.startedAt && !call.endedAt) {
                 call.endedAt = new Date();

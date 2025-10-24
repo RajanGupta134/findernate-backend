@@ -6,26 +6,8 @@ import morgan from 'morgan';
 import { errorHandler } from './middlewares/errorHandler.js';
 import { redisHealthCheck } from './config/redis.config.js';
 import { generalRateLimit, healthCheckRateLimit } from './middlewares/rateLimiter.middleware.js';
-import zegoService from './config/zego.config.js'; // Initialize ZegoCloud service on startup
 
 const app = express();
-
-// Log ZegoCloud service initialization status with detailed info
-console.log('🔍 ZegoCloud Status Check:', {
-    isConfigured: zegoService.isConfigured(),
-    appId: zegoService.getAppId(),
-    envAppId: process.env.ZEGO_APP_ID,
-    envSecretExists: !!process.env.ZEGO_SERVER_SECRET,
-    envSecretLength: process.env.ZEGO_SERVER_SECRET?.length || 0
-});
-
-if (zegoService.isConfigured()) {
-    console.log('✅ ZegoCloud service initialized and configured');
-} else {
-    console.warn('⚠️  ZegoCloud service loaded but NOT configured - check environment variables');
-    console.warn('⚠️  Debug: ZEGO_APP_ID =', process.env.ZEGO_APP_ID, '(type:', typeof process.env.ZEGO_APP_ID + ')');
-    console.warn('⚠️  Debug: ZEGO_SERVER_SECRET exists =', !!process.env.ZEGO_SERVER_SECRET);
-}
 
 // Morgan logging middleware - Only in development mode
 if (process.env.NODE_ENV === 'development') {
@@ -223,6 +205,7 @@ import callRouter from "./routes/call.routes.js";
 import adminRouter from "./routes/admin.routes.js";
 import feedbackRouter from "./routes/feedback.routes.js";
 import qrRouter from "./routes/qr.routes.js";
+import streamRouter from "./routes/stream.routes.js";
 
 // Handle all preflight requests
 app.options('*', cors());
@@ -244,6 +227,7 @@ app.use("/api/v1/calls", callRouter);
 app.use("/api/v1/admin", adminRouter);
 app.use("/api/v1/feedback", feedbackRouter);
 app.use("/api/v1/qr", qrRouter);
+app.use("/api/v1/stream", streamRouter);
 
 app.use(errorHandler);
 
