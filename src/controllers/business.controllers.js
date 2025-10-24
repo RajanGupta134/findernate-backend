@@ -286,12 +286,12 @@ export const createBusinessProfile = asyncHandler(async (req, res) => {
 
         business = await Business.create(businessData);
 
-        // Update user profile if businessProfileId wasn't set
+        // Always update user profile to ensure isBusinessProfile is set
+        user.isBusinessProfile = true;
         if (!user.businessProfileId) {
-            user.isBusinessProfile = true;
             user.businessProfileId = business._id;
-            await user.save();
         }
+        await user.save();
     }
 
     return res.status(existingBusiness ? 200 : 201).json(
