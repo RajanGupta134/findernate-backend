@@ -413,9 +413,24 @@ export const selectBusinessPlan = asyncHandler(async (req, res) => {
     // Set subscriptionStatus: 'active' for all plans
     let subscriptionStatus = 'active';
 
+    // Store the old plan before updating
+    const previousPlan = currentPlan;
+
     business.plan = plan;
     business.subscriptionStatus = subscriptionStatus;
     await business.save();
+
+    // Calculate allowed upgrades from the NEW plan
+    let newAllowedUpgrades = [];
+    if (plan === 'plan1') {
+        newAllowedUpgrades = ['plan2', 'plan3', 'plan4'];
+    } else if (plan === 'plan2') {
+        newAllowedUpgrades = ['plan3', 'plan4'];
+    } else if (plan === 'plan3') {
+        newAllowedUpgrades = ['plan4'];
+    } else if (plan === 'plan4') {
+        newAllowedUpgrades = [];
+    }
 
     // Remove 'rating' from the business object in the response
     const businessObj = business.toObject();
@@ -426,8 +441,8 @@ export const selectBusinessPlan = asyncHandler(async (req, res) => {
             business: businessObj,
             plan: business.plan,
             subscriptionStatus: business.subscriptionStatus,
-            allowedUpgrades: allowedUpgrades,
-            currentPlan: currentPlan
+            allowedUpgrades: newAllowedUpgrades,
+            previousPlan: previousPlan
         }, 'Plan selected successfully')
     );
 });
