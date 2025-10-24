@@ -8,8 +8,6 @@ import {
     getCallHistory,
     getActiveCall,
     getCallStats,
-    getZegoToken,
-    getZegoRoomDetails,
     forceEndActiveCalls
 } from '../controllers/call.controllers.js';
 import { verifyJWT } from '../middlewares/auth.middleware.js';
@@ -31,9 +29,5 @@ router.post('/force-end-active', forceEndActiveCalls); // POST /api/v1/calls/for
 router.get('/history', getCallHistory);                    // GET /api/v1/calls/history
 router.get('/active', getActiveCall);                      // GET /api/v1/calls/active
 router.get('/stats', getCallStats);                        // GET /api/v1/calls/stats
-
-// ZegoCloud specific routes
-router.post('/:callId/zego-token', getZegoToken);          // POST /api/v1/calls/:callId/zego-token
-router.get('/:callId/zego-room', getZegoRoomDetails);      // GET /api/v1/calls/:callId/zego-room
 
 export default router;
