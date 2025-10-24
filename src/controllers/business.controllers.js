@@ -353,8 +353,14 @@ export const selectBusinessPlan = asyncHandler(async (req, res) => {
         throw new ApiError(404, 'Business profile not found');
     }
 
+    // Fetch latest user data from database to check isBusinessProfile
+    const user = await User.findById(userId);
+    if (!user) {
+        throw new ApiError(404, 'User not found');
+    }
+
     // Only allow plan selection if user is a business profile
-    if (!req.user.isBusinessProfile) {
+    if (!user.isBusinessProfile) {
         throw new ApiError(403, 'Only business accounts can select a plan');
     }
 
