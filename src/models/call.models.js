@@ -87,32 +87,7 @@ const CallSchema = new mongoose.Schema({
             enum: ['wifi', 'cellular', 'unknown'],
             default: 'unknown'
         }
-    },
-
-    // 📡 ZegoCloud Room Information
-    zegoRoom: {
-        roomId: {
-            type: String,
-            index: true
-        },
-        appId: Number,
-        createdAt: Date,
-        endedAt: Date
-    },
-
-    // 🔑 ZegoCloud Auth Tokens (for participants)
-    zegoTokens: [{
-        userId: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'User'
-        },
-        token: String,
-        generatedAt: {
-            type: Date,
-            default: Date.now
-        },
-        expiresAt: Date
-    }]
+    }
 }, {
     timestamps: true,
     toJSON: { virtuals: true },
@@ -204,38 +179,6 @@ CallSchema.statics.getCallStats = function (userId, days = 30) {
             }
         }
     ]);
-};
-
-// Get call by ZegoCloud room ID
-CallSchema.statics.getCallByRoomId = function (roomId) {
-    return this.findOne({ 'zegoRoom.roomId': roomId })
-        .populate('participants', 'username fullName profileImageUrl')
-        .populate('initiator', 'username fullName profileImageUrl');
-};
-
-// Get ZegoCloud token for user in a call
-CallSchema.methods.getZegoTokenForUser = function (userId) {
-    return this.zegoTokens.find(token =>
-        token.userId.toString() === userId.toString()
-    );
-};
-
-// Add ZegoCloud token for user
-CallSchema.methods.addZegoToken = function (userId, token, expiresAt) {
-    // Remove existing token for user
-    this.zegoTokens = this.zegoTokens.filter(t =>
-        t.userId.toString() !== userId.toString()
-    );
-
-    // Add new token
-    this.zegoTokens.push({
-        userId,
-        token,
-        generatedAt: new Date(),
-        expiresAt
-    });
-
-    return this.save();
 };
 
 export default mongoose.model('Call', CallSchema);
