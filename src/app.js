@@ -102,15 +102,11 @@ app.use(cors({
 
 app.use(cookieParser());
 
-// Trust proxy for production AND development (for rate limiting to work correctly)
-// This is needed when behind nginx, load balancer, or using X-Forwarded-For headers
+// Trust proxy for production (needed when behind nginx, load balancer, or using X-Forwarded-For headers)
+// In development, we don't trust proxy headers for security reasons
 if (process.env.NODE_ENV === 'production') {
     app.set('trust proxy', 1);
     console.log('🔒 Trust proxy enabled for production');
-} else if (process.env.NODE_ENV === 'development') {
-    // Enable in development too to avoid rate limit warnings
-    app.set('trust proxy', true);
-    console.log('🔒 Trust proxy enabled for development (for rate limiting)');
 }
 
 // Apply general rate limiting to all routes (but not to OPTIONS)

@@ -13,6 +13,8 @@ export const generalRateLimit = rateLimit({
     legacyHeaders: false,
     // Skip rate limiting for OPTIONS requests (CORS preflight)
     skip: (req) => req.method === 'OPTIONS',
+    // In development, don't trust proxy headers for rate limiting
+    trustProxy: process.env.NODE_ENV === 'production',
     // Temporarily using memory store instead of Redis to fix IPv6 issue
 });
 
@@ -26,6 +28,7 @@ export const notificationRateLimit = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
+    trustProxy: process.env.NODE_ENV === 'production',
     // Temporarily using memory store instead of Redis to fix IPv6 issue
 });
 
@@ -40,6 +43,7 @@ export const unreadCountsRateLimit = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
+    trustProxy: process.env.NODE_ENV === 'production',
     // Temporarily using memory store instead of Redis to fix IPv6 issue
 });
 
@@ -53,6 +57,7 @@ export const chatRateLimit = rateLimit({
     },
     standardHeaders: true,
     legacyHeaders: false,
+    trustProxy: process.env.NODE_ENV === 'production',
     // Temporarily using memory store instead of Redis to fix IPv6 issue
 });
 
@@ -68,5 +73,6 @@ export const healthCheckRateLimit = rateLimit({
     legacyHeaders: false,
     // Skip rate limiting for OPTIONS requests (CORS preflight)
     skip: (req) => req.method === 'OPTIONS',
+    trustProxy: process.env.NODE_ENV === 'production',
     // Temporarily using memory store instead of Redis to fix IPv6 issue
 });

@@ -37,9 +37,8 @@ export const generateUserToken = asyncHandler(async (req, res) => {
         console.log('👤 Auto-registering user in Stream.io...');
         await streamService.upsertUsers([{
             id: currentUserId,
-            name: req.user.fullName || req.user.username,
-            username: req.user.username,
-            image: req.user.profileImageUrl
+            name: req.user.fullName || req.user.username || 'User',
+            image: req.user.profileImageUrl || undefined
         }]);
 
         // Generate token

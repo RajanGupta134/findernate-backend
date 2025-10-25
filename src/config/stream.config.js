@@ -124,19 +124,28 @@ class StreamService {
         }
 
         try {
-            // Convert users array to the format Stream.io expects: { user_id: userData }
-            const usersObject = {};
-
-            users.forEach(user => {
-                usersObject[user.id] = {
-                    id: user.id,
-                    name: user.name || user.username || user.id,
-                    image: user.image || user.avatar || user.profilePicture,
-                    role: user.role || 'user'
+            // Convert users array to the format Stream.io SDK expects (array of user objects)
+            // Keep data minimal to stay under 5KB limit per user
+            const formattedUsers = users.map(user => {
+                const userData = {
+                    id: user.id
                 };
+
+                // Only add name if provided
+                if (user.name) {
+                    userData.name = String(user.name).substring(0, 100); // Limit name length
+                }
+
+                // Only add image if it's a valid URL (not base64) and reasonable size
+                const imageUrl = user.image || user.avatar || user.profilePicture;
+                if (imageUrl && typeof imageUrl === 'string' && imageUrl.startsWith('http') && imageUrl.length < 500) {
+                    userData.image = imageUrl;
+                }
+
+                return userData;
             });
 
-            const response = await this.client.upsertUsers(usersObject);
+            const response = await this.client.upsertUsers(formattedUsers);
 
             console.log(`👥 Upserted ${users.length} user(s) in Stream.io:`, users.map(u => u.id).join(', '));
 
