@@ -124,18 +124,21 @@ class StreamService {
         }
 
         try {
-            const usersToUpsert = users.map(user => ({
-                id: user.id,
-                name: user.name || user.username || user.id,
-                image: user.avatar || user.profilePicture || undefined,
-                role: user.role || 'user'
-            }));
+            // Convert users array to the format Stream.io expects: { user_id: userData }
+            const usersObject = {};
 
-            const response = await this.client.upsertUsers({
-                users: usersToUpsert
+            users.forEach(user => {
+                usersObject[user.id] = {
+                    id: user.id,
+                    name: user.name || user.username || user.id,
+                    image: user.image || user.avatar || user.profilePicture,
+                    role: user.role || 'user'
+                };
             });
 
-            console.log(`👥 Upserted ${users.length} user(s) in Stream.io:`, usersToUpsert.map(u => u.id).join(', '));
+            const response = await this.client.upsertUsers(usersObject);
+
+            console.log(`👥 Upserted ${users.length} user(s) in Stream.io:`, users.map(u => u.id).join(', '));
 
             return response;
         } catch (error) {
