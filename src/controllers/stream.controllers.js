@@ -72,7 +72,7 @@ export const createStreamCall = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id.toString();
     const { callId, callType, members = [] } = req.body;
 
-    console.log('📞 Stream.io call creation request:', { callId, callType, currentUserId });
+    console.log('📞 Stream.io call creation request:', { callId, callType, currentUserId, members });
 
     // Validate input
     if (!callId || !callType) {
@@ -90,16 +90,31 @@ export const createStreamCall = asyncHandler(async (req, res) => {
 
     try {
         // Ensure all users are registered in Stream.io
-        const allMembers = [currentUserId, ...members].filter((id, index, self) => self.indexOf(id) === index);
+        const allMemberIds = [currentUserId, ...members].filter((id, index, self) => self.indexOf(id) === index);
 
-        console.log(`👥 Registering ${allMembers.length} users in Stream.io...`);
+        console.log(`👥 Registering ${allMemberIds.length} users in Stream.io...`);
 
-        // Register current user (we have full data)
-        await streamService.upsertUsers([{
-            id: currentUserId,
-            name: req.user.fullName || req.user.username || 'User',
-            image: req.user.profileImageUrl || undefined
-        }]);
+        // Fetch all users from database to get their details
+        const { User } = await import('../models/user.models.js');
+        const users = await User.find({ _id: { $in: allMemberIds } }).select('_id username fullName profileImageUrl');
+
+        if (users.length !== allMemberIds.length) {
+            console.error('❌ Some users not found in database:', {
+                requested: allMemberIds,
+                found: users.map(u => u._id.toString())
+            });
+            throw new ApiError(404, 'One or more users not found');
+        }
+
+        // Register all users in Stream.io
+        const usersToRegister = users.map(user => ({
+            id: user._id.toString(),
+            name: user.fullName || user.username || 'User',
+            image: user.profileImageUrl || undefined
+        }));
+
+        await streamService.upsertUsers(usersToRegister);
+        console.log(`✅ Registered ${usersToRegister.length} users in Stream.io`);
 
         // Create Stream.io call with appropriate settings
         // For voice calls, we use 'audio_room' type which doesn't require video
@@ -111,7 +126,7 @@ export const createStreamCall = asyncHandler(async (req, res) => {
             streamCallType,
             callId,
             currentUserId,
-            allMembers
+            allMemberIds
         );
 
         res.status(200).json(
