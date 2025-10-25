@@ -134,8 +134,17 @@ class StreamService {
                     created_by_id: createdBy,
                     members: members.map(userId => ({ user_id: userId })),
                     settings_override: {
-                        audio: { mic_default_on: true },
-                        video: { camera_default_on: true }
+                        audio: {
+                            mic_default_on: true,
+                            default_device: 'speaker'
+                        },
+                        video: {
+                            camera_default_on: true,
+                            target_resolution: {
+                                width: 1280,
+                                height: 720
+                            }
+                        }
                     }
                 }
             });
