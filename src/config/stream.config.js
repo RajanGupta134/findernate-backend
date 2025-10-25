@@ -114,6 +114,37 @@ class StreamService {
     }
 
     /**
+     * Create or update users in Stream.io
+     * @param {Array} users - Array of user objects with id, name, image
+     * @returns {Object} Upsert response
+     */
+    async upsertUsers(users) {
+        if (!this.isConfigured()) {
+            throw new Error('Stream.io service not configured. Check your environment variables.');
+        }
+
+        try {
+            const usersToUpsert = users.map(user => ({
+                id: user.id,
+                name: user.name || user.username || user.id,
+                image: user.avatar || user.profilePicture || undefined,
+                role: user.role || 'user'
+            }));
+
+            const response = await this.client.upsertUsers({
+                users: usersToUpsert
+            });
+
+            console.log(`👥 Upserted ${users.length} user(s) in Stream.io:`, usersToUpsert.map(u => u.id).join(', '));
+
+            return response;
+        } catch (error) {
+            console.error('❌ Error upserting Stream.io users:', error);
+            throw new Error(`Failed to upsert Stream.io users: ${error.message}`);
+        }
+    }
+
+    /**
      * Create a call in Stream.io
      * @param {string} callType - Type of call (e.g., 'default', 'audio_room', 'livestream')
      * @param {string} callId - Unique call identifier
