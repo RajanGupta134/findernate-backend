@@ -172,23 +172,12 @@ class StreamService {
         try {
             const call = this.client.video.call(callType, callId);
 
+            // For audio_room calls (voice), don't set video settings
+            // For default calls (video), let Stream.io use default settings
             const response = await call.getOrCreate({
                 data: {
                     created_by_id: createdBy,
-                    members: members.map(userId => ({ user_id: userId })),
-                    settings_override: {
-                        audio: {
-                            mic_default_on: true,
-                            default_device: 'speaker'
-                        },
-                        video: {
-                            camera_default_on: true,
-                            target_resolution: {
-                                width: 1280,
-                                height: 720
-                            }
-                        }
-                    }
+                    members: members.map(userId => ({ user_id: userId }))
                 }
             });
 

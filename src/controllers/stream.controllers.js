@@ -58,3 +58,73 @@ export const generateUserToken = asyncHandler(async (req, res) => {
     }
 });
 
+/**
+ * POST /api/v1/stream/call/create
+ * Create or get a Stream.io call with proper settings
+ *
+ * Body: {
+ *   callId: string (required - your backend call ID)
+ *   callType: 'voice' | 'video' (required)
+ *   members: string[] (optional - array of user IDs to add to call)
+ * }
+ */
+export const createStreamCall = asyncHandler(async (req, res) => {
+    const currentUserId = req.user._id.toString();
+    const { callId, callType, members = [] } = req.body;
+
+    console.log('📞 Stream.io call creation request:', { callId, callType, currentUserId });
+
+    // Validate input
+    if (!callId || !callType) {
+        throw new ApiError(400, 'Call ID and call type are required');
+    }
+
+    if (!['voice', 'video'].includes(callType)) {
+        throw new ApiError(400, 'Call type must be voice or video');
+    }
+
+    // Check if Stream.io is configured
+    if (!streamService.isConfigured()) {
+        throw new ApiError(503, 'Stream.io service is not configured. Please contact support.');
+    }
+
+    try {
+        // Ensure all users are registered in Stream.io
+        const allMembers = [currentUserId, ...members].filter((id, index, self) => self.indexOf(id) === index);
+
+        console.log(`👥 Registering ${allMembers.length} users in Stream.io...`);
+
+        // Register current user (we have full data)
+        await streamService.upsertUsers([{
+            id: currentUserId,
+            name: req.user.fullName || req.user.username || 'User',
+            image: req.user.profileImageUrl || undefined
+        }]);
+
+        // Create Stream.io call with appropriate settings
+        // For voice calls, we use 'audio_room' type which doesn't require video
+        // For video calls, we use 'default' type
+        const streamCallType = callType === 'voice' ? 'audio_room' : 'default';
+
+        console.log(`📞 Creating Stream.io call: ${streamCallType}:${callId}`);
+        const callResponse = await streamService.createCall(
+            streamCallType,
+            callId,
+            currentUserId,
+            allMembers
+        );
+
+        res.status(200).json(
+            new ApiResponse(200, {
+                streamCallType,
+                callId,
+                callType,
+                call: callResponse
+            }, 'Stream.io call created successfully')
+        );
+    } catch (error) {
+        console.error('❌ Error in createStreamCall:', error);
+        throw new ApiError(500, error.message || 'Failed to create Stream.io call');
+    }
+});
+
