@@ -40,25 +40,16 @@ const initializeFirebase = () => {
     }
     // Method 2: Using service account key file (for development)
     else {
-      try {
-        // Try to import service account key
-        const serviceAccount = await import("./serviceAccountKey.json", {
-          assert: { type: "json" },
-        });
-
-        firebaseApp = admin.initializeApp({
-          credential: admin.credential.cert(serviceAccount.default),
-        });
-        console.log("✅ Firebase Admin initialized with service account key");
-      } catch (error) {
-        console.warn(
-          "⚠️ Firebase Admin SDK not initialized - serviceAccountKey.json not found"
-        );
-        console.warn(
-          "Please add Firebase credentials via environment variables or service account key"
-        );
-        return null;
-      }
+      console.warn(
+        "⚠️ Firebase Admin SDK not initialized - Missing environment variables"
+      );
+      console.warn(
+        "Please add Firebase credentials to .env file:\n" +
+        "FIREBASE_PROJECT_ID=your-project-id\n" +
+        "FIREBASE_CLIENT_EMAIL=your-client-email\n" +
+        "FIREBASE_PRIVATE_KEY=your-private-key"
+      );
+      return null;
     }
 
     return firebaseApp;

@@ -10,7 +10,7 @@ class PubSubManager extends EventEmitter {
         super();
         this.subscribers = new Map();
         this.isReady = true; // Always ready (no-op)
-        console.warn('⚠️ PubSubManager is deprecated. Use Socket.IO Redis adapter instead.');
+        // Note: This class is deprecated. Socket.IO Redis adapter is now used instead.
     }
 
     setupPubSubHandlers() {
