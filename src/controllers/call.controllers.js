@@ -117,13 +117,13 @@ export const initiateCall = asyncHandler(async (req, res) => {
     }
 
     try {
-        // Validate chat permissions
-        console.log('🔍 Validating chat permissions...');
-        await validateChatPermissions(chatId, currentUserId, receiverId);
+        // Validate chat permissions and fetch receiver in parallel (optimize)
+        console.log('🔍 Validating chat and fetching receiver (parallel)...');
+        const [chat, receiver] = await Promise.all([
+            validateChatPermissions(chatId, currentUserId, receiverId),
+            User.findById(receiverId).lean() // Use lean() for faster query
+        ]);
 
-        // Check if receiver exists and is online
-        console.log('👤 Checking receiver exists...');
-        const receiver = await User.findById(receiverId);
         if (!receiver) {
             console.error('❌ Receiver not found:', receiverId);
             throw new ApiError(404, 'Receiver not found');
@@ -182,54 +182,57 @@ export const initiateCall = asyncHandler(async (req, res) => {
             await session.endSession();
         }
 
-        // Populate the call with user details
+        // Populate the call with user details (optimized with lean)
         console.log('📋 Populating call details...');
         const populatedCall = await Call.findById(newCall._id)
             .populate('participants', 'username fullName profileImageUrl')
-            .populate('initiator', 'username fullName profileImageUrl');
+            .populate('initiator', 'username fullName profileImageUrl')
+            .lean();
 
-        // Send FCM push notification to receiver
-        console.log('🔔 Attempting to send FCM notification...');
+        // Send FCM push notification to receiver (fire-and-forget, non-blocking)
+        console.log('🔔 Sending FCM notification (async)...');
         let fcmSent = false;
 
         if (receiver.fcmToken) {
-            try {
-                const notification = {
-                    title: `Incoming ${callType} call`,
-                    body: `${req.user.fullName || req.user.username} is calling you...`
-                };
+            // Don't await - fire and forget to avoid blocking the response
+            (async () => {
+                try {
+                    const notification = {
+                        title: `Incoming ${callType} call`,
+                        body: `${req.user.fullName || req.user.username} is calling you...`
+                    };
 
-                const data = {
-                    type: 'incoming_call',
-                    callId: newCall._id.toString(),
-                    callerId: currentUserId.toString(),
-                    callerName: req.user.fullName || req.user.username,
-                    callerImage: req.user.profileImageUrl || '',
-                    chatId: chatId.toString(),
-                    callType: callType
-                };
+                    const data = {
+                        type: 'incoming_call',
+                        callId: newCall._id.toString(),
+                        callerId: currentUserId.toString(),
+                        callerName: req.user.fullName || req.user.username,
+                        callerImage: req.user.profileImageUrl || '',
+                        chatId: chatId.toString(),
+                        callType: callType
+                    };
 
-                console.log('📤 Sending FCM to token:', receiver.fcmToken.substring(0, 20) + '...');
-                const fcmResult = await sendNotification(receiver.fcmToken, notification, data);
+                    console.log('📤 Sending FCM to token:', receiver.fcmToken.substring(0, 20) + '...');
+                    const fcmResult = await sendNotification(receiver.fcmToken, notification, data);
 
-                if (fcmResult.success) {
-                    console.log('✅ FCM notification sent successfully:', fcmResult.messageId);
-                    fcmSent = true;
+                    if (fcmResult.success) {
+                        console.log('✅ FCM notification sent successfully:', fcmResult.messageId);
 
-                    // If token is invalid, remove it from user
-                    if (fcmResult.invalidToken) {
-                        console.log('🗑️ Removing invalid FCM token from user');
-                        await User.findByIdAndUpdate(receiverId, {
-                            fcmToken: null,
-                            fcmTokenUpdatedAt: null
-                        });
+                        // If token is invalid, remove it from user
+                        if (fcmResult.invalidToken) {
+                            console.log('🗑️ Removing invalid FCM token from user');
+                            await User.findByIdAndUpdate(receiverId, {
+                                fcmToken: null,
+                                fcmTokenUpdatedAt: null
+                            }).catch(err => console.error('Error removing FCM token:', err));
+                        }
+                    } else {
+                        console.warn('⚠️ FCM notification failed:', fcmResult.error);
                     }
-                } else {
-                    console.warn('⚠️ FCM notification failed:', fcmResult.error);
+                } catch (fcmError) {
+                    console.error('❌ FCM notification error:', fcmError.message);
                 }
-            } catch (fcmError) {
-                console.error('❌ FCM notification error:', fcmError.message);
-            }
+            })();
         } else {
             console.log('⚠️ No FCM token found for receiver, will use socket fallback');
         }
@@ -267,19 +270,22 @@ export const initiateCall = asyncHandler(async (req, res) => {
             }
         }
 
-        // Create a call message in the chat (non-critical, don't let this fail the call)
-        try {
-            console.log('💬 Creating call message...');
-            const callMessage = new Message({
-                chatId,
-                sender: currentUserId,
-                message: `${callType} call ${callType === 'voice' ? '📞' : '📹'}`,
-                messageType: 'text'
-            });
-            await callMessage.save();
-        } catch (messageError) {
-            console.warn('⚠️ Failed to create call message (non-critical):', messageError.message);
-        }
+        // Create a call message in the chat (non-blocking, fire-and-forget)
+        (async () => {
+            try {
+                console.log('💬 Creating call message...');
+                const callMessage = new Message({
+                    chatId,
+                    sender: currentUserId,
+                    message: `${callType} call ${callType === 'voice' ? '📞' : '📹'}`,
+                    messageType: 'text'
+                });
+                await callMessage.save();
+                console.log('✅ Call message created');
+            } catch (messageError) {
+                console.warn('⚠️ Failed to create call message (non-critical):', messageError.message);
+            }
+        })();
 
         console.log('🎉 Call initiated successfully:', { callId: newCall._id });
         res.status(201).json(

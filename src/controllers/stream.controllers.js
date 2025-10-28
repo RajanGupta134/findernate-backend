@@ -95,24 +95,40 @@ export const createStreamCall = asyncHandler(async (req, res) => {
 
         console.log(`👥 Registering ${allMemberIds.length} users in Stream.io...`);
 
-        // Fetch all users from database to get their details
-        const { User } = await import('../models/user.models.js');
-        const users = await User.find({ _id: { $in: allMemberIds } }).select('_id username fullName profileImageUrl');
+        // Optimize: Build users array using current user data and only fetch others if needed
+        const usersToRegister = [];
 
-        if (users.length !== allMemberIds.length) {
-            console.error('❌ Some users not found in database:', {
-                requested: allMemberIds,
-                found: users.map(u => u._id.toString())
+        // Add current user (already available from req.user)
+        usersToRegister.push({
+            id: currentUserId,
+            name: req.user.fullName || req.user.username || 'User',
+            image: req.user.profileImageUrl || undefined
+        });
+
+        // Only fetch other members from DB if there are any
+        if (members.length > 0) {
+            const { User } = await import('../models/user.models.js');
+            const otherUsers = await User.find({ _id: { $in: members } })
+                .select('_id username fullName profileImageUrl')
+                .lean(); // Use lean() for faster queries
+
+            if (otherUsers.length !== members.length) {
+                console.error('❌ Some members not found in database:', {
+                    requested: members,
+                    found: otherUsers.map(u => u._id.toString())
+                });
+                throw new ApiError(404, 'One or more members not found');
+            }
+
+            // Add other users
+            otherUsers.forEach(user => {
+                usersToRegister.push({
+                    id: user._id.toString(),
+                    name: user.fullName || user.username || 'User',
+                    image: user.profileImageUrl || undefined
+                });
             });
-            throw new ApiError(404, 'One or more users not found');
         }
-
-        // Register all users in Stream.io
-        const usersToRegister = users.map(user => ({
-            id: user._id.toString(),
-            name: user.fullName || user.username || 'User',
-            image: user.profileImageUrl || undefined
-        }));
 
         await streamService.upsertUsers(usersToRegister);
         console.log(`✅ Registered ${usersToRegister.length} users in Stream.io`);
