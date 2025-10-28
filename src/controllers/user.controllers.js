@@ -318,6 +318,14 @@ const updateUserProfile = asyncHandler(async (req, res) => {
         })
         .select("-password -refreshToken -emailVerificationToken ");
 
+    // Invalidate auth cache after profile update
+    const { invalidateAuthCache } = await import('../middlewares/auth.middleware.js');
+    await invalidateAuthCache(req.user._id);
+
+    // Also invalidate user profile cache
+    const { UserCacheManager } = await import('../utlis/cache.utils.js');
+    await UserCacheManager.invalidateUserProfile(req.user._id);
+
     return res
         .status(200)
         .json(
@@ -1124,7 +1132,9 @@ const trackSearch = asyncHandler(async (req, res) => {
 
 // Get popular searches sorted by search count
 const getPopularSearches = asyncHandler(async (req, res) => {
-    const limit = parseInt(req.query.limit) || 10;
+    const MAX_LIMIT = 50; // Prevent excessive data requests
+    const requestedLimit = parseInt(req.query.limit) || 10;
+    const limit = Math.min(requestedLimit, MAX_LIMIT);
 
     try {
         const popularSearches = await SearchSuggestion.find({})
@@ -1380,6 +1390,15 @@ const toggleFullPrivateAccount = asyncHandler(async (req, res) => {
         );
 
         await user.save();
+
+        // Invalidate auth cache after privacy update
+        const { invalidateAuthCache } = await import('../middlewares/auth.middleware.js');
+        await invalidateAuthCache(userId);
+
+        // Also invalidate user profile cache and feeds
+        const { UserCacheManager, FeedCacheManager } = await import('../utlis/cache.utils.js');
+        await UserCacheManager.invalidateUserProfile(userId);
+        await FeedCacheManager.invalidateUserFeed(userId);
 
         return res.status(200).json(
             new ApiResponse(200, {

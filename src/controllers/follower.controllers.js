@@ -5,6 +5,7 @@ import { asyncHandler } from "../utlis/asyncHandler.js";
 import { ApiResponse } from "../utlis/ApiResponse.js";
 import { ApiError } from "../utlis/ApiError.js";
 import { createFollowNotification } from "./notification.controllers.js";
+import { redisClient } from "../config/redis.config.js";
 
 // Follow a user (with privacy support)
 export const followUser = asyncHandler(async (req, res) => {
@@ -41,6 +42,14 @@ export const followUser = asyncHandler(async (req, res) => {
 
         // Create notification
         await createFollowNotification({ recipientId: userId, sourceUserId: requesterId });
+
+        // Invalidate caches
+        const { invalidateViewableUsersCache } = await import('../middlewares/privacy.middleware.js');
+        await invalidateViewableUsersCache(requesterId);
+        await invalidateViewableUsersCache(userId);
+
+        // Invalidate following cache
+        await redisClient.del(`following:${requesterId}`);
 
         return res.status(200).json(new ApiResponse(200, {
             followedUser: {
@@ -89,6 +98,14 @@ export const unfollowUser = asyncHandler(async (req, res) => {
 
         // Get the unfollowed user's info to return in response
         const unfollowedUser = await User.findById(userId).select('username fullName profileImageUrl');
+
+        // Invalidate caches
+        const { invalidateViewableUsersCache } = await import('../middlewares/privacy.middleware.js');
+        await invalidateViewableUsersCache(requesterId);
+        await invalidateViewableUsersCache(userId);
+
+        // Invalidate following cache
+        await redisClient.del(`following:${requesterId}`);
 
         return res.status(200).json(new ApiResponse(200, {
             unfollowedUser: {

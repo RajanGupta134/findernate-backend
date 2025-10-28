@@ -66,9 +66,30 @@ export const addPrivacyFilter = async (req, res, next) => {
         return next();
     }
 
-    // Get list of users the viewer is following
-    const following = await Follower.find({ followerId: viewerId }).select('userId');
-    const followingIds = following.map(f => f.userId);
+    // Get list of users the viewer is following (with caching)
+    const cacheKey = `following:${viewerId}`;
+    let followingIds;
+
+    try {
+        const cachedFollowing = await redisClient.get(cacheKey);
+        if (cachedFollowing) {
+            followingIds = JSON.parse(cachedFollowing);
+        }
+    } catch (cacheError) {
+        console.error('Error accessing following cache:', cacheError);
+    }
+
+    if (!followingIds) {
+        const following = await Follower.find({ followerId: viewerId }).select('userId').lean();
+        followingIds = following.map(f => f.userId);
+
+        // Cache for 1 hour
+        try {
+            await redisClient.setex(cacheKey, 3600, JSON.stringify(followingIds));
+        } catch (cacheError) {
+            console.error('Error caching following list:', cacheError);
+        }
+    }
 
     // Add viewer's own ID to see their own content
     followingIds.push(viewerId);

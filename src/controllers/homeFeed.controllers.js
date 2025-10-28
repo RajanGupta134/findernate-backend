@@ -22,7 +22,9 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
             typeof id === 'string' ? new mongoose.Types.ObjectId(id) : id
         );
         const page = parseInt(req.query.page, 10) || 1;
-        const limit = parseInt(req.query.limit, 10) || 20;
+        const MAX_LIMIT = 100; // Prevent excessive data requests
+        const requestedLimit = parseInt(req.query.limit, 10) || 20;
+        const limit = Math.min(requestedLimit, MAX_LIMIT);
         const skip = (page - 1) * limit;
 
         console.log('🔍 Feed Debug - userId:', userId);
@@ -135,12 +137,43 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
                     foreignField: '_id',
                     as: 'userId',
                     pipeline: [
-                        { $project: { username: 1, profileImageUrl: 1 } }
+                        { $project: { username: 1, profileImageUrl: 1, fullName: 1, isVerified: 1 } }
                     ]
                 }
             },
             {
                 $unwind: '$userId'
+            },
+            {
+                // Project only necessary fields to reduce payload size
+                $project: {
+                    _id: 1,
+                    userId: 1,
+                    contentType: 1,
+                    caption: 1,
+                    media: 1,
+                    'settings.privacy': 1,
+                    'settings.visibility': 1,
+                    'settings.commentsEnabled': 1,
+                    'settings.likesVisible': 1,
+                    'engagement.likes': 1,
+                    'engagement.comments': 1,
+                    'engagement.shares': 1,
+                    'engagement.saves': 1,
+                    'engagement.views': 1,
+                    location: 1,
+                    tags: 1,
+                    createdAt: 1,
+                    updatedAt: 1,
+                    isPromoted: 1,
+                    // Include product/service details if needed (truncated)
+                    'productDetails.name': 1,
+                    'productDetails.price': 1,
+                    'productDetails.currency': 1,
+                    'productDetails.images': { $slice: ['$productDetails.images', 3] }, // Limit to 3 images
+                    'serviceDetails.name': 1,
+                    'serviceDetails.pricing': 1
+                }
             }
         ];
 

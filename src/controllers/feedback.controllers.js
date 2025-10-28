@@ -40,7 +40,9 @@ const submitFeedback = asyncHandler(async (req, res) => {
 // Get all feedback (Admin only)
 const getAllFeedback = asyncHandler(async (req, res) => {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    const MAX_LIMIT = 100; // Prevent excessive data requests
+    const requestedLimit = parseInt(req.query.limit) || 20;
+    const limit = Math.min(requestedLimit, MAX_LIMIT);
     const skip = (page - 1) * limit;
 
     try {

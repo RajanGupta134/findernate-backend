@@ -86,6 +86,12 @@ const createIndexes = async () => {
             [{ 'engagement.views': -1 }, { name: 'idx_views_desc' }],
             [{ isPromoted: 1, 'engagement.likes': -1, createdAt: -1 }, { name: 'idx_trending' }],
             [{ status: 1, publishedAt: -1 }, { name: 'idx_published' }],
+            // New performance indexes
+            [{ status: 1 }, { name: 'idx_status' }],
+            [{ contentType: 1 }, { name: 'idx_content_type' }],
+            [{ userId: 1, status: 1, createdAt: -1 }, { name: 'idx_user_status_time' }],
+            [{ 'settings.privacy': 1 }, { name: 'idx_privacy' }],
+            [{ 'settings.visibility': 1 }, { name: 'idx_visibility' }],
         ];
 
         for (const [indexSpec, options] of postIndexes) {

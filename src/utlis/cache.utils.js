@@ -363,23 +363,118 @@ export class SessionCacheManager extends CacheManager {
  * Cache invalidation utilities
  */
 export class CacheInvalidator {
-    
+
+    // Debounce timers to prevent excessive invalidation
+    static _trendingInvalidationTimer = null;
+    static _exploreInvalidationTimer = null;
+
     /**
      * Invalidate cache on new post creation
      * @param {Object} post - Post data
      * @param {string} authorId - Post author ID
+     * @param {Array<string>} followerIds - Optional array of follower IDs (for targeted invalidation)
      */
-    static async onNewPost(post, authorId) {
-        // Invalidate author's followers' feeds
-        await this.delPattern(`fn:user:*:feed:*`);
-        
-        // Invalidate trending feeds
-        await this.delPattern(`fn:posts:trending:*`);
-        
-        // Invalidate explore feed
-        await this.delPattern(`fn:explore:feed:*`);
+    static async onNewPost(post, authorId, followerIds = null) {
+        try {
+            // Only invalidate the author's own feed cache (they'll see their new post)
+            await FeedCacheManager.invalidateUserFeed(authorId);
+
+            // If follower IDs are provided, invalidate their feeds specifically
+            if (followerIds && Array.isArray(followerIds) && followerIds.length > 0) {
+                // Limit to first 100 followers to prevent excessive operations
+                const limitedFollowers = followerIds.slice(0, 100);
+
+                // Batch invalidate follower feeds
+                const invalidationPromises = limitedFollowers.map(followerId =>
+                    FeedCacheManager.invalidateUserFeed(followerId)
+                );
+
+                await Promise.allSettled(invalidationPromises);
+            }
+
+            // Debounce trending feed invalidation (wait 5 seconds for multiple posts)
+            this._debounceTrendingInvalidation();
+
+            // Debounce explore feed invalidation
+            this._debounceExploreInvalidation();
+        } catch (error) {
+            console.error('Cache invalidation error in onNewPost:', error);
+            // Don't throw - cache invalidation failures shouldn't break post creation
+        }
     }
-    
+
+    /**
+     * Debounced trending feed invalidation
+     */
+    static _debounceTrendingInvalidation() {
+        if (this._trendingInvalidationTimer) {
+            clearTimeout(this._trendingInvalidationTimer);
+        }
+
+        this._trendingInvalidationTimer = setTimeout(async () => {
+            try {
+                // Use SCAN instead of KEYS for better performance
+                await this._scanAndDelete('fn:posts:trending:*');
+            } catch (error) {
+                console.error('Trending invalidation error:', error);
+            }
+        }, 5000); // 5 second debounce
+    }
+
+    /**
+     * Debounced explore feed invalidation
+     */
+    static _debounceExploreInvalidation() {
+        if (this._exploreInvalidationTimer) {
+            clearTimeout(this._exploreInvalidationTimer);
+        }
+
+        this._exploreInvalidationTimer = setTimeout(async () => {
+            try {
+                await this._scanAndDelete('fn:explore:feed:*');
+            } catch (error) {
+                console.error('Explore invalidation error:', error);
+            }
+        }, 5000); // 5 second debounce
+    }
+
+    /**
+     * Use SCAN instead of KEYS for safe pattern deletion
+     * @param {string} pattern - Redis key pattern
+     */
+    static async _scanAndDelete(pattern) {
+        try {
+            const keys = [];
+            let cursor = '0';
+
+            // Use SCAN to iterate through keys (non-blocking)
+            do {
+                const result = await redisClient.scan(
+                    cursor,
+                    'MATCH', pattern,
+                    'COUNT', 100
+                );
+                cursor = result[0];
+                keys.push(...result[1]);
+
+                // Delete in batches of 50
+                if (keys.length >= 50) {
+                    const batch = keys.splice(0, 50);
+                    if (batch.length > 0) {
+                        await redisClient.del(...batch);
+                    }
+                }
+            } while (cursor !== '0');
+
+            // Delete remaining keys
+            if (keys.length > 0) {
+                await redisClient.del(...keys);
+            }
+        } catch (error) {
+            console.error('SCAN and delete error:', error);
+        }
+    }
+
     /**
      * Invalidate cache on user follow/unfollow
      * @param {string} userId - User who performed action
@@ -392,13 +487,14 @@ export class CacheInvalidator {
             RedisKeys.userSuggestions(userId),
             RedisKeys.userSuggestions(targetId)
         ];
-        
+
         await CacheManager.del(keys);
-        
-        // Invalidate feeds
+
+        // Invalidate feeds for both users
         await FeedCacheManager.invalidateUserFeed(userId);
+        await FeedCacheManager.invalidateUserFeed(targetId);
     }
-    
+
     /**
      * Invalidate cache on post interaction (like, comment)
      * @param {string} postId - Post ID
@@ -409,13 +505,11 @@ export class CacheInvalidator {
             RedisKeys.postStats(postId),
             RedisKeys.postDetails(postId)
         ];
-        
+
         await CacheManager.del(keys);
-        
-        // May affect trending - invalidate with shorter delay
-        setTimeout(() => {
-            this.delPattern(`fn:posts:trending:*`);
-        }, 1000);
+
+        // Debounce trending invalidation instead of immediate
+        this._debounceTrendingInvalidation();
     }
 }
 
