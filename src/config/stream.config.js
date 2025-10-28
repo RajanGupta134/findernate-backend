@@ -179,15 +179,19 @@ class StreamService {
                 members: members.map(userId => ({ user_id: userId }))
             };
 
-            // For video calls (not audio_room), set video enabled setting
+            // For video calls (not audio_room), set video settings with proper resolution
             // For audio_room calls, video is already disabled by call type
-            if (callType !== 'audio_room') {
+            if (callType !== 'audio_room' && videoEnabled) {
                 callData.settings_override = {
                     video: {
-                        enabled: videoEnabled
+                        enabled: true,
+                        target_resolution: {
+                            width: 1280,
+                            height: 720
+                        }
                     }
                 };
-                console.log(`📹 Setting video_enabled to: ${videoEnabled} for call: ${callId}`);
+                console.log(`📹 Setting video enabled with 720p resolution for call: ${callId}`);
             }
 
             const response = await call.getOrCreate({
