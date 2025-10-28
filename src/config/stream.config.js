@@ -161,10 +161,11 @@ class StreamService {
      * @param {string} callType - Type of call (e.g., 'default', 'audio_room', 'livestream')
      * @param {string} callId - Unique call identifier
      * @param {string} createdBy - User ID who created the call
-     * @param {Object} members - Members to add to the call
+     * @param {Array} members - Members to add to the call
+     * @param {boolean} videoEnabled - Whether video should be enabled initially (default: false)
      * @returns {Object} Call details
      */
-    async createCall(callType, callId, createdBy, members = []) {
+    async createCall(callType, callId, createdBy, members = [], videoEnabled = false) {
         if (!this.isConfigured()) {
             throw new Error('Stream.io service not configured. Check your environment variables.');
         }
@@ -172,16 +173,28 @@ class StreamService {
         try {
             const call = this.client.video.call(callType, callId);
 
-            // For audio_room calls (voice), don't set video settings
-            // For default calls (video), let Stream.io use default settings
+            // Prepare call data
+            const callData = {
+                created_by_id: createdBy,
+                members: members.map(userId => ({ user_id: userId }))
+            };
+
+            // For video calls (not audio_room), set video enabled setting
+            // For audio_room calls, video is already disabled by call type
+            if (callType !== 'audio_room') {
+                callData.settings_override = {
+                    video: {
+                        enabled: videoEnabled
+                    }
+                };
+                console.log(`📹 Setting video_enabled to: ${videoEnabled} for call: ${callId}`);
+            }
+
             const response = await call.getOrCreate({
-                data: {
-                    created_by_id: createdBy,
-                    members: members.map(userId => ({ user_id: userId }))
-                }
+                data: callData
             });
 
-            console.log(`📞 Stream.io call created: ${callType}:${callId}`);
+            console.log(`📞 Stream.io call created: ${callType}:${callId} (video: ${videoEnabled})`);
 
             return response;
         } catch (error) {

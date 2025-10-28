@@ -66,13 +66,14 @@ export const generateUserToken = asyncHandler(async (req, res) => {
  *   callId: string (required - your backend call ID)
  *   callType: 'voice' | 'video' (required)
  *   members: string[] (optional - array of user IDs to add to call)
+ *   videoEnabled: boolean (optional - whether video should be enabled initially, default: false)
  * }
  */
 export const createStreamCall = asyncHandler(async (req, res) => {
     const currentUserId = req.user._id.toString();
-    const { callId, callType, members = [] } = req.body;
+    const { callId, callType, members = [], videoEnabled = false } = req.body;
 
-    console.log('📞 Stream.io call creation request:', { callId, callType, currentUserId, members });
+    console.log('📞 Stream.io call creation request:', { callId, callType, currentUserId, members, videoEnabled });
 
     // Validate input
     if (!callId || !callType) {
@@ -121,12 +122,13 @@ export const createStreamCall = asyncHandler(async (req, res) => {
         // For video calls, we use 'default' type
         const streamCallType = callType === 'voice' ? 'audio_room' : 'default';
 
-        console.log(`📞 Creating Stream.io call: ${streamCallType}:${callId}`);
+        console.log(`📞 Creating Stream.io call: ${streamCallType}:${callId} with videoEnabled: ${videoEnabled}`);
         const callResponse = await streamService.createCall(
             streamCallType,
             callId,
             currentUserId,
-            allMemberIds
+            allMemberIds,
+            videoEnabled
         );
 
         res.status(200).json(
@@ -134,6 +136,7 @@ export const createStreamCall = asyncHandler(async (req, res) => {
                 streamCallType,
                 callId,
                 callType,
+                videoEnabled,
                 call: callResponse
             }, 'Stream.io call created successfully')
         );

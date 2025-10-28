@@ -7,6 +7,7 @@ import { ApiResponse } from '../utlis/ApiResponse.js';
 import { asyncHandler } from '../utlis/asyncHandler.js';
 import socketManager from '../config/socket.js';
 import mongoose from 'mongoose';
+import { sendNotification } from '../config/firebase-admin.config.js';
 
 // Constants for call management
 const CALL_TIMEOUT_MINUTES = 2; // Calls timeout after 2 minutes if not answered
@@ -187,7 +188,53 @@ export const initiateCall = asyncHandler(async (req, res) => {
             .populate('participants', 'username fullName profileImageUrl')
             .populate('initiator', 'username fullName profileImageUrl');
 
-        // Emit call initiation via socket
+        // Send FCM push notification to receiver
+        console.log('🔔 Attempting to send FCM notification...');
+        let fcmSent = false;
+
+        if (receiver.fcmToken) {
+            try {
+                const notification = {
+                    title: `Incoming ${callType} call`,
+                    body: `${req.user.fullName || req.user.username} is calling you...`
+                };
+
+                const data = {
+                    type: 'incoming_call',
+                    callId: newCall._id.toString(),
+                    callerId: currentUserId.toString(),
+                    callerName: req.user.fullName || req.user.username,
+                    callerImage: req.user.profileImageUrl || '',
+                    chatId: chatId.toString(),
+                    callType: callType
+                };
+
+                console.log('📤 Sending FCM to token:', receiver.fcmToken.substring(0, 20) + '...');
+                const fcmResult = await sendNotification(receiver.fcmToken, notification, data);
+
+                if (fcmResult.success) {
+                    console.log('✅ FCM notification sent successfully:', fcmResult.messageId);
+                    fcmSent = true;
+
+                    // If token is invalid, remove it from user
+                    if (fcmResult.invalidToken) {
+                        console.log('🗑️ Removing invalid FCM token from user');
+                        await User.findByIdAndUpdate(receiverId, {
+                            fcmToken: null,
+                            fcmTokenUpdatedAt: null
+                        });
+                    }
+                } else {
+                    console.warn('⚠️ FCM notification failed:', fcmResult.error);
+                }
+            } catch (fcmError) {
+                console.error('❌ FCM notification error:', fcmError.message);
+            }
+        } else {
+            console.log('⚠️ No FCM token found for receiver, will use socket fallback');
+        }
+
+        // Emit call initiation via socket (as backup or if FCM failed)
         console.log('📡 Emitting socket events...');
         if (socketManager.isReady()) {
             const callData = {
@@ -213,6 +260,11 @@ export const initiateCall = asyncHandler(async (req, res) => {
             console.log('✅ incoming_call event emitted successfully');
         } else {
             console.error('❌ Socket manager not ready - cannot emit incoming_call event');
+
+            // If FCM also failed and socket is not ready, this is a problem
+            if (!fcmSent) {
+                console.error('❌ CRITICAL: Both FCM and Socket failed - receiver will not get notification');
+            }
         }
 
         // Create a call message in the chat (non-critical, don't let this fail the call)

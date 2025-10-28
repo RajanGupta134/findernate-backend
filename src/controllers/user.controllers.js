@@ -1547,6 +1547,44 @@ const getPreviousProductPostData = asyncHandler(async (req, res) => {
     );
 });
 
+/**
+ * Save FCM Token for push notifications
+ * @route POST /api/v1/users/fcm-token
+ */
+const saveFCMToken = asyncHandler(async (req, res) => {
+    const { fcmToken } = req.body;
+    const userId = req.user?._id;
+
+    if (!fcmToken) {
+        throw new ApiError(400, "FCM token is required");
+    }
+
+    if (!userId) {
+        throw new ApiError(401, "User not authenticated");
+    }
+
+    // Update user's FCM token
+    const user = await User.findByIdAndUpdate(
+        userId,
+        {
+            fcmToken,
+            fcmTokenUpdatedAt: new Date()
+        },
+        { new: true }
+    ).select('fcmToken fcmTokenUpdatedAt');
+
+    if (!user) {
+        throw new ApiError(404, "User not found");
+    }
+
+    return res.status(200).json(
+        new ApiResponse(200, {
+            fcmToken: user.fcmToken,
+            updatedAt: user.fcmTokenUpdatedAt
+        }, "FCM token saved successfully")
+    );
+});
+
 export {
     registerUser,
     loginUser,
@@ -1577,5 +1615,6 @@ export {
     toggleServiceAutoFill,
     getPreviousServicePostData,
     toggleProductAutoFill,
-    getPreviousProductPostData
+    getPreviousProductPostData,
+    saveFCMToken
 };

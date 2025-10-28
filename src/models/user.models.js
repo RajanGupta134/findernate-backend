@@ -51,6 +51,15 @@ const UserSchema = new mongoose.Schema({
     // Product post preferences
     productPostPreferences: {
         enableAutoFill: { type: Boolean, default: true }
+    },
+    // FCM Token for push notifications
+    fcmToken: {
+        type: String,
+        default: null
+    },
+    fcmTokenUpdatedAt: {
+        type: Date,
+        default: null
     }
 }, { timestamps: true });
 
