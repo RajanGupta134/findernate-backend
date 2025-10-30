@@ -178,13 +178,8 @@ class StreamService {
                 created_by_id: createdBy,
                 members: members.map(userId => ({ user_id: userId })),
                 settings_override: {
-                    audio: {
-                        mic_default_on: true,
-                        speaker_default_on: true,
-                        default_device: 'speaker'
-                    },
                     ring: {
-                        auto_cancel_timeout_ms: 30000,  // 30 seconds ring timeout
+                        auto_cancel_timeout_ms: 30000,
                         incoming_call_timeout_ms: 30000
                     },
                     screensharing: {
@@ -197,8 +192,14 @@ class StreamService {
                 }
             };
 
-            // Add video settings (required for both voice and video calls)
+            // Configure audio and video settings based on call type
             if (videoEnabled) {
+                // Video call: Enable both audio and video
+                callData.settings_override.audio = {
+                    mic_default_on: true,
+                    speaker_default_on: true,
+                    default_device: 'speaker'
+                };
                 callData.settings_override.video = {
                     camera_default_on: true,
                     enabled: true,
@@ -210,7 +211,13 @@ class StreamService {
                 };
                 console.log(`📹 Video call: audio + video enabled for call: ${callId}`);
             } else {
-                // For voice calls, disable video but still provide valid resolution
+                // Voice call: Optimize for audio only, explicitly disable video
+                callData.settings_override.audio = {
+                    mic_default_on: true,
+                    speaker_default_on: true,
+                    default_device: 'speaker',
+                    access_request_enabled: false  // Auto-grant audio access for voice calls
+                };
                 callData.settings_override.video = {
                     camera_default_on: false,
                     enabled: false,
@@ -220,7 +227,7 @@ class StreamService {
                         bitrate: 800000
                     }
                 };
-                console.log(`📞 Voice call: audio enabled, video disabled for call: ${callId}`);
+                console.log(`📞 Voice call: audio-only mode enabled for call: ${callId}`);
             }
 
             const response = await call.getOrCreate({
