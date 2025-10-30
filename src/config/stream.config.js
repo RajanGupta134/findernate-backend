@@ -179,10 +179,9 @@ class StreamService {
                 members: members.map(userId => ({ user_id: userId }))
             };
 
-            // Only add settings_override for video calls
-            // For voice calls, let Stream.io use defaults
+            // Configure settings based on call type
             if (videoEnabled) {
-                // Video call: Full configuration
+                // Video call: Enable both audio and video
                 callData.settings_override = {
                     audio: {
                         mic_default_on: true,
@@ -210,10 +209,32 @@ class StreamService {
                         enabled: false
                     }
                 };
-                console.log(`📹 Video call (default): audio + video enabled for call: ${callId}`);
+                console.log(`📹 Video call: audio + video enabled for call: ${callId}`);
             } else {
-                // Voice call (audio_room): Minimal settings - let Stream.io handle audio defaults
-                console.log(`📞 Voice call (audio_room): using Stream.io default audio settings for call: ${callId}`);
+                // Voice call: Audio only, explicitly disable video
+                callData.settings_override = {
+                    audio: {
+                        mic_default_on: true,
+                        speaker_default_on: true,
+                        default_device: 'speaker'
+                    },
+                    video: {
+                        camera_default_on: false,
+                        enabled: false
+                    },
+                    ring: {
+                        auto_cancel_timeout_ms: 30000,
+                        incoming_call_timeout_ms: 30000
+                    },
+                    screensharing: {
+                        enabled: false,
+                        access_request_enabled: false
+                    },
+                    broadcasting: {
+                        enabled: false
+                    }
+                };
+                console.log(`📞 Voice call: audio-only enabled for call: ${callId}`);
             }
 
             const response = await call.getOrCreate({
