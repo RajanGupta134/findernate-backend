@@ -176,8 +176,28 @@ class StreamService {
             // Prepare call data with audio/video settings
             const callData = {
                 created_by_id: createdBy,
-                members: members.map(userId => ({ user_id: userId })),
-                settings_override: {
+                members: members.map(userId => ({ user_id: userId }))
+            };
+
+            // Only add settings_override for video calls
+            // For voice calls, let Stream.io use defaults
+            if (videoEnabled) {
+                // Video call: Full configuration
+                callData.settings_override = {
+                    audio: {
+                        mic_default_on: true,
+                        speaker_default_on: true,
+                        default_device: 'speaker'
+                    },
+                    video: {
+                        camera_default_on: true,
+                        enabled: true,
+                        target_resolution: {
+                            width: 1280,
+                            height: 720,
+                            bitrate: 1500000
+                        }
+                    },
                     ring: {
                         auto_cancel_timeout_ms: 30000,
                         incoming_call_timeout_ms: 30000
@@ -189,45 +209,11 @@ class StreamService {
                     broadcasting: {
                         enabled: false
                     }
-                }
-            };
-
-            // Configure audio and video settings based on call type
-            if (videoEnabled) {
-                // Video call: Enable both audio and video
-                callData.settings_override.audio = {
-                    mic_default_on: true,
-                    speaker_default_on: true,
-                    default_device: 'speaker'
-                };
-                callData.settings_override.video = {
-                    camera_default_on: true,
-                    enabled: true,
-                    target_resolution: {
-                        width: 1280,
-                        height: 720,
-                        bitrate: 1500000
-                    }
                 };
                 console.log(`📹 Video call: audio + video enabled for call: ${callId}`);
             } else {
-                // Voice call: Optimize for audio only, explicitly disable video
-                callData.settings_override.audio = {
-                    mic_default_on: true,
-                    speaker_default_on: true,
-                    default_device: 'speaker',
-                    access_request_enabled: false  // Auto-grant audio access for voice calls
-                };
-                callData.settings_override.video = {
-                    camera_default_on: false,
-                    enabled: false,
-                    target_resolution: {
-                        width: 640,
-                        height: 480,
-                        bitrate: 800000
-                    }
-                };
-                console.log(`📞 Voice call: audio-only mode enabled for call: ${callId}`);
+                // Voice call: Minimal settings - let Stream.io handle audio defaults
+                console.log(`📞 Voice call: using Stream.io default audio settings for call: ${callId}`);
             }
 
             const response = await call.getOrCreate({
