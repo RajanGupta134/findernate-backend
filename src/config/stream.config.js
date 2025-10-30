@@ -220,7 +220,12 @@ class StreamService {
                     },
                     video: {
                         camera_default_on: false,
-                        enabled: false
+                        enabled: false,
+                        target_resolution: {
+                            width: 640,
+                            height: 480,
+                            bitrate: 800000
+                        }
                     },
                     ring: {
                         auto_cancel_timeout_ms: 30000,
