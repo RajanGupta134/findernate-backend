@@ -20,13 +20,16 @@ export const followUser = asyncHandler(async (req, res) => {
     const existingFollow = await Follower.findOne({ userId, followerId: requesterId });
     if (existingFollow) throw new ApiError(400, "Already following");
 
-    // Check if there's already a pending follow request
-    const existingRequest = await FollowRequest.findOne({ 
-        requesterId, 
-        recipientId: userId, 
-        status: 'pending' 
+    // Check if there's ANY existing follow request (pending, rejected, or approved)
+    const existingRequest = await FollowRequest.findOne({
+        requesterId,
+        recipientId: userId
     });
-    if (existingRequest) throw new ApiError(400, "Follow request already sent");
+
+    // If there's a pending request, inform the user
+    if (existingRequest && existingRequest.status === 'pending') {
+        throw new ApiError(400, "Follow request already sent");
+    }
 
     // Get the user to follow
     const targetUser = await User.findById(userId).select('username fullName profileImageUrl privacy');
@@ -34,6 +37,11 @@ export const followUser = asyncHandler(async (req, res) => {
 
     // If target user has public account, follow immediately
     if (targetUser.privacy === 'public') {
+        // Delete any old follow request records (rejected or approved)
+        if (existingRequest) {
+            await FollowRequest.findByIdAndDelete(existingRequest._id);
+        }
+
         await Follower.create({ userId, followerId: requesterId });
 
         // Update User model arrays
@@ -64,8 +72,16 @@ export const followUser = asyncHandler(async (req, res) => {
         }, "Followed successfully"));
     }
 
-    // If target user has private account, create follow request
-    await FollowRequest.create({ requesterId, recipientId: userId });
+    // If target user has private account, create or update follow request
+    if (existingRequest) {
+        // Update the existing request to pending (if it was rejected before)
+        existingRequest.status = 'pending';
+        existingRequest.createdAt = new Date();
+        await existingRequest.save();
+    } else {
+        // Create new follow request
+        await FollowRequest.create({ requesterId, recipientId: userId });
+    }
 
     // Create notification for follow request
     await createFollowNotification({ recipientId: userId, sourceUserId: requesterId, isRequest: true });
