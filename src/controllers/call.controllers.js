@@ -189,6 +189,60 @@ export const initiateCall = asyncHandler(async (req, res) => {
             .populate('initiator', 'username fullName profileImageUrl')
             .lean();
 
+        // Create Stream.io call and generate tokens for both participants (BEFORE notifications)
+        let streamData = null;
+        try {
+            const streamService = (await import('../config/stream.config.js')).default;
+
+            if (streamService.isConfigured()) {
+                console.log('📞 Creating Stream.io call...');
+
+                // Register users in Stream.io
+                await streamService.upsertUsers([
+                    {
+                        id: currentUserId.toString(),
+                        name: req.user.fullName || req.user.username || 'User',
+                        image: req.user.profileImageUrl || undefined
+                    },
+                    {
+                        id: receiver._id.toString(),
+                        name: receiver.fullName || receiver.username || 'User',
+                        image: receiver.profileImageUrl || undefined
+                    }
+                ]);
+
+                // Create Stream.io call
+                const streamCallType = callType === 'voice' ? 'audio_room' : 'default';
+                const callResponse = await streamService.createCall(
+                    streamCallType,
+                    newCall._id.toString(),
+                    currentUserId.toString(),
+                    [currentUserId.toString(), receiver._id.toString()],
+                    callType === 'video'
+                );
+
+                // Generate tokens for both users
+                const callerToken = streamService.generateUserToken(currentUserId.toString());
+                const receiverToken = streamService.generateUserToken(receiver._id.toString());
+
+                streamData = {
+                    apiKey: streamService.getApiKey(),
+                    callId: newCall._id.toString(),
+                    streamCallType,
+                    callerToken: callerToken.token,
+                    receiverToken: receiverToken.token,
+                    expiresAt: callerToken.expiresAt
+                };
+
+                console.log('✅ Stream.io call created and tokens generated');
+            } else {
+                console.warn('⚠️ Stream.io not configured - calls will not work properly');
+            }
+        } catch (streamError) {
+            console.error('❌ Stream.io call creation error:', streamError);
+            // Don't fail the entire call if Stream.io fails - log and continue
+        }
+
         // Send FCM push notification to receiver (fire-and-forget, non-blocking)
         console.log('🔔 Sending FCM notification (async)...');
         let fcmSent = false;
@@ -250,6 +304,12 @@ export const initiateCall = asyncHandler(async (req, res) => {
                     fullName: req.user.fullName,
                     profileImageUrl: req.user.profileImageUrl
                 },
+                stream: streamData ? {
+                    apiKey: streamData.apiKey,
+                    token: streamData.receiverToken,
+                    callId: streamData.callId,
+                    streamCallType: streamData.streamCallType
+                } : null,
                 timestamp: new Date()
             };
 
@@ -289,7 +349,10 @@ export const initiateCall = asyncHandler(async (req, res) => {
 
         console.log('🎉 Call initiated successfully:', { callId: newCall._id });
         res.status(201).json(
-            new ApiResponse(201, populatedCall, 'Call initiated successfully')
+            new ApiResponse(201, {
+                ...populatedCall,
+                stream: streamData
+            }, 'Call initiated successfully')
         );
 
     } catch (error) {
