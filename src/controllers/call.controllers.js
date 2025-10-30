@@ -211,9 +211,8 @@ export const initiateCall = asyncHandler(async (req, res) => {
                     }
                 ]);
 
-                // Create Stream.io call - use 'default' type for both voice and video
-                // Video is controlled by the videoEnabled parameter, not the call type
-                const streamCallType = 'default';
+                // Create Stream.io call - use 'audio_room' for voice, 'default' for video
+                const streamCallType = callType === 'voice' ? 'audio_room' : 'default';
                 const videoEnabled = callType === 'video';
                 const callResponse = await streamService.createCall(
                     streamCallType,

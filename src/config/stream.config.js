@@ -210,10 +210,10 @@ class StreamService {
                         enabled: false
                     }
                 };
-                console.log(`📹 Video call: audio + video enabled for call: ${callId}`);
+                console.log(`📹 Video call (default): audio + video enabled for call: ${callId}`);
             } else {
-                // Voice call: Minimal settings - let Stream.io handle audio defaults
-                console.log(`📞 Voice call: using Stream.io default audio settings for call: ${callId}`);
+                // Voice call (audio_room): Minimal settings - let Stream.io handle audio defaults
+                console.log(`📞 Voice call (audio_room): using Stream.io default audio settings for call: ${callId}`);
             }
 
             const response = await call.getOrCreate({
