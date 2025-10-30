@@ -173,25 +173,51 @@ class StreamService {
         try {
             const call = this.client.video.call(callType, callId);
 
-            // Prepare call data
+            // Prepare call data with audio/video settings
             const callData = {
                 created_by_id: createdBy,
-                members: members.map(userId => ({ user_id: userId }))
+                members: members.map(userId => ({ user_id: userId })),
+                settings_override: {
+                    audio: {
+                        mic_default_on: true,
+                        speaker_default_on: true,
+                        default_device: 'speaker',
+                        opus_dtx_enabled: true,  // Enable discontinuous transmission for better quality
+                        noise_cancellation: true  // Enable noise cancellation
+                    },
+                    ring: {
+                        auto_cancel_timeout_ms: 30000,  // 30 seconds ring timeout
+                        incoming_call_timeout_ms: 30000
+                    },
+                    screensharing: {
+                        enabled: false,
+                        access_request_enabled: false
+                    },
+                    broadcasting: {
+                        enabled: false
+                    }
+                }
             };
 
-            // For video calls (not audio_room), set video settings with proper resolution
-            // For audio_room calls, video is already disabled by call type
-            if (callType !== 'audio_room' && videoEnabled) {
-                callData.settings_override = {
-                    video: {
-                        enabled: true,
-                        target_resolution: {
-                            width: 1280,
-                            height: 720
-                        }
+            // Add video settings if video is enabled
+            if (videoEnabled) {
+                callData.settings_override.video = {
+                    camera_default_on: true,
+                    enabled: true,
+                    target_resolution: {
+                        width: 1280,
+                        height: 720,
+                        bitrate: 1500000
                     }
                 };
-                console.log(`📹 Setting video enabled with 720p resolution for call: ${callId}`);
+                console.log(`📹 Video call: audio + video enabled for call: ${callId}`);
+            } else {
+                // For voice calls, explicitly disable video
+                callData.settings_override.video = {
+                    camera_default_on: false,
+                    enabled: false
+                };
+                console.log(`📞 Voice call: audio enabled, video disabled for call: ${callId}`);
             }
 
             const response = await call.getOrCreate({
