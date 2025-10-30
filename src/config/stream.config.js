@@ -181,9 +181,7 @@ class StreamService {
                     audio: {
                         mic_default_on: true,
                         speaker_default_on: true,
-                        default_device: 'speaker',
-                        opus_dtx_enabled: true,  // Enable discontinuous transmission for better quality
-                        noise_cancellation: true  // Enable noise cancellation
+                        default_device: 'speaker'
                     },
                     ring: {
                         auto_cancel_timeout_ms: 30000,  // 30 seconds ring timeout
