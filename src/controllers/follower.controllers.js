@@ -149,14 +149,14 @@ export const unfollowUser = asyncHandler(async (req, res) => {
 // Get followers of a user
 export const getFollowers = asyncHandler(async (req, res) => {
     const { userId } = req.params;
-    const followers = await Follower.find({ userId }).populate("followerId", "username profileImageUrl");
+    const followers = await Follower.find({ userId }).populate("followerId", "username profileImageUrl fullName isVerified bio");
     res.status(200).json(new ApiResponse(200, followers.map(f => f.followerId).filter(user => user !== null), "Followers fetched successfully"));
 });
 
 // Get following of a user
 export const getFollowing = asyncHandler(async (req, res) => {
     const { userId } = req.params;
-    const following = await Follower.find({ followerId: userId }).populate("userId", "username profileImageUrl");
+    const following = await Follower.find({ followerId: userId }).populate("userId", "username profileImageUrl fullName isVerified bio");
     res.status(200).json(new ApiResponse(200, following.map(f => f.userId).filter(user => user !== null), "Following fetched successfully"));
 });
 

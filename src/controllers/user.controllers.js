@@ -894,6 +894,14 @@ const getOtherUserProfile = asyncHandler(async (req, res) => {
     // Check if current user follows the target user
     const isFollowing = await Follower.findOne({
         userId: targetUser._id,
+        followerId: req.user._id
+    });
+
+    // Check if there's a pending follow request
+    const pendingRequest = await FollowRequest.findOne({
+        requesterId: req.user._id,
+        recipientId: targetUser._id,
+        status: 'pending'
     });
 
     // Calculate counts
@@ -940,6 +948,7 @@ const getOtherUserProfile = asyncHandler(async (req, res) => {
     const responseData = {
         _id: targetUser._id,
         isFollowedBy: !!isFollowing,
+        isPending: !!pendingRequest,
         userId: userWithCounts
     };
 
