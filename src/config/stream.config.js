@@ -203,7 +203,7 @@ class StreamService {
                         incoming_call_timeout_ms: 30000
                     },
                     screensharing: {
-                        enabled: false,
+                        enabled: true,
                         access_request_enabled: false
                     },
                     broadcasting: {
