@@ -166,13 +166,11 @@ export const getHomeFeed = asyncHandler(async (req, res) => {
                     createdAt: 1,
                     updatedAt: 1,
                     isPromoted: 1,
-                    // Include product/service details if needed (truncated)
-                    'productDetails.name': 1,
-                    'productDetails.price': 1,
-                    'productDetails.currency': 1,
-                    'productDetails.images': { $slice: ['$productDetails.images', 3] }, // Limit to 3 images
-                    'serviceDetails.name': 1,
-                    'serviceDetails.pricing': 1
+                    // Include customization fields (product, service, business, normal)
+                    'customization.product': 1,
+                    'customization.service': 1,
+                    'customization.business': 1,
+                    'customization.normal': 1
                 }
             }
         ];

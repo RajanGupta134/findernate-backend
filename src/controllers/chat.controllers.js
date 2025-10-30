@@ -11,6 +11,7 @@ import { sendPushNotification } from './pushNotification.controllers.js';
 import { User } from '../models/user.models.js';
 import { ChatPubSub, NotificationPubSub, LiveFeaturesPubSub } from '../utlis/pubsub.utils.js';
 import notificationCache from '../utlis/notificationCache.utils.js';
+import { redisClient } from '../config/redis.config.js';
 
 // Helper function to safely emit socket events
 const safeEmitToChat = (chatId, event, data) => {
@@ -184,8 +185,20 @@ export const getUserChats = asyncHandler(async (req, res) => {
     const userObjectId = new mongoose.Types.ObjectId(currentUserId);
 
     const pageNum = parseInt(page) || 1;
-    const pageLimit = parseInt(limit) || 20;
+    const pageLimit = Math.min(parseInt(limit) || 20, 50); // Max 50 chats per request
     const skip = (pageNum - 1) * pageLimit;
+
+    // Check cache first
+    const cacheKey = `chats:user:${currentUserId}:status:${chatStatus}:page:${pageNum}:limit:${pageLimit}`;
+    try {
+        const cachedData = await redisClient.get(cacheKey);
+        if (cachedData) {
+            return res.status(200).json(JSON.parse(cachedData));
+        }
+    } catch (cacheError) {
+        console.error('Cache read error:', cacheError);
+        // Continue without cache
+    }
 
     // Filter by chat status (active or requested)
     const statusFilter = ['active', 'requested'].includes(chatStatus) ? chatStatus : 'active';
@@ -213,9 +226,12 @@ export const getUserChats = asyncHandler(async (req, res) => {
         };
     }
 
-    console.log('💬 Chat Debug - User:', currentUserId);
-    console.log('💬 Chat Debug - Status filter:', statusFilter);
-    console.log('💬 Chat Debug - Chat filter:', JSON.stringify(chatFilter, null, 2));
+    // Only log in development for debugging
+    if (process.env.NODE_ENV === 'development' && process.env.DEBUG_CHAT === 'true') {
+        console.log('💬 Chat Debug - User:', currentUserId);
+        console.log('💬 Chat Debug - Status filter:', statusFilter);
+        console.log('💬 Chat Debug - Chat filter:', JSON.stringify(chatFilter, null, 2));
+    }
 
     const [chats, total] = await Promise.all([
         Chat.find(chatFilter)
@@ -226,7 +242,9 @@ export const getUserChats = asyncHandler(async (req, res) => {
         Chat.countDocuments(chatFilter)
     ]);
 
-    console.log('💬 Chat Debug - Chats found:', chats.length);
+    if (process.env.NODE_ENV === 'development' && process.env.DEBUG_CHAT === 'true') {
+        console.log('💬 Chat Debug - Chats found:', chats.length);
+    }
 
     // Additional security check: Double-verify each chat contains the current user
     const secureChats = chats.filter(chat =>
@@ -266,7 +284,11 @@ export const getUserChats = asyncHandler(async (req, res) => {
                         seenParticipants.set(participantKey, chat);
                     }
                 }
-                console.log(`⚠️ Duplicate chat detected for participants ${participantKey}. Kept chat ${seenParticipants.get(participantKey)._id}`);
+                // Only log duplicates once to avoid spam
+                if (process.env.NODE_ENV === 'development' && !global._chatDuplicatesWarned) {
+                    console.log(`⚠️ Duplicate chat detected for participants ${participantKey}. Run cleanup script: node src/scripts/cleanupDuplicateChats.js`);
+                    global._chatDuplicatesWarned = true;
+                }
             }
         } else {
             // Group chats or non-standard chats - keep all
@@ -274,15 +296,16 @@ export const getUserChats = asyncHandler(async (req, res) => {
         }
     }
 
-    // Debug logging to help identify the issue
-    if (chats.length !== secureChats.length) {
-        console.warn(`Security filter removed ${chats.length - secureChats.length} unauthorized chats for user ${currentUserId}`);
-        console.warn('Original chats:', chats.map(c => ({ id: c._id, participants: c.participants })));
-        console.warn('Secure chats:', secureChats.map(c => ({ id: c._id, participants: c.participants })));
-    }
+    // Only log security issues in development
+    if (process.env.NODE_ENV === 'development' && process.env.DEBUG_CHAT === 'true') {
+        if (chats.length !== secureChats.length) {
+            console.warn(`Security filter removed ${chats.length - secureChats.length} unauthorized chats for user ${currentUserId}`);
+        }
 
-    if (secureChats.length !== deduplicatedChats.length) {
-        console.warn(`⚠️ Deduplication removed ${secureChats.length - deduplicatedChats.length} duplicate chats for user ${currentUserId}`);
+        if (secureChats.length !== deduplicatedChats.length && !global._chatDuplicatesWarned) {
+            console.warn(`⚠️ Deduplication removed ${secureChats.length - deduplicatedChats.length} duplicate chats. Run: node src/scripts/cleanupDuplicateChats.js`);
+            global._chatDuplicatesWarned = true;
+        }
     }
 
     // Get all chat IDs from deduplicated chats

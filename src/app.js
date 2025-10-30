@@ -62,7 +62,8 @@ const allowedOrigins = [
         "http://127.0.0.1:3001",
         "http://127.0.0.1:4000",
         "https://z0n8vrlt-4000.inc1.devtunnels.ms",
-        
+        // Allow all local network IPs for development
+        ...(process.env.NODE_ENV === 'development' ? [/^http:\/\/192\.168\.\d+\.\d+:4000$/] : []),
         ...(process.env.ADDITIONAL_CORS_ORIGINS ? process.env.ADDITIONAL_CORS_ORIGINS.split(',') : [])
 ];
 
@@ -74,12 +75,21 @@ app.use(cors({
                         return callback(null, true);
                 }
 
+                // Check exact match first
                 if (allowedOrigins.includes(origin)) {
-                        callback(null, true);
-                } else {
-                        console.warn(`CORS blocked origin: ${origin}`);
-                        callback(new Error("Not allowed by CORS"));
+                        return callback(null, true);
                 }
+
+                // Check regex patterns (for local network IPs)
+                const regexPatterns = allowedOrigins.filter(pattern => pattern instanceof RegExp);
+                for (const pattern of regexPatterns) {
+                        if (pattern.test(origin)) {
+                                return callback(null, true);
+                        }
+                }
+
+                console.warn(`CORS blocked origin: ${origin}`);
+                callback(new Error("Not allowed by CORS"));
         },
         credentials: true,
         methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
