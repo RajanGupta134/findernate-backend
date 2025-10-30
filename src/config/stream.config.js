@@ -197,7 +197,7 @@ class StreamService {
                 }
             };
 
-            // Add video settings if video is enabled
+            // Add video settings (required for both voice and video calls)
             if (videoEnabled) {
                 callData.settings_override.video = {
                     camera_default_on: true,
@@ -210,10 +210,15 @@ class StreamService {
                 };
                 console.log(`📹 Video call: audio + video enabled for call: ${callId}`);
             } else {
-                // For voice calls, explicitly disable video
+                // For voice calls, disable video but still provide valid resolution
                 callData.settings_override.video = {
                     camera_default_on: false,
-                    enabled: false
+                    enabled: false,
+                    target_resolution: {
+                        width: 640,
+                        height: 480,
+                        bitrate: 800000
+                    }
                 };
                 console.log(`📞 Voice call: audio enabled, video disabled for call: ${callId}`);
             }
