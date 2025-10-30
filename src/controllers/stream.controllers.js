@@ -134,17 +134,18 @@ export const createStreamCall = asyncHandler(async (req, res) => {
         console.log(`✅ Registered ${usersToRegister.length} users in Stream.io`);
 
         // Create Stream.io call with appropriate settings
-        // For voice calls, we use 'audio_room' type which doesn't require video
-        // For video calls, we use 'default' type
-        const streamCallType = callType === 'voice' ? 'audio_room' : 'default';
+        // Use 'default' type for both voice and video calls
+        // Video is controlled by the videoEnabled parameter
+        const streamCallType = 'default';
+        const finalVideoEnabled = callType === 'video' ? videoEnabled : false;
 
-        console.log(`📞 Creating Stream.io call: ${streamCallType}:${callId} with videoEnabled: ${videoEnabled}`);
+        console.log(`📞 Creating Stream.io call: ${streamCallType}:${callId} with videoEnabled: ${finalVideoEnabled}`);
         const callResponse = await streamService.createCall(
             streamCallType,
             callId,
             currentUserId,
             allMemberIds,
-            videoEnabled
+            finalVideoEnabled
         );
 
         res.status(200).json(

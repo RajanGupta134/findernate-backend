@@ -211,14 +211,16 @@ export const initiateCall = asyncHandler(async (req, res) => {
                     }
                 ]);
 
-                // Create Stream.io call
-                const streamCallType = callType === 'voice' ? 'audio_room' : 'default';
+                // Create Stream.io call - use 'default' type for both voice and video
+                // Video is controlled by the videoEnabled parameter, not the call type
+                const streamCallType = 'default';
+                const videoEnabled = callType === 'video';
                 const callResponse = await streamService.createCall(
                     streamCallType,
                     newCall._id.toString(),
                     currentUserId.toString(),
                     [currentUserId.toString(), receiver._id.toString()],
-                    callType === 'video'
+                    videoEnabled
                 );
 
                 // Generate tokens for both users
