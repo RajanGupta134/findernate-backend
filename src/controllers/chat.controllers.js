@@ -444,6 +444,24 @@ export const getUserChats = asyncHandler(async (req, res) => {
     const deduplicatedTotal = deduplicatedChats.length;
     const actualTotal = total; // Keep original total for pagination logic
 
+    // Auto-join user to all their active chat rooms for real-time updates
+    if (socketManager.isReady()) {
+        const userSocketId = socketManager.connectedUsers.get(currentUserId.toString());
+        if (userSocketId) {
+            const io = socketManager.io;
+            const socket = io.sockets.sockets.get(userSocketId);
+            if (socket) {
+                populatedChats.forEach(chat => {
+                    const chatId = chat._id.toString();
+                    socket.join(`chat:${chatId}`);
+                    socket.chatRooms = socket.chatRooms || new Set();
+                    socket.chatRooms.add(chatId);
+                });
+                console.log(`✅ Auto-joined user ${currentUserId} to ${populatedChats.length} chat rooms`);
+            }
+        }
+    }
+
     return res.status(200).json(
         new ApiResponse(200, {
             chats: populatedChats,
@@ -568,6 +586,21 @@ export const getChatMessages = asyncHandler(async (req, res) => {
 
     if (!chat) {
         throw new ApiError(404, 'Chat not found or access denied');
+    }
+
+    // Auto-join user to chat room for real-time updates
+    if (socketManager.isReady()) {
+        const userSocketId = socketManager.connectedUsers.get(currentUserId.toString());
+        if (userSocketId) {
+            const io = socketManager.io;
+            const socket = io.sockets.sockets.get(userSocketId);
+            if (socket) {
+                socket.join(`chat:${chatId}`);
+                socket.chatRooms = socket.chatRooms || new Set();
+                socket.chatRooms.add(chatId);
+                console.log(`✅ Auto-joined user ${currentUserId} to chat:${chatId}`);
+            }
+        }
     }
 
     // Check if the chat is a request and not yet accepted
