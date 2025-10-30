@@ -143,6 +143,30 @@ class SocketManager {
             socket.join(userRoom);
             console.log(`✅ User ${socket.userId} joined personal room: ${userRoom}`);
 
+            // Auto-join user to all their active chat rooms for real-time messaging
+            (async () => {
+                try {
+                    const Chat = (await import('../models/chat.models.js')).default;
+                    const activeChats = await Chat.find({
+                        participants: socket.userId,
+                        status: { $in: ['active', 'requested'] }
+                    })
+                    .select('_id')
+                    .limit(50) // Limit to prevent overload
+                    .lean();
+
+                    activeChats.forEach(chat => {
+                        const chatRoom = `chat:${chat._id}`;
+                        socket.join(chatRoom);
+                        socket.chatRooms.add(chat._id.toString());
+                    });
+
+                    console.log(`✅ User ${socket.userId} auto-joined ${activeChats.length} chat rooms on connect`);
+                } catch (error) {
+                    console.error(`❌ Error auto-joining chat rooms for user ${socket.userId}:`, error);
+                }
+            })();
+
             // Note: No Redis pattern subscriptions needed - Socket.IO rooms handle routing
 
             // Handle joining chat rooms

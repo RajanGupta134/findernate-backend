@@ -807,48 +807,66 @@ export const addMessage = asyncHandler(async (req, res) => {
         message: populatedMessage
     });
 
-    // Send push notifications to other participants
-    try {
-        const otherParticipants = chat.participants.filter(
-            participantId => participantId.toString() !== currentUserId.toString()
-        );
+    // Send push notifications to other participants (fire-and-forget)
+    (async () => {
+        try {
+            const otherParticipants = chat.participants.filter(
+                participantId => participantId.toString() !== currentUserId.toString()
+            );
 
+            if (otherParticipants.length > 0) {
+                // Get sender info for notification
+                const sender = await User.findById(currentUserId).select('username fullName');
+                const senderName = sender?.fullName || sender?.username || 'Unknown User';
 
-        if (otherParticipants.length > 0) {
-            // Get sender info for notification
-            const sender = await User.findById(currentUserId).select('username fullName');
-            const senderName = sender?.fullName || sender?.username || 'Unknown User';
+                // Create notification data
+                const notificationData = {
+                    title: `New message from ${senderName}`,
+                    body: messageType === 'text'
+                        ? finalMessage.length > 50 ? finalMessage.substring(0, 50) + '...' : finalMessage
+                        : `Sent ${messageType === 'image' ? 'an image' : messageType === 'video' ? 'a video' : messageType === 'audio' ? 'an audio' : 'a file'}`,
+                    chatId: chatId,
+                    messageId: newMessage._id.toString(),
+                    senderId: currentUserId.toString(),
+                    url: `/chats?chatId=${chatId}`
+                };
 
-            // Create notification data
-            const notificationData = {
-                title: `New message from ${senderName}`,
-                body: messageType === 'text'
-                    ? finalMessage.length > 50 ? finalMessage.substring(0, 50) + '...' : finalMessage
-                    : `Sent ${messageType === 'image' ? 'an image' : messageType === 'video' ? 'a video' : messageType === 'audio' ? 'an audio' : 'a file'}`,
-                chatId: chatId,
-                messageId: newMessage._id.toString(),
-                senderId: currentUserId.toString(),
-                url: `/chats?chatId=${chatId}`
-            };
-
-            // Send push notifications asynchronously (don't block response)
-            sendPushNotification(otherParticipants, notificationData).catch(error => {
-                console.error('Failed to send push notification for message:', error);
-            });
+                // Send push notifications
+                await sendPushNotification(otherParticipants, notificationData);
+            }
+        } catch (pushError) {
+            console.error('Error sending push notification:', pushError);
         }
-    } catch (pushError) {
-        console.error('Error preparing push notification:', pushError);
-        // Don't block the response if push notification fails
-    }
+    })();
 
-    // Invalidate message cache for all chat participants
-    try {
-        const participantIds = chat.participants.map(p => p.toString());
-        await notificationCache.invalidateMultipleUsersCache(participantIds, 'message');
-    } catch (cacheError) {
-        console.error('Error invalidating message cache:', cacheError);
-        // Don't block response if cache invalidation fails
-    }
+    // Invalidate caches asynchronously (don't block response)
+    (async () => {
+        try {
+            const participantIds = chat.participants.map(p => p.toString());
+
+            // Invalidate message cache
+            await notificationCache.invalidateMultipleUsersCache(participantIds, 'message');
+
+            // Invalidate chat list cache for all participants (so they see updated lastMessage)
+            const cacheInvalidations = [];
+            for (const participantId of participantIds) {
+                // Invalidate both active and requested chat lists (multiple pages)
+                for (let page = 1; page <= 3; page++) {
+                    const activeKey = `chats:user:${participantId}:status:active:page:${page}:limit:20`;
+                    const requestedKey = `chats:user:${participantId}:status:requested:page:${page}:limit:20`;
+                    cacheInvalidations.push(
+                        redisClient.del(activeKey),
+                        redisClient.del(requestedKey)
+                    );
+                }
+            }
+
+            await Promise.all(cacheInvalidations);
+            console.log(`✅ Invalidated caches for ${participantIds.length} participants`);
+        } catch (cacheError) {
+            console.error('Error invalidating caches:', cacheError);
+        }
+    })();
 
     return res.status(201).json(
         new ApiResponse(201, populatedMessage, 'Message sent successfully')
