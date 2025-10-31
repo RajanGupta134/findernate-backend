@@ -75,9 +75,16 @@ export const getCommentsByPost = asyncHandler(async (req, res) => {
 
     // Populate likes from Like collection for each comment
     const commentIds = comments.map(c => c._id);
-    const likes = await Like.find({ commentId: { $in: commentIds } })
-        .populate('userId', 'username profileImageUrl fullName')
-        .lean();
+    const [likes, replyCounts] = await Promise.all([
+        Like.find({ commentId: { $in: commentIds } })
+            .populate('userId', 'username profileImageUrl fullName')
+            .lean(),
+        // Get reply counts for each comment
+        Comment.aggregate([
+            { $match: { parentCommentId: { $in: commentIds }, isDeleted: false } },
+            { $group: { _id: '$parentCommentId', count: { $sum: 1 } } }
+        ])
+    ]);
 
     // Group likes by commentId
     const likesByComment = {};
@@ -89,6 +96,12 @@ export const getCommentsByPost = asyncHandler(async (req, res) => {
         likesByComment[commentId].push(like.userId);
     });
 
+    // Group reply counts by commentId
+    const replyCountMap = {};
+    replyCounts.forEach(item => {
+        replyCountMap[item._id.toString()] = item.count;
+    });
+
     // Add likes and isLikedBy to each comment
     const enrichedComments = comments.map(comment => {
         const commentLikes = likesByComment[comment._id.toString()] || [];
@@ -98,7 +111,8 @@ export const getCommentsByPost = asyncHandler(async (req, res) => {
             ...comment,
             likes: commentLikes,
             isLikedBy,
-            likesCount: commentLikes.length
+            likesCount: commentLikes.length,
+            replyCount: replyCountMap[comment._id.toString()] || 0
         };
     });
 
@@ -131,7 +145,7 @@ export const getCommentById = asyncHandler(async (req, res) => {
     // Paginate replies (child comments)
     const [replies, totalReplies] = await Promise.all([
         Comment.find({ parentCommentId: commentId, isDeleted: false })
-            .populate('userId', 'username fullName bio location')
+            .populate('userId', 'username fullName profileImageUrl bio location')
             .sort({ createdAt: 1 })
             .skip(skip)
             .limit(pageLimit)
@@ -141,9 +155,20 @@ export const getCommentById = asyncHandler(async (req, res) => {
 
     // Get likes for the main comment and all replies
     const allCommentIds = [commentId, ...replies.map(r => r._id)];
-    const likes = await Like.find({ commentId: { $in: allCommentIds } })
-        .populate('userId', 'username profileImageUrl fullName')
-        .lean();
+    const replyIds = replies.map(r => r._id);
+
+    const [likes, replyCountsForReplies] = await Promise.all([
+        Like.find({ commentId: { $in: allCommentIds } })
+            .populate('userId', 'username profileImageUrl fullName')
+            .lean(),
+        // Get reply counts for nested replies
+        replyIds.length > 0
+            ? Comment.aggregate([
+                { $match: { parentCommentId: { $in: replyIds }, isDeleted: false } },
+                { $group: { _id: '$parentCommentId', count: { $sum: 1 } } }
+            ])
+            : Promise.resolve([])
+    ]);
 
     // Group likes by commentId
     const likesByComment = {};
@@ -155,17 +180,24 @@ export const getCommentById = asyncHandler(async (req, res) => {
         likesByComment[cId].push(like.userId);
     });
 
-    // Enrich main comment with likes
+    // Group reply counts by commentId
+    const replyCountMap = {};
+    replyCountsForReplies.forEach(item => {
+        replyCountMap[item._id.toString()] = item.count;
+    });
+
+    // Enrich main comment with likes and total reply count
     const commentLikes = likesByComment[commentId.toString()] || [];
     const isLikedBy = userId ? commentLikes.some(u => u._id.toString() === userId) : false;
     const enrichedComment = {
         ...comment,
         likes: commentLikes,
         isLikedBy,
-        likesCount: commentLikes.length
+        likesCount: commentLikes.length,
+        replyCount: totalReplies
     };
 
-    // Enrich replies with likes
+    // Enrich replies with likes and reply counts
     const enrichedReplies = replies.map(reply => {
         const replyLikes = likesByComment[reply._id.toString()] || [];
         const isReplyLikedBy = userId ? replyLikes.some(u => u._id.toString() === userId) : false;
@@ -174,7 +206,8 @@ export const getCommentById = asyncHandler(async (req, res) => {
             ...reply,
             likes: replyLikes,
             isLikedBy: isReplyLikedBy,
-            likesCount: replyLikes.length
+            likesCount: replyLikes.length,
+            replyCount: replyCountMap[reply._id.toString()] || 0
         };
     });
 
