@@ -81,6 +81,24 @@ export const createChat = asyncHandler(async (req, res) => {
         console.log('💬 Create Chat Debug - Existing chat found:', !!existingChat);
 
         if (existingChat) {
+            // ✅ FIX: Check if follow status has changed since chat was created
+            const otherUserId = validParticipants.find(id => id.toString() !== currentUserId.toString());
+            const recipientFollowsSender = await checkFollowStatus(otherUserId, currentUserId);
+
+            // If recipient no longer follows sender AND chat is currently active,
+            // convert it to a request
+            if (!recipientFollowsSender && existingChat.status === 'active') {
+                existingChat.status = 'requested';
+                existingChat.createdBy = currentUserId; // Update creator to current requester
+                console.log('💬 Chat converted to requested - recipient unfollowed sender');
+            }
+            // If recipient now follows sender AND chat is currently requested,
+            // convert it to active (auto-accept)
+            else if (recipientFollowsSender && existingChat.status === 'requested') {
+                existingChat.status = 'active';
+                console.log('💬 Chat auto-accepted - recipient now follows sender');
+            }
+
             // Before returning, make sure we're not showing deleted messages
             // Get the latest non-deleted message
             const lastMessage = await Message.findOne({
