@@ -98,6 +98,12 @@ export const createChat = asyncHandler(async (req, res) => {
                 existingChat.status = 'active';
                 console.log('💬 Chat auto-accepted - recipient now follows sender');
             }
+            // If chat was declined, allow re-requesting
+            else if (existingChat.status === 'declined') {
+                existingChat.status = 'requested';
+                existingChat.createdBy = currentUserId; // Update to new requester
+                console.log('💬 Chat request re-sent after decline');
+            }
 
             // Before returning, make sure we're not showing deleted messages
             // Get the latest non-deleted message
