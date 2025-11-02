@@ -73,6 +73,7 @@ Open your `.env` file and update the Stream.io section:
 # Stream.io Configuration (for video/audio calls)
 # Get your API key and secret from https://getstream.io/
 STREAM_API_KEY=your-actual-api-key-here
+
 STREAM_API_SECRET=your-actual-api-secret-here
 ```
 

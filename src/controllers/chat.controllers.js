@@ -377,7 +377,7 @@ export const getUserChats = asyncHandler(async (req, res) => {
                 unreadCount: {
                     $sum: {
                         $cond: [
-                            { $not: { $in: [currentUserId, '$readBy'] } },
+                            { $not: { $in: [userObjectId, '$readBy'] } },
                             1,
                             0
                         ]
@@ -951,6 +951,18 @@ export const markMessagesRead = asyncHandler(async (req, res) => {
     // Invalidate message cache for the user who marked messages as read
     try {
         await notificationCache.invalidateMessageCache(currentUserId.toString());
+
+        // Invalidate chat list cache so unread counts update on refresh
+        const cacheInvalidations = [];
+        for (let page = 1; page <= 3; page++) {
+            const activeKey = `chats:user:${currentUserId}:status:active:page:${page}:limit:20`;
+            const requestedKey = `chats:user:${currentUserId}:status:requested:page:${page}:limit:20`;
+            cacheInvalidations.push(
+                redisClient.del(activeKey),
+                redisClient.del(requestedKey)
+            );
+        }
+        await Promise.all(cacheInvalidations);
     } catch (cacheError) {
         console.error('Error invalidating message cache:', cacheError);
         // Don't block response if cache invalidation fails
@@ -1001,14 +1013,26 @@ export const markChatAsRead = asyncHandler(async (req, res) => {
     // Invalidate message cache for the user who marked chat as read
     try {
         await notificationCache.invalidateMessageCache(currentUserId.toString());
+
+        // Invalidate chat list cache so unread counts update on refresh
+        const cacheInvalidations = [];
+        for (let page = 1; page <= 3; page++) {
+            const activeKey = `chats:user:${currentUserId}:status:active:page:${page}:limit:20`;
+            const requestedKey = `chats:user:${currentUserId}:status:requested:page:${page}:limit:20`;
+            cacheInvalidations.push(
+                redisClient.del(activeKey),
+                redisClient.del(requestedKey)
+            );
+        }
+        await Promise.all(cacheInvalidations);
     } catch (cacheError) {
         console.error('Error invalidating message cache:', cacheError);
         // Don't block response if cache invalidation fails
     }
 
     return res.status(200).json(
-        new ApiResponse(200, { 
-            updatedCount: result.modifiedCount 
+        new ApiResponse(200, {
+            updatedCount: result.modifiedCount
         }, 'Chat marked as read')
     );
 });
