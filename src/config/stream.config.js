@@ -191,6 +191,7 @@ class StreamService {
                     video: {
                         camera_default_on: true,
                         enabled: true,
+                        camera_facing: 'front', // Set front camera as default for mobile
                         target_resolution: {
                             width: 1280,
                             height: 720,
