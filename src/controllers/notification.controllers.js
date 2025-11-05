@@ -42,13 +42,13 @@ export const createLikeNotification = asyncHandler(async ({ recipientId, sourceU
 });
 
 // 🟡 Comment Notification
-export const createCommentNotification = asyncHandler(async ({ recipientId, sourceUserId, postId, commentId }) => {
+export const createCommentNotification = asyncHandler(async ({ recipientId, sourceUserId, postId, commentId, isReply = false }) => {
     if (!recipientId || !sourceUserId || !postId || !commentId) {
         throw new ApiError(400, "recipientId, sourceUserId, postId, and commentId are required");
     }
 
     const type = "comment";
-    const message = "commented on your post";
+    const message = isReply ? "replied to your comment" : "commented on your post";
 
     const notification = await Notification.create({
         receiverId: recipientId,
@@ -60,7 +60,7 @@ export const createCommentNotification = asyncHandler(async ({ recipientId, sour
     });
 
     sendRealTimeNotification(recipientId, notification);
-    
+
     // Invalidate cache and emit real-time count update
     await notificationCache.invalidateNotificationCache(recipientId);
 });

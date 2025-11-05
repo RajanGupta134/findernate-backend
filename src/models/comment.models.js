@@ -23,6 +23,11 @@ const CommentSchema = new mongoose.Schema({
         ref: 'Comment',
         default: null // For replies
     },
+    replyToUserId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'User',
+        default: null // User being replied to (for Facebook-style mentions)
+    },
     likes: [{
         type: mongoose.Schema.Types.ObjectId,
         ref: 'User'

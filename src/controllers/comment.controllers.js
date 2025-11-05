@@ -9,14 +9,24 @@ import { createCommentNotification } from "./notification.controllers.js";
 // Create a new comment (or reply)
 export const createComment = asyncHandler(async (req, res) => {
     const userId = req.user._id;
-    const { postId, content, parentCommentId } = req.body;
+    const { postId, content, parentCommentId, replyToUserId } = req.body;
     if (!postId || !content) throw new ApiError(400, "postId and content are required");
+
+    // If replying to a comment but replyToUserId not provided, fetch it from parent comment
+    let finalReplyToUserId = replyToUserId || null;
+    if (parentCommentId && !replyToUserId) {
+        const parentComment = await Comment.findById(parentCommentId).select("userId");
+        if (parentComment) {
+            finalReplyToUserId = parentComment.userId;
+        }
+    }
 
     const comment = await Comment.create({
         postId,
         userId,
         content,
-        parentCommentId: parentCommentId || null
+        parentCommentId: parentCommentId || null,
+        replyToUserId: finalReplyToUserId
     });
 
     // Send notification to post owner (if not commenting on own post)
@@ -39,7 +49,8 @@ export const createComment = asyncHandler(async (req, res) => {
                     recipientId: parentComment.userId,
                     sourceUserId: userId,
                     postId,
-                    commentId: comment._id
+                    commentId: comment._id,
+                    isReply: true
                 });
             }
         }
@@ -66,6 +77,7 @@ export const getCommentsByPost = asyncHandler(async (req, res) => {
     const [comments, total] = await Promise.all([
         Comment.find({ postId, parentCommentId: null, isDeleted: false })
             .populate('userId', 'username fullName profileImageUrl bio location')
+            .populate('replyToUserId', 'username fullName profileImageUrl')
             .sort({ createdAt: 1 })
             .skip(skip)
             .limit(pageLimit)
@@ -139,6 +151,7 @@ export const getCommentById = asyncHandler(async (req, res) => {
 
     const comment = await Comment.findById(commentId)
         .populate('userId', 'username fullName profileImageUrl bio location')
+        .populate('replyToUserId', 'username fullName profileImageUrl')
         .lean();
     if (!comment || comment.isDeleted) throw new ApiError(404, "Comment not found");
 
@@ -146,6 +159,7 @@ export const getCommentById = asyncHandler(async (req, res) => {
     const [replies, totalReplies] = await Promise.all([
         Comment.find({ parentCommentId: commentId, isDeleted: false })
             .populate('userId', 'username fullName profileImageUrl bio location')
+            .populate('replyToUserId', 'username fullName profileImageUrl')
             .sort({ createdAt: 1 })
             .skip(skip)
             .limit(pageLimit)
