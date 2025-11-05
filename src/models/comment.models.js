@@ -21,7 +21,12 @@ const CommentSchema = new mongoose.Schema({
     parentCommentId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: 'Comment',
-        default: null // For replies
+        default: null // For replies - immediate parent
+    },
+    rootCommentId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: 'Comment',
+        default: null // For thread tracking - top-level comment in the thread
     },
     replyToUserId: {
         type: mongoose.Schema.Types.ObjectId,

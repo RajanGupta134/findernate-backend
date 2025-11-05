@@ -12,13 +12,23 @@ export const createComment = asyncHandler(async (req, res) => {
     const { postId, content, parentCommentId, replyToUserId } = req.body;
     if (!postId || !content) throw new ApiError(400, "postId and content are required");
 
-    // If replying to a comment but replyToUserId not provided, fetch it from parent comment
+    // If replying to a comment, fetch parent info and set up thread structure
     let finalReplyToUserId = replyToUserId || null;
-    if (parentCommentId && !replyToUserId) {
-        const parentComment = await Comment.findById(parentCommentId).select("userId");
-        if (parentComment) {
+    let rootCommentId = null;
+
+    if (parentCommentId) {
+        const parentComment = await Comment.findById(parentCommentId).select("userId rootCommentId");
+        if (!parentComment) {
+            throw new ApiError(404, "Parent comment not found");
+        }
+
+        // Set replyToUserId if not provided
+        if (!replyToUserId) {
             finalReplyToUserId = parentComment.userId;
         }
+
+        // For thread tracking: if parent has a root, use that; otherwise parent IS the root
+        rootCommentId = parentComment.rootCommentId || parentCommentId;
     }
 
     const comment = await Comment.create({
@@ -26,6 +36,7 @@ export const createComment = asyncHandler(async (req, res) => {
         userId,
         content,
         parentCommentId: parentCommentId || null,
+        rootCommentId,
         replyToUserId: finalReplyToUserId
     });
 
@@ -59,7 +70,13 @@ export const createComment = asyncHandler(async (req, res) => {
         console.error("Error sending comment notification:", error);
     }
 
-    return res.status(201).json(new ApiResponse(201, comment, "Comment created successfully"));
+    // Populate user and replyToUser before returning
+    const populatedComment = await Comment.findById(comment._id)
+        .populate('userId', 'username fullName profileImageUrl bio location')
+        .populate('replyToUserId', 'username fullName profileImageUrl')
+        .lean();
+
+    return res.status(201).json(new ApiResponse(201, populatedComment, "Comment created successfully"));
 });
 
 // Get all comments for a post
@@ -155,16 +172,17 @@ export const getCommentById = asyncHandler(async (req, res) => {
         .lean();
     if (!comment || comment.isDeleted) throw new ApiError(404, "Comment not found");
 
-    // Paginate replies (child comments)
+    // ✅ FACEBOOK-STYLE THREADING: Fetch all replies in the thread (including nested replies)
+    // Use rootCommentId to get entire thread, not just direct children
     const [replies, totalReplies] = await Promise.all([
-        Comment.find({ parentCommentId: commentId, isDeleted: false })
+        Comment.find({ rootCommentId: commentId, isDeleted: false })
             .populate('userId', 'username fullName profileImageUrl bio location')
             .populate('replyToUserId', 'username fullName profileImageUrl')
             .sort({ createdAt: 1 })
             .skip(skip)
             .limit(pageLimit)
             .lean(),
-        Comment.countDocuments({ parentCommentId: commentId, isDeleted: false })
+        Comment.countDocuments({ rootCommentId: commentId, isDeleted: false })
     ]);
 
     // Get likes for the main comment and all replies
@@ -175,10 +193,10 @@ export const getCommentById = asyncHandler(async (req, res) => {
         Like.find({ commentId: { $in: allCommentIds } })
             .populate('userId', 'username profileImageUrl fullName')
             .lean(),
-        // Get reply counts for nested replies
-        replyIds.length > 0
+        // Get reply counts for each comment in the thread (how many direct replies each has)
+        allCommentIds.length > 0
             ? Comment.aggregate([
-                { $match: { parentCommentId: { $in: replyIds }, isDeleted: false } },
+                { $match: { parentCommentId: { $in: allCommentIds }, isDeleted: false } },
                 { $group: { _id: '$parentCommentId', count: { $sum: 1 } } }
             ])
             : Promise.resolve([])
@@ -200,6 +218,39 @@ export const getCommentById = asyncHandler(async (req, res) => {
         replyCountMap[item._id.toString()] = item.count;
     });
 
+    // ✅ Calculate depth for each reply (for nested display on frontend)
+    const depthMap = { [commentId.toString()]: 0 }; // Root comment has depth 0
+    const commentMap = {};
+
+    // Build a map of comments by ID
+    replies.forEach(reply => {
+        commentMap[reply._id.toString()] = reply;
+    });
+
+    // Calculate depth by following parent chain
+    const calculateDepth = (replyId) => {
+        if (depthMap[replyId] !== undefined) return depthMap[replyId];
+
+        const reply = commentMap[replyId];
+        if (!reply || !reply.parentCommentId) {
+            depthMap[replyId] = 1; // Direct reply to root
+            return 1;
+        }
+
+        const parentId = reply.parentCommentId.toString();
+        const parentDepth = parentId === commentId.toString()
+            ? 0
+            : calculateDepth(parentId);
+
+        depthMap[replyId] = parentDepth + 1;
+        return depthMap[replyId];
+    };
+
+    // Calculate depth for all replies
+    replies.forEach(reply => {
+        calculateDepth(reply._id.toString());
+    });
+
     // Enrich main comment with likes and total reply count
     const commentLikes = likesByComment[commentId.toString()] || [];
     const isLikedBy = userId ? commentLikes.some(u => u._id.toString() === userId) : false;
@@ -211,7 +262,7 @@ export const getCommentById = asyncHandler(async (req, res) => {
         replyCount: totalReplies
     };
 
-    // Enrich replies with likes and reply counts
+    // Enrich replies with likes, reply counts, and depth for nested display
     const enrichedReplies = replies.map(reply => {
         const replyLikes = likesByComment[reply._id.toString()] || [];
         const isReplyLikedBy = userId ? replyLikes.some(u => u._id.toString() === userId) : false;
@@ -221,7 +272,8 @@ export const getCommentById = asyncHandler(async (req, res) => {
             likes: replyLikes,
             isLikedBy: isReplyLikedBy,
             likesCount: replyLikes.length,
-            replyCount: replyCountMap[reply._id.toString()] || 0
+            replyCount: replyCountMap[reply._id.toString()] || 0,
+            depth: depthMap[reply._id.toString()] || 1 // Add depth for nested UI rendering
         };
     });
 
