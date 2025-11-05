@@ -108,10 +108,27 @@ export const getCommentsByPost = asyncHandler(async (req, res) => {
         Like.find({ commentId: { $in: commentIds } })
             .populate('userId', 'username profileImageUrl fullName')
             .lean(),
-        // Get reply counts for each comment
+        // ✅ Get TOTAL reply counts for each thread (handle both new and old data)
         Comment.aggregate([
-            { $match: { parentCommentId: { $in: commentIds }, isDeleted: false } },
-            { $group: { _id: '$parentCommentId', count: { $sum: 1 } } }
+            {
+                $match: {
+                    $or: [
+                        { rootCommentId: { $in: commentIds } },  // New threading
+                        {
+                            parentCommentId: { $in: commentIds },
+                            $or: [{ rootCommentId: null }, { rootCommentId: { $exists: false } }]  // Old data
+                        }
+                    ],
+                    isDeleted: false
+                }
+            },
+            {
+                $group: {
+                    // Group by rootCommentId if exists, otherwise by parentCommentId (for old data)
+                    _id: { $ifNull: ['$rootCommentId', '$parentCommentId'] },
+                    count: { $sum: 1 }
+                }
+            }
         ])
     ]);
 
@@ -173,16 +190,24 @@ export const getCommentById = asyncHandler(async (req, res) => {
     if (!comment || comment.isDeleted) throw new ApiError(404, "Comment not found");
 
     // ✅ FACEBOOK-STYLE THREADING: Fetch all replies in the thread (including nested replies)
-    // Use rootCommentId to get entire thread, not just direct children
+    // Handle both new threading system (rootCommentId) and old data (parentCommentId only)
+    const threadQuery = {
+        $or: [
+            { rootCommentId: commentId },  // New threading: all nested replies
+            { parentCommentId: commentId, $or: [{ rootCommentId: null }, { rootCommentId: { $exists: false } }] }  // Old data or direct replies
+        ],
+        isDeleted: false
+    };
+
     const [replies, totalReplies] = await Promise.all([
-        Comment.find({ rootCommentId: commentId, isDeleted: false })
+        Comment.find(threadQuery)
             .populate('userId', 'username fullName profileImageUrl bio location')
             .populate('replyToUserId', 'username fullName profileImageUrl')
             .sort({ createdAt: 1 })
             .skip(skip)
             .limit(pageLimit)
             .lean(),
-        Comment.countDocuments({ rootCommentId: commentId, isDeleted: false })
+        Comment.countDocuments(threadQuery)
     ]);
 
     // Get likes for the main comment and all replies
