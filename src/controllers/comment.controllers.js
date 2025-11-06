@@ -172,6 +172,23 @@ export const getCommentsByPost = asyncHandler(async (req, res) => {
     );
 });
 
+// Helper function to recursively fetch all descendant comment IDs
+async function getAllDescendantIds(commentIds) {
+    if (!commentIds || commentIds.length === 0) return [];
+
+    const directChildren = await Comment.find({
+        parentCommentId: { $in: commentIds },
+        isDeleted: false
+    }).select('_id').lean();
+
+    if (directChildren.length === 0) return [];
+
+    const childIds = directChildren.map(c => c._id);
+    const grandChildIds = await getAllDescendantIds(childIds);
+
+    return [...childIds, ...grandChildIds];
+}
+
 // Get a single comment by ID
 export const getCommentById = asyncHandler(async (req, res) => {
     const { commentId } = req.params;
@@ -189,26 +206,54 @@ export const getCommentById = asyncHandler(async (req, res) => {
         .lean();
     if (!comment || comment.isDeleted) throw new ApiError(404, "Comment not found");
 
-    // ✅ FACEBOOK-STYLE THREADING: Fetch all replies in the thread (including nested replies)
-    // Handle both new threading system (rootCommentId) and old data (parentCommentId only)
-    const threadQuery = {
-        $or: [
-            { rootCommentId: commentId },  // New threading: all nested replies
-            { parentCommentId: commentId, $or: [{ rootCommentId: null }, { rootCommentId: { $exists: false } }] }  // Old data or direct replies
-        ],
-        isDeleted: false
-    };
+    // ✅ FACEBOOK-STYLE THREADING: Fetch all descendants (recursively)
+    let replies, totalReplies;
 
-    const [replies, totalReplies] = await Promise.all([
-        Comment.find(threadQuery)
+    // If this is a TOP-LEVEL comment, use optimized rootCommentId query
+    if (!comment.parentCommentId) {
+        // Fetch all replies using rootCommentId (more efficient for top-level)
+        [replies, totalReplies] = await Promise.all([
+            Comment.find({
+                $or: [
+                    { rootCommentId: commentId },
+                    {
+                        parentCommentId: commentId,
+                        $or: [{ rootCommentId: null }, { rootCommentId: { $exists: false } }]
+                    }
+                ],
+                isDeleted: false
+            })
+                .populate('userId', 'username fullName profileImageUrl bio location')
+                .populate('replyToUserId', 'username fullName profileImageUrl')
+                .sort({ createdAt: 1 })
+                .skip(skip)
+                .limit(pageLimit)
+                .lean(),
+            Comment.countDocuments({
+                $or: [
+                    { rootCommentId: commentId },
+                    {
+                        parentCommentId: commentId,
+                        $or: [{ rootCommentId: null }, { rootCommentId: { $exists: false } }]
+                    }
+                ],
+                isDeleted: false
+            })
+        ]);
+    } else {
+        // For nested comments, recursively fetch all descendants
+        const allDescendantIds = await getAllDescendantIds([commentId]);
+        totalReplies = allDescendantIds.length;
+
+        // Fetch and sort all descendants, then paginate
+        replies = await Comment.find({ _id: { $in: allDescendantIds } })
             .populate('userId', 'username fullName profileImageUrl bio location')
             .populate('replyToUserId', 'username fullName profileImageUrl')
             .sort({ createdAt: 1 })
             .skip(skip)
             .limit(pageLimit)
-            .lean(),
-        Comment.countDocuments(threadQuery)
-    ]);
+            .lean();
+    }
 
     // Get likes for the main comment and all replies
     const allCommentIds = [commentId, ...replies.map(r => r._id)];

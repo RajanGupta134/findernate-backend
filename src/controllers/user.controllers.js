@@ -214,9 +214,9 @@ const getUserProfile = asyncHandler(async (req, res) => {
         throw new ApiError(404, "User not found");
     }
 
-    const followersCount = user.followers?.length || 0;
-    const followingCount = user.following?.length || 0;
-    // Count posts directly from Post collection
+    // Count from actual collections instead of using outdated User model arrays
+    const followersCount = await Follower.countDocuments({ userId });
+    const followingCount = await Follower.countDocuments({ followerId: userId });
     const postsCount = await Post.countDocuments({ userId });
 
     // Get business profile information if user is a business profile
