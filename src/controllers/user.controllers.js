@@ -1409,6 +1409,18 @@ const toggleFullPrivateAccount = asyncHandler(async (req, res) => {
         await UserCacheManager.invalidateUserProfile(userId);
         await FeedCacheManager.invalidateUserFeed(userId);
 
+        // Invalidate viewable users cache for this user AND all other users
+        const { invalidateViewableUsersCache } = await import('../middlewares/privacy.middleware.js');
+        await invalidateViewableUsersCache(userId);
+
+        // When going from private to public, invalidate all users' feeds
+        // so they can see this user's newly public posts
+        if (newPrivacyState === 'public') {
+            // Invalidate explore and trending feeds
+            await FeedCacheManager.invalidateExploreFeed();
+            await FeedCacheManager.invalidateTrendingFeed();
+        }
+
         return res.status(200).json(
             new ApiResponse(200, {
                 privacy: user.privacy,

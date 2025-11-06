@@ -717,6 +717,10 @@ export const editPost = asyncHandler(async (req, res) => {
 
     updateData.customization = customization;
 
+    // Track if privacy is changing from private to public
+    const oldPrivacy = post.settings?.privacy || 'public';
+    const isPrivacyChangingToPublic = privacy && privacy === 'public' && oldPrivacy === 'private';
+
     // Update privacy if provided
     if (privacy && ['public', 'private'].includes(privacy)) {
         updateData["settings.privacy"] = privacy;
@@ -729,6 +733,18 @@ export const editPost = asyncHandler(async (req, res) => {
         { $set: updateData },
         { new: true, runValidators: true }
     ).populate('userId', 'username fullName profileImageUrl');
+
+    // Invalidate caches if post privacy changed from private to public
+    if (isPrivacyChangingToPublic) {
+        const { FeedCacheManager } = await import('../utlis/cache.utils.js');
+
+        // Invalidate explore and trending feeds so the post can appear
+        await FeedCacheManager.invalidateExploreFeed();
+        await FeedCacheManager.invalidateTrendingFeed();
+
+        // Invalidate author's feed
+        await FeedCacheManager.invalidateUserFeed(userId);
+    }
 
     return res.status(200).json(new ApiResponse(200, updatedPost, "Post updated successfully"));
 });
