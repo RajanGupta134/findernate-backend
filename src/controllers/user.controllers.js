@@ -1625,6 +1625,72 @@ const saveFCMToken = asyncHandler(async (req, res) => {
     );
 });
 
+/**
+ * Test FCM notification sending
+ * @route POST /api/v1/users/test-fcm
+ */
+const testFCMNotification = asyncHandler(async (req, res) => {
+    const userId = req.user?._id;
+
+    if (!userId) {
+        throw new ApiError(401, "User not authenticated");
+    }
+
+    // Get user's FCM token
+    const user = await User.findById(userId).select('fcmToken username fullName');
+
+    if (!user) {
+        throw new ApiError(404, "User not found");
+    }
+
+    if (!user.fcmToken) {
+        throw new ApiError(400, "No FCM token found for this user. Please refresh the app.");
+    }
+
+    // Try to send a test notification
+    try {
+        const { sendNotification } = await import('../config/firebase-admin.config.js');
+
+        const notification = {
+            title: "Test Notification",
+            body: "This is a test FCM notification from FinderNate backend"
+        };
+
+        const data = {
+            type: 'test',
+            timestamp: new Date().toISOString()
+        };
+
+        console.log('🧪 Sending test FCM notification to:', user.username);
+        console.log('📱 FCM Token:', user.fcmToken.substring(0, 20) + '...');
+
+        const result = await sendNotification(user.fcmToken, notification, data);
+
+        if (result.success) {
+            console.log('✅ Test FCM sent successfully:', result.messageId);
+            return res.status(200).json(
+                new ApiResponse(200, {
+                    success: true,
+                    messageId: result.messageId,
+                    fcmToken: user.fcmToken.substring(0, 20) + '...'
+                }, "Test FCM notification sent successfully")
+            );
+        } else {
+            console.error('❌ Test FCM failed:', result.error);
+            return res.status(500).json(
+                new ApiResponse(500, {
+                    success: false,
+                    error: result.error,
+                    invalidToken: result.invalidToken
+                }, "Failed to send test FCM notification")
+            );
+        }
+    } catch (error) {
+        console.error('❌ FCM test error:', error);
+        throw new ApiError(500, `FCM test failed: ${error.message}`);
+    }
+});
+
 export {
     registerUser,
     loginUser,
@@ -1656,5 +1722,6 @@ export {
     getPreviousServicePostData,
     toggleProductAutoFill,
     getPreviousProductPostData,
-    saveFCMToken
+    saveFCMToken,
+    testFCMNotification
 };
