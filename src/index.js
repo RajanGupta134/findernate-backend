@@ -3,6 +3,7 @@ import connectDB from './db/index.js';
 import { app } from './app.js';
 import http from 'http';
 import socketManager from './config/socket.js';
+import './config/firebase-admin.config.js'; // Initialize Firebase Admin on startup
 
 dotenv.config({
     path: './.env'
