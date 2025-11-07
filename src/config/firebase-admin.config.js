@@ -29,10 +29,17 @@ const initializeFirebase = () => {
       process.env.FIREBASE_PRIVATE_KEY &&
       process.env.FIREBASE_CLIENT_EMAIL
     ) {
+      // Handle multiple levels of escaping (Coolify might double-escape)
+      let privateKey = process.env.FIREBASE_PRIVATE_KEY;
+      // Replace \\n with \n (for double-escaped newlines)
+      privateKey = privateKey.replace(/\\\\n/g, "\n");
+      // Replace \n with actual newline (for single-escaped newlines)
+      privateKey = privateKey.replace(/\\n/g, "\n");
+
       firebaseApp = admin.initializeApp({
         credential: admin.credential.cert({
           projectId: process.env.FIREBASE_PROJECT_ID,
-          privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, "\n"),
+          privateKey: privateKey,
           clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
         }),
       });
