@@ -19,8 +19,11 @@ let firebaseApp = null;
  */
 const initializeFirebase = () => {
   if (firebaseApp) {
+    console.log("ℹ️ Firebase Admin already initialized, returning existing app");
     return firebaseApp;
   }
+
+  console.log("🔥 Initializing Firebase Admin SDK...");
 
   try {
     // Method 1: Using environment variables (recommended for production)
@@ -29,13 +32,34 @@ const initializeFirebase = () => {
       process.env.FIREBASE_PRIVATE_KEY &&
       process.env.FIREBASE_CLIENT_EMAIL
     ) {
+      console.log("✅ Firebase environment variables found:");
+      console.log("   - FIREBASE_PROJECT_ID:", process.env.FIREBASE_PROJECT_ID);
+      console.log("   - FIREBASE_CLIENT_EMAIL:", process.env.FIREBASE_CLIENT_EMAIL);
+      console.log("   - FIREBASE_PRIVATE_KEY length:", process.env.FIREBASE_PRIVATE_KEY?.length);
+
       // Handle multiple levels of escaping (Coolify might double-escape)
       let privateKey = process.env.FIREBASE_PRIVATE_KEY;
-      // Replace \\n with \n (for double-escaped newlines)
-      privateKey = privateKey.replace(/\\\\n/g, "\n");
-      // Replace \n with actual newline (for single-escaped newlines)
-      privateKey = privateKey.replace(/\\n/g, "\n");
 
+      // Check for double-escaped newlines
+      const hasDoubleEscape = privateKey.includes("\\\\n");
+      const hasSingleEscape = privateKey.includes("\\n");
+
+      console.log("🔍 Private key escape analysis:");
+      console.log("   - Has double-escaped newlines (\\\\n):", hasDoubleEscape);
+      console.log("   - Has single-escaped newlines (\\n):", hasSingleEscape);
+
+      // Replace \\n with \n (for double-escaped newlines)
+      if (hasDoubleEscape) {
+        privateKey = privateKey.replace(/\\\\n/g, "\n");
+        console.log("   - Converted double-escaped newlines");
+      }
+      // Replace \n with actual newline (for single-escaped newlines)
+      if (hasSingleEscape) {
+        privateKey = privateKey.replace(/\\n/g, "\n");
+        console.log("   - Converted single-escaped newlines");
+      }
+
+      console.log("🔐 Initializing Firebase with credentials...");
       firebaseApp = admin.initializeApp({
         credential: admin.credential.cert({
           projectId: process.env.FIREBASE_PROJECT_ID,
@@ -43,13 +67,18 @@ const initializeFirebase = () => {
           clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
         }),
       });
-      console.log("✅ Firebase Admin initialized with environment variables");
+      console.log("✅ Firebase Admin initialized successfully!");
+      console.log("✅ Project ID:", process.env.FIREBASE_PROJECT_ID);
     }
     // Method 2: Using service account key file (for development)
     else {
-      console.warn(
-        "⚠️ Firebase Admin SDK not initialized - Missing environment variables"
+      console.error(
+        "❌ Firebase Admin SDK not initialized - Missing environment variables"
       );
+      console.error("Missing variables:");
+      console.error("   - FIREBASE_PROJECT_ID:", !!process.env.FIREBASE_PROJECT_ID);
+      console.error("   - FIREBASE_CLIENT_EMAIL:", !!process.env.FIREBASE_CLIENT_EMAIL);
+      console.error("   - FIREBASE_PRIVATE_KEY:", !!process.env.FIREBASE_PRIVATE_KEY);
       console.warn(
         "Please add Firebase credentials to .env file:\n" +
         "FIREBASE_PROJECT_ID=your-project-id\n" +
@@ -61,7 +90,10 @@ const initializeFirebase = () => {
 
     return firebaseApp;
   } catch (error) {
-    console.error("❌ Failed to initialize Firebase Admin:", error.message);
+    console.error("❌ Failed to initialize Firebase Admin!");
+    console.error("❌ Error message:", error.message);
+    console.error("❌ Error code:", error.code);
+    console.error("❌ Error stack:", error.stack);
     return null;
   }
 };
@@ -86,7 +118,22 @@ const getMessaging = () => {
  */
 const sendNotification = async (fcmToken, notification, data = {}) => {
   try {
+    console.log('🔥 sendNotification called');
+    console.log('📱 FCM Token length:', fcmToken?.length);
+    console.log('📦 Notification:', notification);
+
+    // Check if Firebase Admin is initialized
+    if (!app) {
+      console.error('❌ Firebase Admin SDK not initialized!');
+      return {
+        success: false,
+        error: 'Firebase Admin SDK not initialized',
+        errorCode: 'firebase/not-initialized'
+      };
+    }
+
     const messaging = getMessaging();
+    console.log('✅ Firebase messaging instance obtained');
 
     const message = {
       token: fcmToken,
@@ -122,21 +169,38 @@ const sendNotification = async (fcmToken, notification, data = {}) => {
       },
     };
 
+    console.log('📤 Sending FCM message via Firebase Admin SDK...');
     const response = await messaging.send(message);
-    console.log("✅ FCM notification sent successfully:", response);
+    console.log("✅ FCM notification sent successfully! Response:", response);
     return { success: true, messageId: response };
   } catch (error) {
-    console.error("❌ FCM notification failed:", error.message);
-
-    // Handle invalid tokens
-    if (
-      error.code === "messaging/invalid-registration-token" ||
-      error.code === "messaging/registration-token-not-registered"
-    ) {
-      return { success: false, invalidToken: true, error: error.message };
+    console.error("❌ FCM notification failed!");
+    console.error("❌ Error message:", error.message);
+    console.error("❌ Error code:", error.code);
+    console.error("❌ Error name:", error.name);
+    if (error.errorInfo) {
+      console.error("❌ Error info:", JSON.stringify(error.errorInfo));
     }
 
-    return { success: false, error: error.message };
+    // Handle invalid tokens - check both error code and message
+    const isInvalidToken =
+      error.code === "messaging/invalid-registration-token" ||
+      error.code === "messaging/registration-token-not-registered" ||
+      error.code === "messaging/invalid-argument" ||
+      error.message?.includes("Requested entity was not found") ||
+      error.message?.includes("not a valid FCM registration token");
+
+    if (isInvalidToken) {
+      console.error("❌ INVALID TOKEN detected - this FCM token is invalid/expired");
+      return {
+        success: false,
+        invalidToken: true,
+        error: error.message,
+        errorCode: error.code
+      };
+    }
+
+    return { success: false, error: error.message, errorCode: error.code };
   }
 };
 

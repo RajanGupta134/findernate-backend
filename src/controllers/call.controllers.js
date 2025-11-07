@@ -246,13 +246,21 @@ export const initiateCall = asyncHandler(async (req, res) => {
         }
 
         // Send FCM push notification to receiver (fire-and-forget, non-blocking)
-        console.log('🔔 Sending FCM notification (async)...');
+        console.log('🔔 Preparing FCM notification...');
+        console.log('📱 Receiver FCM token present:', !!receiver.fcmToken);
+        console.log('🔥 Firebase Admin initialized:', !!sendNotification);
+
         let fcmSent = false;
 
         if (receiver.fcmToken) {
+            console.log('📤 FCM token found, initiating send...');
+            console.log('📤 Token preview:', receiver.fcmToken.substring(0, 20) + '...');
+
             // Don't await - fire and forget to avoid blocking the response
             (async () => {
                 try {
+                    console.log('🚀 FCM: Starting async send operation...');
+
                     const notification = {
                         title: `Incoming ${callType} call`,
                         body: `${req.user.fullName || req.user.username} is calling you...`
@@ -268,29 +276,56 @@ export const initiateCall = asyncHandler(async (req, res) => {
                         callType: callType
                     };
 
-                    console.log('📤 Sending FCM to token:', receiver.fcmToken.substring(0, 20) + '...');
+                    console.log('📦 FCM payload:', {
+                        title: notification.title,
+                        body: notification.body,
+                        dataKeys: Object.keys(data)
+                    });
+
                     const fcmResult = await sendNotification(receiver.fcmToken, notification, data);
 
+                    console.log('📬 FCM send completed, result:', {
+                        success: fcmResult.success,
+                        invalidToken: fcmResult.invalidToken,
+                        hasMessageId: !!fcmResult.messageId,
+                        hasError: !!fcmResult.error
+                    });
+
                     if (fcmResult.success) {
-                        console.log('✅ FCM notification sent successfully:', fcmResult.messageId);
+                        console.log('✅ FCM notification sent successfully! MessageId:', fcmResult.messageId);
+                    } else {
+                        console.error('❌ FCM notification failed!');
+                        console.error('❌ Error message:', fcmResult.error);
+                        console.error('❌ Error code:', fcmResult.errorCode);
+                        console.error('❌ Invalid token:', fcmResult.invalidToken);
 
                         // If token is invalid, remove it from user
                         if (fcmResult.invalidToken) {
-                            console.log('🗑️ Removing invalid FCM token from user');
+                            console.log('🗑️ Removing invalid FCM token from user:', receiverId);
                             await User.findByIdAndUpdate(receiverId, {
                                 fcmToken: null,
                                 fcmTokenUpdatedAt: null
                             }).catch(err => console.error('Error removing FCM token:', err));
                         }
-                    } else {
-                        console.warn('⚠️ FCM notification failed:', fcmResult.error);
                     }
                 } catch (fcmError) {
-                    console.error('❌ FCM notification error:', fcmError.message);
+                    console.error('❌ FCM notification exception caught!');
+                    console.error('❌ Exception message:', fcmError.message);
+                    console.error('❌ Exception code:', fcmError.code);
+                    console.error('❌ Exception stack:', fcmError.stack);
                 }
-            })();
+            })().catch(err => {
+                // Catch any unhandled promise rejections in the IIFE
+                console.error('❌ CRITICAL: Unhandled FCM promise rejection!');
+                console.error('❌ Error:', err);
+            });
         } else {
-            console.log('⚠️ No FCM token found for receiver, will use socket fallback');
+            console.warn('⚠️ No FCM token found for receiver:', {
+                receiverId: receiver._id,
+                receiverUsername: receiver.username,
+                fcmTokenExists: !!receiver.fcmToken
+            });
+            console.log('⚠️ Will rely on Socket.IO for notification delivery');
         }
 
         // Emit call initiation via socket (as backup or if FCM failed)
