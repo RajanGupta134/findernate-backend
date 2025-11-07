@@ -1626,6 +1626,31 @@ const saveFCMToken = asyncHandler(async (req, res) => {
 });
 
 /**
+ * Check Firebase configuration status
+ * @route GET /api/v1/users/firebase-status
+ */
+const checkFirebaseStatus = asyncHandler(async (req, res) => {
+    const status = {
+        envVarsPresent: {
+            FIREBASE_PROJECT_ID: !!process.env.FIREBASE_PROJECT_ID,
+            FIREBASE_CLIENT_EMAIL: !!process.env.FIREBASE_CLIENT_EMAIL,
+            FIREBASE_PRIVATE_KEY: !!process.env.FIREBASE_PRIVATE_KEY
+        },
+        envVarsValues: {
+            FIREBASE_PROJECT_ID: process.env.FIREBASE_PROJECT_ID || 'NOT SET',
+            FIREBASE_CLIENT_EMAIL: process.env.FIREBASE_CLIENT_EMAIL || 'NOT SET',
+            FIREBASE_PRIVATE_KEY: process.env.FIREBASE_PRIVATE_KEY ?
+                `${process.env.FIREBASE_PRIVATE_KEY.substring(0, 50)}... (${process.env.FIREBASE_PRIVATE_KEY.length} chars)` :
+                'NOT SET'
+        }
+    };
+
+    return res.status(200).json(
+        new ApiResponse(200, status, "Firebase configuration status")
+    );
+});
+
+/**
  * Test FCM notification sending
  * @route POST /api/v1/users/test-fcm
  */
@@ -1723,5 +1748,6 @@ export {
     toggleProductAutoFill,
     getPreviousProductPostData,
     saveFCMToken,
-    testFCMNotification
+    testFCMNotification,
+    checkFirebaseStatus
 };
