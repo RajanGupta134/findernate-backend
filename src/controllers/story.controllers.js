@@ -35,25 +35,65 @@ export const uploadStory = asyncHandler(async (req, res) => {
 export const fetchStoriesFeed = asyncHandler(async (req, res) => {
     const userId = req.user._id;
     const blockedUsers = req.blockedUsers || [];
-    const user = await User.findById(userId).select("following");
-    const following = user?.following || [];
-    const storyUserIds = [userId, ...following].filter(id => !blockedUsers.includes(id.toString()));
+
+    // Get current user's following list
+    const currentUser = await User.findById(userId).select("following followers");
+    const following = currentUser?.following || [];
+    const followers = currentUser?.followers || [];
 
     const now = new Date();
-    const stories = await Story.find({
-        userId: { $in: storyUserIds },
+
+    // Get all active stories and populate user info including privacy
+    const allStories = await Story.find({
         isArchived: false,
         expiresAt: { $gt: now }
     })
         .sort({ createdAt: -1 })
-        .populate("userId", "username profileImageUrl");
+        .populate("userId", "username profileImageUrl privacy followers following");
+
+    // Filter stories based on privacy rules
+    const visibleStories = allStories.filter(story => {
+        const storyOwnerId = story.userId._id.toString();
+        const storyOwnerPrivacy = story.userId.privacy || 'public';
+
+        // Rule 1: Always show own stories
+        if (storyOwnerId === userId.toString()) {
+            return true;
+        }
+
+        // Rule 2: Never show stories from blocked users (mutual blocking)
+        if (blockedUsers.includes(storyOwnerId)) {
+            return false;
+        }
+
+        // Rule 3: If story owner has PUBLIC account → show to everyone
+        if (storyOwnerPrivacy === 'public') {
+            return true;
+        }
+
+        // Rule 4: If story owner has PRIVATE account → only show to followers/following
+        if (storyOwnerPrivacy === 'private') {
+            const isFollowing = following.some(id => id.toString() === storyOwnerId);
+            const isFollower = followers.some(id => id.toString() === storyOwnerId);
+
+            return isFollowing || isFollower;
+        }
+
+        return false;
+    });
 
     // Map mediaType to postType and remove viewers
-    const storiesWithPostType = stories.map(story => {
+    const storiesWithPostType = visibleStories.map(story => {
         const obj = story.toObject();
         obj.postType = obj.mediaType;
         delete obj.mediaType;
         delete obj.viewers;
+        // Remove privacy field from user object in response
+        if (obj.userId) {
+            delete obj.userId.privacy;
+            delete obj.userId.followers;
+            delete obj.userId.following;
+        }
         return obj;
     });
 
@@ -63,11 +103,34 @@ export const fetchStoriesFeed = asyncHandler(async (req, res) => {
 export const fetchStoriesByUser = asyncHandler(async (req, res) => {
     const { userId } = req.params;
     const viewerId = req.user?._id;
+    const blockedUsers = req.blockedUsers || [];
 
-    // ✅ Check privacy: verify if viewer can see this user's content
-    const canView = await checkContentVisibility(viewerId, userId);
-    if (!canView) {
+    // Rule 1: Check if user is blocked
+    if (blockedUsers.includes(userId)) {
         throw new ApiError(403, "You don't have permission to view this user's stories");
+    }
+
+    // Rule 2: Get target user's privacy settings
+    const targetUser = await User.findById(userId).select('privacy username profileImageUrl');
+    if (!targetUser) {
+        throw new ApiError(404, "User not found");
+    }
+
+    // Rule 3: Check if viewer can see this user's content
+    const isOwnStory = viewerId?.toString() === userId;
+    const isPublicAccount = targetUser.privacy === 'public';
+
+    if (!isOwnStory && !isPublicAccount) {
+        // For private accounts, check if viewer is following
+        if (!viewerId) {
+            throw new ApiError(403, "This account is private");
+        }
+
+        // Use the existing privacy check function
+        const canView = await checkContentVisibility(viewerId, userId);
+        if (!canView) {
+            throw new ApiError(403, "This account is private. Follow to see their stories.");
+        }
     }
 
     const now = new Date();
@@ -93,8 +156,15 @@ export const fetchStoriesByUser = asyncHandler(async (req, res) => {
 export const markStorySeen = asyncHandler(async (req, res) => {
     const userId = req.user._id;
     const { storyId } = req.body;
+    const blockedUsers = req.blockedUsers || [];
+
     const story = await Story.findById(storyId);
     if (!story) throw new ApiError(404, "Story not found");
+
+    // Don't allow marking stories as seen from blocked users
+    if (blockedUsers.includes(story.userId.toString())) {
+        throw new ApiError(403, "Cannot view this story");
+    }
 
     // Don't add the story owner to viewers
     if (story.userId.toString() !== userId.toString() && !story.viewers.includes(userId)) {
@@ -141,12 +211,35 @@ export const fetchStoryViewers = asyncHandler(async (req, res) => {
 export const fetchArchivedStoriesByUser = asyncHandler(async (req, res) => {
     const { userId } = req.params;
     const viewerId = req.user?._id;
+    const blockedUsers = req.blockedUsers || [];
     const { page = 1, limit = 10 } = req.query;
 
-    // ✅ Check privacy: verify if viewer can see this user's content
-    const canView = await checkContentVisibility(viewerId, userId);
-    if (!canView) {
+    // Rule 1: Check if user is blocked
+    if (blockedUsers.includes(userId)) {
         throw new ApiError(403, "You don't have permission to view this user's archived stories");
+    }
+
+    // Rule 2: Get target user's privacy settings
+    const targetUser = await User.findById(userId).select('privacy username profileImageUrl');
+    if (!targetUser) {
+        throw new ApiError(404, "User not found");
+    }
+
+    // Rule 3: Check if viewer can see this user's content
+    const isOwnStory = viewerId?.toString() === userId;
+    const isPublicAccount = targetUser.privacy === 'public';
+
+    if (!isOwnStory && !isPublicAccount) {
+        // For private accounts, check if viewer is following
+        if (!viewerId) {
+            throw new ApiError(403, "This account is private");
+        }
+
+        // Use the existing privacy check function
+        const canView = await checkContentVisibility(viewerId, userId);
+        if (!canView) {
+            throw new ApiError(403, "This account is private. Follow to see their stories.");
+        }
     }
 
     const skip = (parseInt(page) - 1) * parseInt(limit);

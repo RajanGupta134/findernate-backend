@@ -16,7 +16,7 @@ router.get("/feed", verifyJWT, getBlockedUsersMiddleware, fetchStoriesFeed);
 router.get("/user/:userId", optionalVerifyJWT, getBlockedUsersMiddleware, fetchStoriesByUser);
 
 // Mark story as seen
-router.post("/seen", verifyJWT, markStorySeen);
+router.post("/seen", verifyJWT, getBlockedUsersMiddleware, markStorySeen);
 
 // Fetch archived stories by user - allow both authenticated and unauthenticated users with privacy checks
 router.get("/archived/:userId", optionalVerifyJWT, getBlockedUsersMiddleware, fetchArchivedStoriesByUser);
