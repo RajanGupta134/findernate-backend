@@ -96,7 +96,8 @@ export const markStorySeen = asyncHandler(async (req, res) => {
     const story = await Story.findById(storyId);
     if (!story) throw new ApiError(404, "Story not found");
 
-    if (!story.viewers.includes(userId)) {
+    // Don't add the story owner to viewers
+    if (story.userId.toString() !== userId.toString() && !story.viewers.includes(userId)) {
         story.viewers.push(userId);
         await story.save();
     }
@@ -112,11 +113,16 @@ export const fetchStoryViewers = asyncHandler(async (req, res) => {
     const story = await Story.findById(storyId).populate("viewers", "username profileImageUrl");
     if (!story) throw new ApiError(404, "Story not found");
 
+    // Filter out the story owner from viewers (safety measure)
+    const filteredViewers = story.viewers.filter(
+        viewer => viewer._id.toString() !== story.userId.toString()
+    );
+
     // Pagination logic
     const start = (parseInt(page) - 1) * parseInt(limit);
     const end = start + parseInt(limit);
-    const totalViewers = story.viewers.length;
-    const paginatedViewers = story.viewers.slice(start, end);
+    const totalViewers = filteredViewers.length;
+    const paginatedViewers = filteredViewers.slice(start, end);
 
     res.status(200).json(new ApiResponse(200, {
         viewers: paginatedViewers,
