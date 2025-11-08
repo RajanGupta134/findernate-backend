@@ -1590,6 +1590,7 @@ const getPreviousProductPostData = asyncHandler(async (req, res) => {
 /**
  * Save FCM Token for push notifications
  * @route POST /api/v1/users/fcm-token
+ * Note: Uses optionalVerifyJWT middleware - saves token if authenticated, returns message if not
  */
 const saveFCMToken = asyncHandler(async (req, res) => {
     const { fcmToken } = req.body;
@@ -1599,8 +1600,15 @@ const saveFCMToken = asyncHandler(async (req, res) => {
         throw new ApiError(400, "FCM token is required");
     }
 
+    // If user is not authenticated, return a message (not an error)
+    // This allows the frontend to retry after login
     if (!userId) {
-        throw new ApiError(401, "User not authenticated");
+        return res.status(200).json(
+            new ApiResponse(200, {
+                saved: false,
+                reason: "not_authenticated"
+            }, "User not authenticated. FCM token will be saved after login.")
+        );
     }
 
     // Update user's FCM token
@@ -1619,6 +1627,7 @@ const saveFCMToken = asyncHandler(async (req, res) => {
 
     return res.status(200).json(
         new ApiResponse(200, {
+            saved: true,
             fcmToken: user.fcmToken,
             updatedAt: user.fcmTokenUpdatedAt
         }, "FCM token saved successfully")

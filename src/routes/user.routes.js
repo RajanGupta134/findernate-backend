@@ -73,8 +73,8 @@ router.get("/service-post/previous-data", verifyJWT, getPreviousServicePostData)
 router.put("/product-post/toggle-autofill", verifyJWT, toggleProductAutoFill);
 router.get("/product-post/previous-data", verifyJWT, getPreviousProductPostData);
 
-// FCM token route
-router.post("/fcm-token", verifyJWT, saveFCMToken);
+// FCM token route (optional auth - saves token if authenticated, returns helpful message if not)
+router.post("/fcm-token", optionalVerifyJWT, saveFCMToken);
 
 // Firebase configuration status (for debugging)
 router.get("/firebase-status", checkFirebaseStatus);
