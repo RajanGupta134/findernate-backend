@@ -175,3 +175,35 @@ export const fetchArchivedStoriesByUser = asyncHandler(async (req, res) => {
         }
     }, "User's archived stories fetched"));
 });
+
+// 7. Delete Story
+export const deleteStory = asyncHandler(async (req, res) => {
+    const { storyId } = req.params;
+    const userId = req.user._id;
+
+    // Find the story
+    const story = await Story.findById(storyId);
+    if (!story) {
+        throw new ApiError(404, "Story not found");
+    }
+
+    // Check if the user owns this story
+    if (story.userId.toString() !== userId.toString()) {
+        throw new ApiError(403, "You are not authorized to delete this story");
+    }
+
+    // Delete media from Bunny CDN
+    try {
+        const { deleteFromBunny } = await import("../utlis/bunny.js");
+        await deleteFromBunny(story.mediaUrl);
+        console.log('✅ Story media deleted from Bunny CDN:', story.mediaUrl);
+    } catch (error) {
+        console.error('⚠️ Failed to delete story media from Bunny CDN:', error.message);
+        // Continue with story deletion even if media deletion fails
+    }
+
+    // Delete the story from database
+    await Story.findByIdAndDelete(storyId);
+
+    res.status(200).json(new ApiResponse(200, { storyId }, "Story deleted successfully"));
+});

@@ -1,5 +1,5 @@
 import express from "express";
-import { uploadStory, fetchStoriesFeed, fetchStoriesByUser, markStorySeen, fetchStoryViewers, fetchArchivedStoriesByUser } from "../controllers/story.controllers.js";
+import { uploadStory, fetchStoriesFeed, fetchStoriesByUser, markStorySeen, fetchStoryViewers, fetchArchivedStoriesByUser, deleteStory } from "../controllers/story.controllers.js";
 import { verifyJWT, optionalVerifyJWT } from "../middlewares/auth.middleware.js";
 import { upload } from "../middlewares/multerConfig.js";
 import { getBlockedUsers as getBlockedUsersMiddleware } from "../middlewares/blocking.middleware.js";
@@ -23,5 +23,8 @@ router.get("/archived/:userId", optionalVerifyJWT, getBlockedUsersMiddleware, fe
 
 // Fetch viewers of a story
 router.get("/:storyId/viewers", verifyJWT, fetchStoryViewers);
+
+// Delete a story
+router.delete("/:storyId", verifyJWT, deleteStory);
 
 export default router;
