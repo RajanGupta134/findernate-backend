@@ -7,7 +7,7 @@ import { getViewableUserIds } from "../middlewares/privacy.middleware.js";
 import mongoose from "mongoose";
 
 export const getExploreFeed = asyncHandler(async (req, res) => {
-    let { types = "all", sortBy = "time", page = 1, limit = 10 } = req.query;
+    let { contentType = "all", sortBy = "time", page = 1, limit = 10 } = req.query;
     page = parseInt(page, 10) || 1;
     limit = parseInt(limit, 10) || 10;
 
@@ -22,24 +22,24 @@ export const getExploreFeed = asyncHandler(async (req, res) => {
     const reelsPerPage = Math.min(2, limit);
     const postsPerPage = limit - reelsPerPage;
 
-    // If types=all, fetch all allowed types; otherwise, use the provided types
+    // If contentType=all, fetch all allowed types; otherwise, use the provided contentType
     const allowedTypes = ['normal', 'service', 'product', 'business'];
     let postMatch = {};
 
-    if (types !== "all") {
-        const typeArray = types.split(",").map(t => t.trim().toLowerCase());
+    if (contentType !== "all") {
+        const typeArray = contentType.split(",").map(t => t.trim().toLowerCase());
         postMatch.contentType = { $in: typeArray };
         // When filtering by specific contentType, include ALL postTypes (including reels)
     } else {
-        // When types=all, exclude reels to avoid duplication with separate reel query
+        // When contentType=all, exclude reels to avoid duplication with separate reel query
         postMatch.postType = { $ne: "reel" };
         postMatch.contentType = { $in: allowedTypes };
     }
 
-    // 1. Get reels (only when types=all, otherwise reels are included in posts query)
+    // 1. Get reels (only when contentType=all, otherwise reels are included in posts query)
     let reels = [];
 
-    if (types === "all") {
+    if (contentType === "all") {
         // For types=all, get reels separately to avoid duplication
         const legacyReels = await Reel.aggregate([
             { 
@@ -109,8 +109,8 @@ export const getExploreFeed = asyncHandler(async (req, res) => {
 
     // Paginate posts (adjust pagination based on whether reels are separate or included)
     let skip, take;
-    if (types === "all") {
-        // For types=all, paginate only posts (reels handled separately)
+    if (contentType === "all") {
+        // For contentType=all, paginate only posts (reels handled separately)
         skip = (page - 1) * postsPerPage;
         take = postsPerPage;
     } else {
@@ -159,8 +159,8 @@ export const getExploreFeed = asyncHandler(async (req, res) => {
     // Combine and shuffle final feed based on query type
     let feed, totalAvailable, totalPages, hasNextPage;
 
-    if (types === "all") {
-        // For types=all, combine reels and posts separately
+    if (contentType === "all") {
+        // For contentType=all, combine reels and posts separately
         feed = [
             ...reels.map(r => ({ ...r, _type: "reel", location: null })), // Legacy reels don't have location
             ...posts.map(p => {
@@ -253,8 +253,8 @@ export const getExploreFeed = asyncHandler(async (req, res) => {
         pagination: {
             page,
             limit,
-            reelsCount: types === "all" ? reels.length : feed.filter(item => item._type === "reel").length,
-            postsCount: types === "all" ? posts.length : feed.filter(item => item._type === "post").length,
+            reelsCount: contentType === "all" ? reels.length : feed.filter(item => item._type === "reel").length,
+            postsCount: contentType === "all" ? posts.length : feed.filter(item => item._type === "post").length,
             total: feed.length,
             totalAvailable,
             totalPages,
