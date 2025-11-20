@@ -222,6 +222,7 @@ class StreamService {
                     video: {
                         camera_default_on: false,
                         enabled: false,
+                        camera_facing: 'front',
                         target_resolution: {
                             width: 640,
                             height: 480,
