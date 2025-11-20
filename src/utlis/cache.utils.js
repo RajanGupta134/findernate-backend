@@ -6,7 +6,7 @@ import { ApiError } from './ApiError.js';
  * Provides high-level caching operations with error handling
  */
 export class CacheManager {
-    
+
     /**
      * Get data from cache
      * @param {string} key - Cache key
@@ -17,16 +17,16 @@ export class CacheManager {
         try {
             const { parseJSON = true } = options;
             const data = await redisClient.get(key);
-            
+
             if (!data) return null;
-            
+
             return parseJSON ? JSON.parse(data) : data;
         } catch (error) {
             console.error(`Cache GET error for key ${key}:`, error);
             return null; // Graceful degradation
         }
     }
-    
+
     /**
      * Set data in cache
      * @param {string} key - Cache key
@@ -38,20 +38,20 @@ export class CacheManager {
         try {
             const { stringify = true } = options;
             const value = stringify ? JSON.stringify(data) : data;
-            
+
             if (ttl) {
                 await redisClient.setex(key, ttl, value);
             } else {
                 await redisClient.set(key, value);
             }
-            
+
             return true;
         } catch (error) {
             console.error(`Cache SET error for key ${key}:`, error);
             return false;
         }
     }
-    
+
     /**
      * Delete data from cache
      * @param {string|string[]} keys - Cache key(s) to delete
@@ -66,7 +66,7 @@ export class CacheManager {
             return false;
         }
     }
-    
+
     /**
      * Delete multiple keys by pattern
      * @param {string} pattern - Key pattern (e.g., 'fn:user:123:*')
@@ -83,7 +83,7 @@ export class CacheManager {
             return 0;
         }
     }
-    
+
     /**
      * Check if key exists in cache
      * @param {string} key - Cache key
@@ -98,7 +98,7 @@ export class CacheManager {
             return false;
         }
     }
-    
+
     /**
      * Get or Set pattern (cache-aside)
      * @param {string} key - Cache key
@@ -110,19 +110,19 @@ export class CacheManager {
         try {
             // Try to get from cache first
             let data = await this.get(key, options);
-            
+
             if (data !== null) {
                 return { data, fromCache: true };
             }
-            
+
             // If not in cache, fetch from source
             data = await fetchFunction();
-            
+
             // Cache the result
             if (data !== null && data !== undefined) {
                 await this.set(key, data, ttl, options);
             }
-            
+
             return { data, fromCache: false };
         } catch (error) {
             console.error(`Cache getOrSet error for key ${key}:`, error);
@@ -137,7 +137,7 @@ export class CacheManager {
  * Feed Cache Manager - Specialized for social feeds
  */
 export class FeedCacheManager extends CacheManager {
-    
+
     /**
      * Cache user's home feed
      * @param {string} userId - User ID
@@ -148,7 +148,7 @@ export class FeedCacheManager extends CacheManager {
         const key = RedisKeys.userFeed(userId, page);
         await this.set(key, feedData, RedisTTL.USER_FEED);
     }
-    
+
     /**
      * Get user's cached home feed
      * @param {string} userId - User ID
@@ -159,7 +159,7 @@ export class FeedCacheManager extends CacheManager {
         const key = RedisKeys.userFeed(userId, page);
         return await this.get(key);
     }
-    
+
     /**
      * Invalidate user's feed cache
      * @param {string} userId - User ID
@@ -168,7 +168,7 @@ export class FeedCacheManager extends CacheManager {
         const pattern = RedisKeys.userFeed(userId, '*').replace('*', '\\*');
         return await this.delPattern(pattern);
     }
-    
+
     /**
      * Cache explore/trending feed
      * @param {string} location - Location or 'global'
@@ -178,7 +178,7 @@ export class FeedCacheManager extends CacheManager {
         const key = RedisKeys.trendingPosts(location);
         await this.set(key, feedData, RedisTTL.TRENDING_POSTS);
     }
-    
+
     /**
      * Get trending feed from cache
      * @param {string} location - Location or 'global'
@@ -188,13 +188,29 @@ export class FeedCacheManager extends CacheManager {
         const key = RedisKeys.trendingPosts(location);
         return await this.get(key);
     }
+
+    /**
+     * Invalidate trending feed cache (all locations)
+     */
+    static async invalidateTrendingFeed() {
+        const pattern = 'fn:posts:trending:*';
+        return await this.delPattern(pattern);
+    }
+
+    /**
+     * Invalidate explore feed cache (all pages)
+     */
+    static async invalidateExploreFeed() {
+        const pattern = 'fn:explore:feed:*';
+        return await this.delPattern(pattern);
+    }
 }
 
 /**
  * User Cache Manager - Specialized for user data
  */
 export class UserCacheManager extends CacheManager {
-    
+
     /**
      * Cache user profile
      * @param {string} userId - User ID
@@ -204,7 +220,7 @@ export class UserCacheManager extends CacheManager {
         const key = RedisKeys.userProfile(userId);
         await this.set(key, userData, RedisTTL.USER_PROFILE);
     }
-    
+
     /**
      * Get user profile from cache
      * @param {string} userId - User ID
@@ -214,7 +230,7 @@ export class UserCacheManager extends CacheManager {
         const key = RedisKeys.userProfile(userId);
         return await this.get(key);
     }
-    
+
     /**
      * Invalidate user profile and related caches
      * @param {string} userId - User ID
@@ -226,7 +242,7 @@ export class UserCacheManager extends CacheManager {
             RedisKeys.userFollowing(userId)
         ];
         await this.del(keys);
-        
+
         // Also invalidate user's feed since profile info appears in feeds
         await FeedCacheManager.invalidateUserFeed(userId);
     }
@@ -236,7 +252,7 @@ export class UserCacheManager extends CacheManager {
  * Search Cache Manager - Specialized for search and discovery
  */
 export class SearchCacheManager extends CacheManager {
-    
+
     /**
      * Cache search results
      * @param {string} query - Search query
@@ -247,7 +263,7 @@ export class SearchCacheManager extends CacheManager {
         const key = RedisKeys.searchResults(query, page);
         await this.set(key, results, RedisTTL.SEARCH_RESULTS);
     }
-    
+
     /**
      * Get cached search results
      * @param {string} query - Search query
@@ -258,7 +274,7 @@ export class SearchCacheManager extends CacheManager {
         const key = RedisKeys.searchResults(query, page);
         return await this.get(key);
     }
-    
+
     /**
      * Cache user suggestions
      * @param {string} userId - User ID
@@ -268,7 +284,7 @@ export class SearchCacheManager extends CacheManager {
         const key = RedisKeys.userSuggestions(userId);
         await this.set(key, suggestions, RedisTTL.USER_PROFILE);
     }
-    
+
     /**
      * Get user suggestions from cache
      * @param {string} userId - User ID
@@ -284,7 +300,7 @@ export class SearchCacheManager extends CacheManager {
  * Session Cache Manager - Specialized for authentication
  */
 export class SessionCacheManager extends CacheManager {
-    
+
     /**
      * Cache user session
      * @param {string} userId - User ID
@@ -295,7 +311,7 @@ export class SessionCacheManager extends CacheManager {
         const key = RedisKeys.userSession(userId, deviceId);
         await this.set(key, sessionData, RedisTTL.USER_SESSION);
     }
-    
+
     /**
      * Get user session from cache
      * @param {string} userId - User ID
@@ -306,7 +322,7 @@ export class SessionCacheManager extends CacheManager {
         const key = RedisKeys.userSession(userId, deviceId);
         return await this.get(key);
     }
-    
+
     /**
      * Blacklist a JWT token
      * @param {string} jti - JWT ID
@@ -316,7 +332,7 @@ export class SessionCacheManager extends CacheManager {
         const key = RedisKeys.tokenBlacklist(jti);
         await this.set(key, 'revoked', ttl, { stringify: false });
     }
-    
+
     /**
      * Check if token is blacklisted
      * @param {string} jti - JWT ID
@@ -326,7 +342,7 @@ export class SessionCacheManager extends CacheManager {
         const key = RedisKeys.tokenBlacklist(jti);
         return await this.exists(key);
     }
-    
+
     /**
      * Rate limiting for authentication attempts
      * @param {string} ip - IP address
@@ -335,17 +351,17 @@ export class SessionCacheManager extends CacheManager {
      */
     static async checkRateLimit(ip, maxAttempts = 5) {
         const key = RedisKeys.authRateLimit(ip);
-        
+
         try {
             const current = await redisClient.incr(key);
-            
+
             if (current === 1) {
                 await redisClient.expire(key, RedisTTL.RATE_LIMIT);
             }
-            
+
             const ttl = await redisClient.ttl(key);
             const remaining = Math.max(0, maxAttempts - current);
-            
+
             return {
                 attempts: current,
                 remaining,
