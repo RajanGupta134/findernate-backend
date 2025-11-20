@@ -259,7 +259,7 @@ const getUserProfile = asyncHandler(async (req, res) => {
 
     // Cache the response if caching is available
     if (res.locals.cacheKey && res.locals.cacheTTL) {
-        await setCache(res.locals.cacheKey, { 
+        await setCache(res.locals.cacheKey, {
             success: true,
             data: userProfile,
             message: "User profile retrieved successfully"
@@ -1315,7 +1315,7 @@ const getUsernameSuggestions = asyncHandler(async (req, res) => {
 
     try {
         const result = await generateRealtimeUsernameSuggestions(username, 8);
-        
+
         return res.status(200).json(
             new ApiResponse(200, result, "Username suggestions generated successfully")
         );
@@ -1347,7 +1347,7 @@ const checkUsernameAvailability = asyncHandler(async (req, res) => {
 
     try {
         const isAvailable = await isUsernameAvailable(username);
-        
+
         return res.status(200).json(
             new ApiResponse(200, {
                 isAvailable,
@@ -1479,9 +1479,9 @@ const getPreviousServicePostData = asyncHandler(async (req, res) => {
         userId,
         contentType: "service"
     })
-    .sort({ createdAt: -1 })
-    .select('customization.service')
-    .lean();
+        .sort({ createdAt: -1 })
+        .select('customization.service')
+        .lean();
 
     if (!latestServicePost || !latestServicePost.customization?.service) {
         return res.status(200).json(
@@ -1553,9 +1553,9 @@ const getPreviousProductPostData = asyncHandler(async (req, res) => {
         userId,
         contentType: "product"
     })
-    .sort({ createdAt: -1 })
-    .select('customization.product')
-    .lean();
+        .sort({ createdAt: -1 })
+        .select('customization.product')
+        .lean();
 
     if (!latestProductPost || !latestProductPost.customization?.product) {
         return res.status(200).json(

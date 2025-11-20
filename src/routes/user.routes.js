@@ -1,7 +1,7 @@
 import { Router } from "express";
 import { upload } from "../middlewares/multerConfig.js";
 import { verifyJWT, optionalVerifyJWT } from "../middlewares/auth.middleware.js";
-import { getBlockedUsers as getBlockedUsersMiddleware} from "../middlewares/blocking.middleware.js";
+import { getBlockedUsers as getBlockedUsersMiddleware } from "../middlewares/blocking.middleware.js";
 import { cacheSearchResults } from "../middlewares/cache.middleware.js";
 import { loginUser, logOutUser, registerUser, getUserProfile, updateUserProfile, changePassword, deleteAccount, searchUsers, verifyEmailWithOTP, uploadProfileImage, sendVerificationOTPForEmail, sendPasswordResetOTP, resetPasswordWithOTP, getOtherUserProfile, checkTokenExpiry, togglePhoneNumberVisibility, toggleAddressVisibility, trackSearch, getPopularSearches, blockUser, unblockUser, getBlockedUsers, checkIfUserBlocked, getUsernameSuggestions, checkUsernameAvailability, toggleFullPrivateAccount, toggleServiceAutoFill, getPreviousServicePostData, toggleProductAutoFill, getPreviousProductPostData, saveFCMToken, testFCMNotification, checkFirebaseStatus } from "../controllers/user.controllers.js";
 import { searchAllContent } from "../controllers/searchAllContent.controllers.js";
@@ -54,6 +54,7 @@ router.get("/popular-searches", getPopularSearches);
 router.put("/privacy/phone-number", verifyJWT, togglePhoneNumberVisibility);
 router.put("/privacy/address", verifyJWT, toggleAddressVisibility);
 router.put("/privacy/account", verifyJWT, toggleFullPrivateAccount);
+router.put("/privacy/full-private", verifyJWT, toggleFullPrivateAccount); // Alias for /privacy/account
 
 // Block user routes
 router.post("/block", verifyJWT, blockUser);
