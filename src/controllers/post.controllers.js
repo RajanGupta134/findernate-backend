@@ -57,15 +57,22 @@ export const createNormalPost = asyncHandler(async (req, res) => {
     const parsedLocation = typeof location === "string" ? JSON.parse(location) : location;
 
     let resolvedLocation = parsedLocation || {};
-    if (resolvedLocation.name && !resolvedLocation.coordinates) {
-        const coords = await getCoordinates(resolvedLocation.name);
-        if (coords?.latitude && coords?.longitude) {
-            resolvedLocation.coordinates = {
-                type: "Point",
-                coordinates: [coords.longitude, coords.latitude]
-            };
-        } else {
-            throw new ApiError(400, `Could not resolve coordinates for location: ${resolvedLocation.name}`);
+    if ((resolvedLocation.name || resolvedLocation.address) && !resolvedLocation.coordinates) {
+        try {
+            // Pass the full location object to allow multiple fallback strategies
+            const coords = await getCoordinates(resolvedLocation);
+            if (coords?.latitude && coords?.longitude) {
+                resolvedLocation.coordinates = {
+                    type: "Point",
+                    coordinates: [coords.longitude, coords.latitude]
+                };
+            } else {
+                // Log warning but allow post creation without coordinates
+                console.warn(`Could not resolve coordinates for location: ${resolvedLocation.name || resolvedLocation.address || 'unknown'}. Post will be created without coordinates.`);
+            }
+        } catch (error) {
+            // Log error but allow post creation without coordinates
+            console.error('Error resolving location coordinates:', error.message);
         }
     }
 
@@ -193,15 +200,22 @@ export const createProductPost = asyncHandler(async (req, res) => {
     const validatedProduct = await validateDeliveryAndLocation(parsedProduct, "product");
 
     let resolvedLocation = parsedLocation || {};
-    if (resolvedLocation.name && !resolvedLocation.coordinates) {
-        const coords = await getCoordinates(resolvedLocation.name);
-        if (coords?.latitude && coords?.longitude) {
-            resolvedLocation.coordinates = {
-                type: "Point",
-                coordinates: [coords.longitude, coords.latitude]
-            };
-        } else {
-            throw new ApiError(400, `Could not resolve coordinates for location: ${resolvedLocation.name}`);
+    if ((resolvedLocation.name || resolvedLocation.address) && !resolvedLocation.coordinates) {
+        try {
+            // Pass the full location object to allow multiple fallback strategies
+            const coords = await getCoordinates(resolvedLocation);
+            if (coords?.latitude && coords?.longitude) {
+                resolvedLocation.coordinates = {
+                    type: "Point",
+                    coordinates: [coords.longitude, coords.latitude]
+                };
+            } else {
+                // Log warning but allow post creation without coordinates
+                console.warn(`Could not resolve coordinates for location: ${resolvedLocation.name || resolvedLocation.address || 'unknown'}. Post will be created without coordinates.`);
+            }
+        } catch (error) {
+            // Log error but allow post creation without coordinates
+            console.error('Error resolving location coordinates:', error.message);
         }
     }
 
@@ -331,15 +345,22 @@ export const createServicePost = asyncHandler(async (req, res) => {
     const validatedService = await validateDeliveryAndLocation(parsedService, "service");
 
     let resolvedLocation = parsedLocation || {};
-    if (resolvedLocation.name && !resolvedLocation.coordinates) {
-        const coords = await getCoordinates(resolvedLocation.name);
-        if (coords?.latitude && coords?.longitude) {
-            resolvedLocation.coordinates = {
-                type: "Point",
-                coordinates: [coords.longitude, coords.latitude]
-            };
-        } else {
-            throw new ApiError(400, `Could not resolve coordinates for location: ${resolvedLocation.name}`);
+    if ((resolvedLocation.name || resolvedLocation.address) && !resolvedLocation.coordinates) {
+        try {
+            // Pass the full location object to allow multiple fallback strategies
+            const coords = await getCoordinates(resolvedLocation);
+            if (coords?.latitude && coords?.longitude) {
+                resolvedLocation.coordinates = {
+                    type: "Point",
+                    coordinates: [coords.longitude, coords.latitude]
+                };
+            } else {
+                // Log warning but allow post creation without coordinates
+                console.warn(`Could not resolve coordinates for location: ${resolvedLocation.name || resolvedLocation.address || 'unknown'}. Post will be created without coordinates.`);
+            }
+        } catch (error) {
+            // Log error but allow post creation without coordinates
+            console.error('Error resolving location coordinates:', error.message);
         }
     }
 
@@ -463,15 +484,22 @@ export const createBusinessPost = asyncHandler(async (req, res) => {
     const validatedBusiness = await validateDeliveryAndLocation(parsedBusiness, "business");
 
     let resolvedLocation = parsedLocation || {};
-    if (resolvedLocation.name && !resolvedLocation.coordinates) {
-        const coords = await getCoordinates(resolvedLocation.name);
-        if (coords?.latitude && coords?.longitude) {
-            resolvedLocation.coordinates = {
-                type: "Point",
-                coordinates: [coords.longitude, coords.latitude]
-            };
-        } else {
-            throw new ApiError(400, `Could not resolve coordinates for location: ${resolvedLocation.name}`);
+    if ((resolvedLocation.name || resolvedLocation.address) && !resolvedLocation.coordinates) {
+        try {
+            // Pass the full location object to allow multiple fallback strategies
+            const coords = await getCoordinates(resolvedLocation);
+            if (coords?.latitude && coords?.longitude) {
+                resolvedLocation.coordinates = {
+                    type: "Point",
+                    coordinates: [coords.longitude, coords.latitude]
+                };
+            } else {
+                // Log warning but allow post creation without coordinates
+                console.warn(`Could not resolve coordinates for location: ${resolvedLocation.name || resolvedLocation.address || 'unknown'}. Post will be created without coordinates.`);
+            }
+        } catch (error) {
+            // Log error but allow post creation without coordinates
+            console.error('Error resolving location coordinates:', error.message);
         }
     }
 
@@ -663,13 +691,18 @@ export const editPost = asyncHandler(async (req, res) => {
 
     // Handle location coordinates if needed
     let resolvedLocation = parsedLocation || post.customization?.normal?.location;
-    if (parsedLocation && parsedLocation.name && !parsedLocation.coordinates) {
-        const coords = await getCoordinates(parsedLocation.name);
-        if (coords?.latitude && coords?.longitude) {
-            resolvedLocation.coordinates = {
-                type: "Point",
-                coordinates: [coords.longitude, coords.latitude]
-            };
+    if (parsedLocation && (parsedLocation.name || parsedLocation.address) && !parsedLocation.coordinates) {
+        try {
+            // Pass the full location object to allow multiple fallback strategies
+            const coords = await getCoordinates(parsedLocation);
+            if (coords?.latitude && coords?.longitude) {
+                resolvedLocation.coordinates = {
+                    type: "Point",
+                    coordinates: [coords.longitude, coords.latitude]
+                };
+            }
+        } catch (error) {
+            console.error('Error resolving location coordinates during edit:', error.message);
         }
     }
 
