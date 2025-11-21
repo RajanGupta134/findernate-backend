@@ -3,6 +3,7 @@ import { createAdapter } from '@socket.io/redis-adapter';
 import jwt from 'jsonwebtoken';
 import { User } from '../models/user.models.js';
 import { redisPubSub, redisPublisher, redisClient } from './redis.config.js';
+import mongoose from 'mongoose';
 
 class SocketManager {
     constructor() {
@@ -384,9 +385,13 @@ class SocketManager {
 
 
             // Handle disconnect
-            socket.on('disconnect', () => {
+            socket.on('disconnect', async () => {
+                const userId = socket.userId;
+                
                 // Clean up local tracking
-                this.connectedUsers.delete(socket.userId);
+                if (userId) {
+                    this.connectedUsers.delete(userId);
+                }
                 this.userSockets.delete(socket.id);
 
                 // Clean up all chat rooms the user was in
@@ -394,18 +399,135 @@ class SocketManager {
                     socket.chatRooms.forEach(chatId => {
                         socket.leave(`chat:${chatId}`);
                     });
-                    console.log(`User ${socket.userId} cleaned up from ${socket.chatRooms.size} chat rooms`);
+                    console.log(`User ${userId || 'unknown'} cleaned up from ${socket.chatRooms.size} chat rooms`);
                     socket.chatRooms.clear();
                 }
 
                 // Remove from Redis cross-process tracking
-                redisClient.hdel('fn:online_users', socket.userId)
-                    .catch(err => console.error('Redis user removal error:', err));
+                if (userId) {
+                    redisClient.hdel('fn:online_users', userId)
+                        .catch(err => console.error('Redis user removal error:', err));
 
-                // Emit offline status to relevant users
-                this.emitUserOffline(socket.userId);
+                    // Emit offline status to relevant users
+                    this.emitUserOffline(userId);
+                }
 
-                console.log(`User ${socket.userId} disconnected and cleaned up`);
+                // 🚨 CRITICAL: End all active calls for the disconnected user
+                // This prevents "already in a call" errors after disconnection
+                if (!userId) {
+                    console.warn('Socket disconnected without userId, skipping call cleanup');
+                    console.log(`User disconnected and cleaned up`);
+                    return;
+                }
+
+                try {
+                    const Call = (await import('../models/call.models.js')).default;
+                    
+                    // Find all active calls where this user is a participant
+                    const activeCalls = await Call.find({
+                        participants: userId,
+                        status: { $in: ['initiated', 'ringing', 'connecting', 'active'] }
+                    }).select('_id participants'); // Only get IDs for efficiency
+
+                    if (activeCalls.length > 0) {
+                        console.log(`📵 Ending ${activeCalls.length} active call(s) for disconnected user ${userId}`);
+
+                        for (const call of activeCalls) {
+                            const callId = call._id;
+                            const session = await mongoose.startSession();
+                            
+                            try {
+                                await session.withTransaction(async () => {
+                                    // Re-fetch call within transaction to get latest state
+                                    const callToUpdate = await Call.findById(callId).session(session);
+                                    
+                                    if (!callToUpdate) {
+                                        console.warn(`Call ${callId} not found, skipping`);
+                                        return;
+                                    }
+
+                                    // Skip if already ended (race condition protection)
+                                    if (['ended', 'declined', 'missed', 'failed'].includes(callToUpdate.status)) {
+                                        console.log(`Call ${callId} already ended, skipping`);
+                                        return;
+                                    }
+
+                                    // Update call status - following same pattern as endCall controller
+                                    callToUpdate.status = 'ended';
+                                    callToUpdate.endedAt = new Date();
+                                    callToUpdate.endReason = 'network_error';
+                                    callToUpdate.endedBy = userId;
+
+                                    // If call was never started, set startedAt to endedAt for duration calculation
+                                    if (!callToUpdate.startedAt) {
+                                        callToUpdate.startedAt = callToUpdate.endedAt;
+                                        console.log(`⏱️ Call ${callId} ended before being started, setting startedAt = endedAt`);
+                                    }
+
+                                    await callToUpdate.save({ session });
+                                    console.log(`✅ Ended call ${callId} due to user ${userId} disconnection`);
+                                });
+                            } catch (callError) {
+                                console.error(`❌ Error ending call ${callId} on disconnect:`, callError);
+                                // Continue with other calls even if one fails
+                            } finally {
+                                // Always end session
+                                await session.endSession().catch(err => 
+                                    console.error(`Error ending session for call ${callId}:`, err)
+                                );
+                            }
+
+                            // Fetch populated call data after transaction to get correct duration and notify participants
+                            try {
+                                const populatedCall = await Call.findById(callId)
+                                    .populate('participants', 'username fullName profileImageUrl')
+                                    .populate('initiator', 'username fullName profileImageUrl');
+
+                                if (!populatedCall) {
+                                    console.warn(`Call ${callId} not found after transaction, skipping notification`);
+                                    continue;
+                                }
+
+                                // Skip notification if call is not in ended state (might have been ended by another process)
+                                if (populatedCall.status !== 'ended') {
+                                    console.log(`Call ${callId} status is ${populatedCall.status}, skipping notification`);
+                                    continue;
+                                }
+
+                                // Get other participants (excluding the disconnected user)
+                                const participantIds = populatedCall.participants.map(p => p._id.toString());
+                                const otherParticipants = participantIds.filter(id => id !== userId);
+
+                                // Notify other participants via socket
+                                if (otherParticipants.length > 0) {
+                                    console.log(`📡 Emitting call end to ${otherParticipants.length} participant(s) for call ${callId}`);
+                                    otherParticipants.forEach(participantId => {
+                                        this.emitToUser(participantId, 'call_ended', {
+                                            callId: callId.toString(),
+                                            endedBy: {
+                                                _id: userId,
+                                                username: socket.user?.username || 'User',
+                                                fullName: socket.user?.fullName || 'User',
+                                                profileImageUrl: socket.user?.profileImageUrl
+                                            },
+                                            endReason: 'network_error',
+                                            duration: populatedCall.duration || 0,
+                                            timestamp: new Date()
+                                        });
+                                    });
+                                }
+                            } catch (notificationError) {
+                                console.error(`❌ Error notifying participants about call ${callId} ending:`, notificationError);
+                                // Continue with other calls even if notification fails
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error(`❌ Error handling call cleanup on disconnect for user ${userId}:`, error);
+                    // Don't block disconnect cleanup if call ending fails
+                }
+
+                console.log(`User ${userId} disconnected and cleaned up`);
             });
         });
     }

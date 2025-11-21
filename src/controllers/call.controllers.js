@@ -80,7 +80,7 @@ const hasActiveCall = async (userId, session = null) => {
         Call.findOne(query);
 
     return baseQuery.populate('participants', 'username fullName profileImageUrl')
-                   .populate('initiator', 'username fullName profileImageUrl');
+        .populate('initiator', 'username fullName profileImageUrl');
 };
 
 // Helper function to validate chat permissions
@@ -182,6 +182,16 @@ export const initiateCall = asyncHandler(async (req, res) => {
             await session.endSession();
         }
 
+        // Update call status to 'ringing' when receiver is being notified
+        // This indicates the call is actively ringing for the receiver
+        try {
+            await Call.findByIdAndUpdate(newCall._id, { status: 'ringing' });
+            console.log('📞 Call status updated to ringing for receiver notification');
+        } catch (statusError) {
+            console.error('❌ Error updating call status to ringing:', statusError);
+            // Don't fail the entire call initiation if status update fails
+        }
+
         // Populate the call with user details (optimized with lean)
         console.log('📋 Populating call details...');
         const populatedCall = await Call.findById(newCall._id)
@@ -273,7 +283,8 @@ export const initiateCall = asyncHandler(async (req, res) => {
                         callerName: req.user.fullName || req.user.username,
                         callerImage: req.user.profileImageUrl || '',
                         chatId: chatId.toString(),
-                        callType: callType
+                        callType: callType,
+                        status: 'ringing' // Include status so receiver knows call is ringing
                     };
 
                     console.log('📦 FCM payload:', {
@@ -335,6 +346,7 @@ export const initiateCall = asyncHandler(async (req, res) => {
                 callId: newCall._id,
                 chatId,
                 callType,
+                status: 'ringing', // Include status so receiver knows call is ringing
                 caller: {
                     _id: currentUserId,
                     username: req.user.username,
