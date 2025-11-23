@@ -502,22 +502,41 @@ export const acceptCall = asyncHandler(async (req, res) => {
         .populate('participants', 'username fullName profileImageUrl')
         .populate('initiator', 'username fullName profileImageUrl');
 
-    // Emit call acceptance to all participants
+    // Emit call acceptance to ALL participants (including the one who accepted for immediate UI update)
     const participantIds = populatedCall.participants.map(p => p._id.toString());
     const otherParticipants = participantIds.filter(id => id !== currentUserId.toString());
 
-    console.log('📡 Emitting call acceptance to participants:', otherParticipants);
+    const callAcceptedData = {
+        callId,
+        acceptedBy: {
+            _id: currentUserId,
+            username: req.user.username,
+            fullName: req.user.fullName,
+            profileImageUrl: req.user.profileImageUrl
+        },
+        call: {
+            _id: populatedCall._id,
+            status: populatedCall.status,
+            callType: populatedCall.callType,
+            startedAt: populatedCall.startedAt,
+            participants: populatedCall.participants,
+            initiator: populatedCall.initiator
+        }, // Include essential call data for immediate UI update
+        timestamp: new Date()
+    };
+
+    // CRITICAL FIX: Emit to receiver FIRST for immediate confirmation (prevents 10-15 sec delay)
+    // This ensures the phone app gets immediate feedback when user clicks accept
+    console.log('📡 Emitting call acceptance confirmation to receiver:', currentUserId.toString());
+    safeEmitToUser(currentUserId.toString(), 'call_accepted', {
+        ...callAcceptedData,
+        isReceiver: true // Flag to indicate this is confirmation for the receiver
+    });
+
+    // Then emit to other participants (caller)
+    console.log('📡 Emitting call acceptance to other participants:', otherParticipants);
     otherParticipants.forEach(participantId => {
-        safeEmitToUser(participantId, 'call_accepted', {
-            callId,
-            acceptedBy: {
-                _id: currentUserId,
-                username: req.user.username,
-                fullName: req.user.fullName,
-                profileImageUrl: req.user.profileImageUrl
-            },
-            timestamp: new Date()
-        });
+        safeEmitToUser(participantId, 'call_accepted', callAcceptedData);
     });
 
     console.log('🎉 Call accepted successfully:', { callId });
@@ -720,7 +739,7 @@ export const endCall = asyncHandler(async (req, res) => {
     // Extract participant IDs - handle both populated objects and ObjectIds
     // Also use the non-populated call's participants as fallback to ensure we get all participants
     let participantIds = [];
-    
+
     if (populatedCall.participants && populatedCall.participants.length > 0) {
         participantIds = populatedCall.participants.map(p => {
             // Handle populated user object
@@ -734,7 +753,7 @@ export const endCall = asyncHandler(async (req, res) => {
             return null;
         }).filter(id => id !== null);
     }
-    
+
     // Fallback: if population failed or returned empty, use the updated call's participants
     if (participantIds.length === 0 && updatedCall && updatedCall.participants) {
         console.warn('⚠️ Using fallback: extracting participants from non-populated call');
@@ -744,6 +763,27 @@ export const endCall = asyncHandler(async (req, res) => {
     // Get other participants (excluding the one who ended the call)
     const otherParticipants = participantIds.filter(id => id !== currentUserId.toString());
 
+    const callEndedData = {
+        callId,
+        endedBy: {
+            _id: currentUserId,
+            username: req.user.username,
+            fullName: req.user.fullName,
+            profileImageUrl: req.user.profileImageUrl
+        },
+        endReason,
+        duration: populatedCall.duration,
+        call: {
+            _id: populatedCall._id,
+            status: populatedCall.status,
+            callType: populatedCall.callType,
+            endedAt: populatedCall.endedAt,
+            duration: populatedCall.duration,
+            endReason: populatedCall.endReason
+        }, // Include essential call data for immediate UI update
+        timestamp: new Date()
+    };
+
     console.log('📡 Emitting call end to participants:', {
         allParticipants: participantIds,
         otherParticipants: otherParticipants,
@@ -751,23 +791,20 @@ export const endCall = asyncHandler(async (req, res) => {
         callStatus: populatedCall.status
     });
 
-    // Emit to all other participants (including recipient who hasn't accepted yet)
-    if (otherParticipants.length > 0) {
-        otherParticipants.forEach(participantId => {
-            safeEmitToUser(participantId, 'call_ended', {
-                callId,
-                endedBy: {
-                    _id: currentUserId,
-                    username: req.user.username,
-                    fullName: req.user.fullName,
-                    profileImageUrl: req.user.profileImageUrl
-                },
-                endReason,
-                duration: populatedCall.duration,
-                timestamp: new Date()
-            });
-            console.log(`✅ Emitted 'call_ended' to participant: ${participantId}`);
+    // CRITICAL FIX: Emit to ALL participants including the one who ended the call
+    // This ensures the phone app gets immediate notification and updates UI
+    // Emit synchronously to all participants to ensure immediate delivery
+    participantIds.forEach(participantId => {
+        safeEmitToUser(participantId, 'call_ended', {
+            ...callEndedData,
+            isInitiator: participantId === currentUserId.toString() // Flag to indicate who ended
         });
+        console.log(`✅ Emitted 'call_ended' to participant: ${participantId}`);
+    });
+
+    // Also emit to other participants specifically (for backwards compatibility)
+    if (otherParticipants.length > 0) {
+        console.log(`📡 Also notifying ${otherParticipants.length} other participant(s)`);
     } else {
         console.warn('⚠️ No other participants found to notify about call end');
     }

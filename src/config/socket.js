@@ -152,9 +152,9 @@ class SocketManager {
                         participants: socket.userId,
                         status: { $in: ['active', 'requested'] }
                     })
-                    .select('_id')
-                    .limit(50) // Limit to prevent overload
-                    .lean();
+                        .select('_id')
+                        .limit(50) // Limit to prevent overload
+                        .lean();
 
                     activeChats.forEach(chat => {
                         const chatRoom = `chat:${chat._id}`;
@@ -288,7 +288,7 @@ class SocketManager {
                 try {
                     const notificationCache = (await import('../utlis/notificationCache.utils.js')).default;
                     const counts = await notificationCache.getUnreadCounts(socket.userId);
-                    
+
                     socket.emit('unread_counts_updated', {
                         unreadNotifications: counts.unreadNotifications,
                         unreadMessages: counts.unreadMessages,
@@ -387,7 +387,7 @@ class SocketManager {
             // Handle disconnect
             socket.on('disconnect', async () => {
                 const userId = socket.userId;
-                
+
                 // Clean up local tracking
                 if (userId) {
                     this.connectedUsers.delete(userId);
@@ -422,7 +422,7 @@ class SocketManager {
 
                 try {
                     const Call = (await import('../models/call.models.js')).default;
-                    
+
                     // Find all active calls where this user is a participant
                     const activeCalls = await Call.find({
                         participants: userId,
@@ -435,12 +435,12 @@ class SocketManager {
                         for (const call of activeCalls) {
                             const callId = call._id;
                             const session = await mongoose.startSession();
-                            
+
                             try {
                                 await session.withTransaction(async () => {
                                     // Re-fetch call within transaction to get latest state
                                     const callToUpdate = await Call.findById(callId).session(session);
-                                    
+
                                     if (!callToUpdate) {
                                         console.warn(`Call ${callId} not found, skipping`);
                                         return;
@@ -472,7 +472,7 @@ class SocketManager {
                                 // Continue with other calls even if one fails
                             } finally {
                                 // Always end session
-                                await session.endSession().catch(err => 
+                                await session.endSession().catch(err =>
                                     console.error(`Error ending session for call ${callId}:`, err)
                                 );
                             }
@@ -577,9 +577,22 @@ class SocketManager {
         console.log(`   Event data:`, JSON.stringify(data).substring(0, 200));
 
         // Emit to user's personal room (works across all PM2 processes via Redis adapter)
-        this.io.to(roomName).emit(event, data);
+        // Use volatile emit for better performance (doesn't queue if client is offline)
+        // For critical call events, we want immediate delivery
+        if (['incoming_call', 'call_accepted', 'call_declined', 'call_ended', 'call_status_update'].includes(event)) {
+            // For call events, use regular emit to ensure delivery
+            this.io.to(roomName).emit(event, data);
+        } else {
+            // For other events, use volatile emit
+            this.io.to(roomName).volatile.emit(event, data);
+        }
 
-        console.log(`✅ Event '${event}' emitted to room ${roomName}`);
+        console.log(`✅ Event '${event}' emitted to room ${roomName} (${socketCount} socket(s))`);
+
+        // Warn if no sockets are connected (user might be offline)
+        if (socketCount === 0) {
+            console.warn(`⚠️ No active socket connections for user ${userId} - event may not be delivered`);
+        }
     }
 
     emitToChat(chatId, event, data) {
@@ -634,7 +647,7 @@ class SocketManager {
         if (redisInstance.status === 'ready') {
             return Promise.resolve();
         }
-        
+
         return new Promise((resolve, reject) => {
             const timeout = setTimeout(() => {
                 reject(new Error('Redis connection timeout'));
