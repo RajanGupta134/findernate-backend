@@ -502,6 +502,27 @@ export const acceptCall = asyncHandler(async (req, res) => {
         .populate('participants', 'username fullName profileImageUrl')
         .populate('initiator', 'username fullName profileImageUrl');
 
+    // Get Stream.io connection details for the receiver (needed to connect to media)
+    let streamData = null;
+    try {
+        const streamService = (await import('../config/stream.config.js')).default;
+        if (streamService.isConfigured()) {
+            // Generate fresh token for receiver
+            const receiverToken = streamService.generateUserToken(currentUserId.toString());
+            streamData = {
+                apiKey: streamService.getApiKey(),
+                callId: callId.toString(),
+                streamCallType: 'default',
+                token: receiverToken.token,
+                expiresAt: receiverToken.expiresAt
+            };
+            console.log('✅ Generated Stream.io token for receiver');
+        }
+    } catch (streamError) {
+        console.error('❌ Error generating Stream.io token for receiver:', streamError);
+        // Continue without Stream.io data - client should use stored token from incoming_call
+    }
+
     // Emit call acceptance to ALL participants (including the one who accepted for immediate UI update)
     const participantIds = populatedCall.participants.map(p => p._id.toString());
     const otherParticipants = participantIds.filter(id => id !== currentUserId.toString());
@@ -525,12 +546,14 @@ export const acceptCall = asyncHandler(async (req, res) => {
         timestamp: new Date()
     };
 
-    // CRITICAL FIX: Emit to receiver FIRST for immediate confirmation (prevents 10-15 sec delay)
-    // This ensures the phone app gets immediate feedback when user clicks accept
+    // CRITICAL FIX: Emit to receiver FIRST with Stream.io connection details (prevents loading state)
+    // This ensures the phone app gets immediate feedback and can connect to Stream.io
     console.log('📡 Emitting call acceptance confirmation to receiver:', currentUserId.toString());
     safeEmitToUser(currentUserId.toString(), 'call_accepted', {
         ...callAcceptedData,
-        isReceiver: true // Flag to indicate this is confirmation for the receiver
+        isReceiver: true, // Flag to indicate this is confirmation for the receiver
+        stream: streamData, // Include Stream.io connection details to prevent loading state
+        action: 'connect' // Action flag to tell phone app to connect to Stream.io
     });
 
     // Then emit to other participants (caller)
@@ -540,8 +563,16 @@ export const acceptCall = asyncHandler(async (req, res) => {
     });
 
     console.log('🎉 Call accepted successfully:', { callId });
+
+    // Include Stream.io connection details in HTTP response as fallback
+    // This ensures phone app has connection details even if socket event is missed
+    const responseData = {
+        ...populatedCall.toObject ? populatedCall.toObject() : populatedCall,
+        stream: streamData // Include Stream.io connection details
+    };
+
     res.status(200).json(
-        new ApiResponse(200, populatedCall, 'Call accepted successfully')
+        new ApiResponse(200, responseData, 'Call accepted successfully')
     );
 });
 
@@ -775,12 +806,13 @@ export const endCall = asyncHandler(async (req, res) => {
         duration: populatedCall.duration,
         call: {
             _id: populatedCall._id,
-            status: populatedCall.status,
+            status: populatedCall.status, // Should be 'ended'
             callType: populatedCall.callType,
             endedAt: populatedCall.endedAt,
             duration: populatedCall.duration,
             endReason: populatedCall.endReason
         }, // Include essential call data for immediate UI update
+        action: 'dismiss', // CRITICAL: Action flag to tell phone app to dismiss incoming call UI
         timestamp: new Date()
     };
 
@@ -797,9 +829,10 @@ export const endCall = asyncHandler(async (req, res) => {
     participantIds.forEach(participantId => {
         safeEmitToUser(participantId, 'call_ended', {
             ...callEndedData,
-            isInitiator: participantId === currentUserId.toString() // Flag to indicate who ended
+            isInitiator: participantId === currentUserId.toString(), // Flag to indicate who ended
+            shouldDismiss: true // Explicit flag to dismiss incoming call UI on phone app
         });
-        console.log(`✅ Emitted 'call_ended' to participant: ${participantId}`);
+        console.log(`✅ Emitted 'call_ended' to participant: ${participantId} with dismiss flag`);
     });
 
     // Also emit to other participants specifically (for backwards compatibility)
