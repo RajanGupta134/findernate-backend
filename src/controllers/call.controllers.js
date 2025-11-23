@@ -712,25 +712,65 @@ export const endCall = asyncHandler(async (req, res) => {
         .populate('participants', 'username fullName profileImageUrl')
         .populate('initiator', 'username fullName profileImageUrl');
 
-    // Emit call end to other participants
-    const participantIds = populatedCall.participants.map(p => p._id.toString());
+    if (!populatedCall) {
+        console.error('❌ Call not found after transaction:', callId);
+        throw new ApiError(404, 'Call not found');
+    }
+
+    // Extract participant IDs - handle both populated objects and ObjectIds
+    // Also use the non-populated call's participants as fallback to ensure we get all participants
+    let participantIds = [];
+    
+    if (populatedCall.participants && populatedCall.participants.length > 0) {
+        participantIds = populatedCall.participants.map(p => {
+            // Handle populated user object
+            if (p && p._id) {
+                return p._id.toString();
+            }
+            // Handle ObjectId directly
+            if (p && p.toString) {
+                return p.toString();
+            }
+            return null;
+        }).filter(id => id !== null);
+    }
+    
+    // Fallback: if population failed or returned empty, use the updated call's participants
+    if (participantIds.length === 0 && updatedCall && updatedCall.participants) {
+        console.warn('⚠️ Using fallback: extracting participants from non-populated call');
+        participantIds = updatedCall.participants.map(p => p.toString());
+    }
+
+    // Get other participants (excluding the one who ended the call)
     const otherParticipants = participantIds.filter(id => id !== currentUserId.toString());
 
-    console.log('📡 Emitting call end to participants:', otherParticipants);
-    otherParticipants.forEach(participantId => {
-        safeEmitToUser(participantId, 'call_ended', {
-            callId,
-            endedBy: {
-                _id: currentUserId,
-                username: req.user.username,
-                fullName: req.user.fullName,
-                profileImageUrl: req.user.profileImageUrl
-            },
-            endReason,
-            duration: populatedCall.duration,
-            timestamp: new Date()
-        });
+    console.log('📡 Emitting call end to participants:', {
+        allParticipants: participantIds,
+        otherParticipants: otherParticipants,
+        currentUserId: currentUserId.toString(),
+        callStatus: populatedCall.status
     });
+
+    // Emit to all other participants (including recipient who hasn't accepted yet)
+    if (otherParticipants.length > 0) {
+        otherParticipants.forEach(participantId => {
+            safeEmitToUser(participantId, 'call_ended', {
+                callId,
+                endedBy: {
+                    _id: currentUserId,
+                    username: req.user.username,
+                    fullName: req.user.fullName,
+                    profileImageUrl: req.user.profileImageUrl
+                },
+                endReason,
+                duration: populatedCall.duration,
+                timestamp: new Date()
+            });
+            console.log(`✅ Emitted 'call_ended' to participant: ${participantId}`);
+        });
+    } else {
+        console.warn('⚠️ No other participants found to notify about call end');
+    }
 
     console.log('🎉 Call ended successfully:', {
         callId,
