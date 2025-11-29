@@ -7,7 +7,7 @@ const asyncHandler = (requesHandler) => {
                 } else {
                     // If next is not available, log error and send response directly
                     console.error('Unhandled error in asyncHandler:', err);
-                    if (!res.headersSent) {
+                    if (res && typeof res.status === 'function' && !res.headersSent) {
                         res.status(err.statusCode || 500).json({
                             success: false,
                             message: err.message || "Internal Server Error",
