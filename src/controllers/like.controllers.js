@@ -54,36 +54,52 @@ export const unlikePost = asyncHandler(async (req, res) => {
     const { postId } = req.body;
     if (!postId) throw new ApiError(400, "postId is required");
 
-    const deletedLike = await Like.findOneAndDelete({ userId, postId });
-    if (deletedLike) {
-        await Post.findByIdAndUpdate(postId, { $inc: { "engagement.likes": -1 } });
-
-        // Notify post owner (if not self) - with error handling
-        try {
-            const post = await Post.findById(postId).select("userId");
-            if (post && post.userId.toString() !== userId.toString()) {
-                await createUnlikeNotification({ recipientId: post.userId, sourceUserId: userId, postId });
-            }
-        } catch (notificationError) {
-            console.error('Error sending unlike notification:', notificationError);
-            // Don't fail the unlike operation if notification fails
-        }
-
-        // Return updated likedBy and isLikedBy (user has unliked, so isLikedBy should be false)
-        const likes = await Like.find({ postId }).lean();
-        const userIds = likes.map(likeDoc => likeDoc.userId.toString());
-        let users = [];
-        if (userIds.length > 0) {
-            users = await Post.db.model('User').find(
-                { _id: { $in: userIds } },
-                'username profileImageUrl fullName isVerified'
-            ).lean();
-        }
-        // After unliking, isLikedBy should always be false
-        return res.status(200).json(new ApiResponse(200, { likedBy: users, isLikedBy: false }, "Post unliked successfully"));
-    } else {
-        throw new ApiError(404, "Like not found for this post");
+    // Validate post exists
+    const post = await Post.findById(postId).select("userId");
+    if (!post) {
+        throw new ApiError(404, "Post not found");
     }
+
+    // Check if like exists and delete it
+    const deletedLike = await Like.findOneAndDelete({ userId, postId });
+    if (!deletedLike) {
+        throw new ApiError(404, "You have not liked this post");
+    }
+
+    // Decrement engagement count (ensure it doesn't go below 0)
+    const updatedPost = await Post.findByIdAndUpdate(
+        postId,
+        { $inc: { "engagement.likes": -1 } },
+        { new: true }
+    );
+    
+    // Ensure engagement count doesn't go negative (data integrity check)
+    if (updatedPost.engagement?.likes < 0) {
+        await Post.findByIdAndUpdate(postId, { $set: { "engagement.likes": 0 } });
+    }
+
+    // Notify post owner (if not self) - with error handling
+    try {
+        if (post.userId.toString() !== userId.toString()) {
+            await createUnlikeNotification({ recipientId: post.userId, sourceUserId: userId, postId });
+        }
+    } catch (notificationError) {
+        console.error('Error sending unlike notification:', notificationError);
+        // Don't fail the unlike operation if notification fails
+    }
+
+    // Return updated likedBy and isLikedBy (user has unliked, so isLikedBy should be false)
+    const likes = await Like.find({ postId }).lean();
+    const userIds = likes.map(likeDoc => likeDoc.userId.toString());
+    let users = [];
+    if (userIds.length > 0) {
+        users = await Post.db.model('User').find(
+            { _id: { $in: userIds } },
+            'username profileImageUrl fullName isVerified'
+        ).lean();
+    }
+    // After unliking, isLikedBy should always be false
+    return res.status(200).json(new ApiResponse(200, { likedBy: users, isLikedBy: false }, "Post unliked successfully"));
 });
 
 // Like a comment
