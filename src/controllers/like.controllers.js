@@ -54,36 +54,21 @@ export const unlikePost = asyncHandler(async (req, res) => {
     const { postId } = req.body;
     if (!postId) throw new ApiError(400, "postId is required");
 
-    // Validate post exists
-    const post = await Post.findById(postId).select("userId");
-    if (!post) {
-        throw new ApiError(404, "Post not found");
-    }
-
     // Check if like exists and delete it
     const deletedLike = await Like.findOneAndDelete({ userId, postId });
     if (!deletedLike) {
         throw new ApiError(404, "You have not liked this post");
     }
 
-    // Decrement engagement count (ensure it doesn't go below 0)
-    const updatedPost = await Post.findByIdAndUpdate(
+    // Validate post exists and decrement engagement count
+    const post = await Post.findByIdAndUpdate(
         postId,
         { $inc: { "engagement.likes": -1 } },
-        { new: true }
+        { new: false } // Don't return updated document, just check if post exists
     );
 
-    // Safety check: ensure post still exists and engagement count doesn't go negative
-    if (updatedPost) {
-        // Initialize engagement object if it doesn't exist
-        if (!updatedPost.engagement) {
-            updatedPost.engagement = { likes: 0 };
-        }
-        // Ensure engagement count doesn't go negative (data integrity check)
-        if (updatedPost.engagement.likes < 0) {
-            await Post.findByIdAndUpdate(postId, { $set: { "engagement.likes": 0 } });
-            updatedPost.engagement.likes = 0;
-        }
+    if (!post) {
+        throw new ApiError(404, "Post not found");
     }
 
     // Notify post owner (if not self) - with error handling
