@@ -72,10 +72,18 @@ export const unlikePost = asyncHandler(async (req, res) => {
         { $inc: { "engagement.likes": -1 } },
         { new: true }
     );
-    
-    // Ensure engagement count doesn't go negative (data integrity check)
-    if (updatedPost.engagement?.likes < 0) {
-        await Post.findByIdAndUpdate(postId, { $set: { "engagement.likes": 0 } });
+
+    // Safety check: ensure post still exists and engagement count doesn't go negative
+    if (updatedPost) {
+        // Initialize engagement object if it doesn't exist
+        if (!updatedPost.engagement) {
+            updatedPost.engagement = { likes: 0 };
+        }
+        // Ensure engagement count doesn't go negative (data integrity check)
+        if (updatedPost.engagement.likes < 0) {
+            await Post.findByIdAndUpdate(postId, { $set: { "engagement.likes": 0 } });
+            updatedPost.engagement.likes = 0;
+        }
     }
 
     // Notify post owner (if not self) - with error handling

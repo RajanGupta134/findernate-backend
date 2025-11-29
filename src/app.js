@@ -11,38 +11,38 @@ const app = express();
 
 // Morgan logging middleware - Only in development mode
 if (process.env.NODE_ENV === 'development') {
-    // Dev format: Colored output with method, url, status, response time
-    app.use(morgan('dev'));
-    console.log('📝 Morgan logging enabled in development mode');
+        // Dev format: Colored output with method, url, status, response time
+        app.use(morgan('dev'));
+        console.log('📝 Morgan logging enabled in development mode');
 } else if (process.env.ENABLE_MORGAN === 'true') {
-    // Production: Can be enabled via environment variable if needed for debugging
-    // Combined format: Standard Apache combined log output
-    app.use(morgan('combined'));
-    console.log('📝 Morgan logging enabled via ENABLE_MORGAN flag');
+        // Production: Can be enabled via environment variable if needed for debugging
+        // Combined format: Standard Apache combined log output
+        app.use(morgan('combined'));
+        console.log('📝 Morgan logging enabled via ENABLE_MORGAN flag');
 }
 
 // Performance middleware - Enable gzip compression
 app.use(compression({
-    filter: (req, res) => {
-        if (req.headers['x-no-compression']) {
-            return false;
-        }
-        return compression.filter(req, res);
-    },
-    level: 6, // Compression level 1-9 (6 is good balance)
-    threshold: 1024, // Only compress responses > 1KB
+        filter: (req, res) => {
+                if (req.headers['x-no-compression']) {
+                        return false;
+                }
+                return compression.filter(req, res);
+        },
+        level: 6, // Compression level 1-9 (6 is good balance)
+        threshold: 1024, // Only compress responses > 1KB
 }));
 
 // Handle OPTIONS requests BEFORE any other middleware
 app.use((req, res, next) => {
-    if (req.method === 'OPTIONS') {
-        res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-        res.header('Access-Control-Allow-Credentials', 'true');
-        res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
-        res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,Pragma,Expires');
-        return res.status(200).end();
-    }
-    next();
+        if (req.method === 'OPTIONS') {
+                res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+                res.header('Access-Control-Allow-Credentials', 'true');
+                res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
+                res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,Pragma,Expires');
+                return res.status(200).end();
+        }
+        next();
 });
 
 // Request parsing middleware
@@ -54,6 +54,7 @@ const allowedOrigins = [
         "https://p0k804os4c4scowcg488800c.194.164.151.15.sslip.io",
         "https://findernate.com",
         "https://www.findernate.com",
+        "https://apis.findernate.com", // API domain
         "http://localhost:3000",
         "http://localhost:3001",
         "http://localhost:4000",
@@ -115,16 +116,16 @@ app.use(cookieParser());
 // Trust proxy for production (needed when behind nginx, load balancer, or using X-Forwarded-For headers)
 // In development, we don't trust proxy headers for security reasons
 if (process.env.NODE_ENV === 'production') {
-    app.set('trust proxy', 1);
-    console.log('🔒 Trust proxy enabled for production');
+        app.set('trust proxy', 1);
+        console.log('🔒 Trust proxy enabled for production');
 }
 
 // Apply general rate limiting to all routes (but not to OPTIONS)
 app.use((req, res, next) => {
-    if (req.method === 'OPTIONS') {
-        return next();
-    }
-    generalRateLimit(req, res, next);
+        if (req.method === 'OPTIONS') {
+                return next();
+        }
+        generalRateLimit(req, res, next);
 });
 
 // Health check endpoint for monitoring
@@ -153,7 +154,7 @@ app.get('/health', healthCheckRateLimit, async (req, res) => {
                 const redisStatus = await redisHealthCheck();
                 const memoryUsage = process.memoryUsage();
                 const cpuUsage = process.cpuUsage();
-                
+
                 res.status(200).json({
                         status: 'healthy',
                         uptime: process.uptime(),
