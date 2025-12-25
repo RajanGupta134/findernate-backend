@@ -67,10 +67,10 @@ class RedisStore {
 // General rate limiter for most endpoints
 export const generalRateLimit = rateLimit({
     windowMs: 1 * 60 * 1000, // 1 minute
-    max: 10000000, // 10M requests per minute for high traffic
+    max: 200, // 200 requests per minute per IP (reasonable for most use cases)
     message: {
         error: 'Too many requests from this IP, please try again later.',
-        retryAfter: 30 // 30 seconds
+        retryAfter: 60 // 60 seconds
     },
     standardHeaders: true,
     legacyHeaders: false,
@@ -85,7 +85,7 @@ export const generalRateLimit = rateLimit({
 // Rate limiter for notification endpoints
 export const notificationRateLimit = rateLimit({
     windowMs: 30 * 1000, // 30 seconds
-    max: 100000, // 100k requests per 30 seconds
+    max: 100, // 100 requests per 30 seconds
     message: {
         error: 'Too many notification requests, please try again later.',
         retryAfter: 30
@@ -99,7 +99,7 @@ export const notificationRateLimit = rateLimit({
 // Rate limiter for unread counts endpoint
 export const unreadCountsRateLimit = rateLimit({
     windowMs: 10 * 1000, // 10 seconds
-    max: 500000, // 500k requests per 10 seconds
+    max: 50, // 50 requests per 10 seconds (encourage WebSocket usage instead)
     message: {
         error: 'Too many unread count requests. Consider using WebSocket events instead of polling.',
         retryAfter: 10,
@@ -114,7 +114,7 @@ export const unreadCountsRateLimit = rateLimit({
 // Rate limiter for chat endpoints
 export const chatRateLimit = rateLimit({
     windowMs: 30 * 1000, // 30 seconds
-    max: 1000000, // 1M requests per 30 seconds
+    max: 300, // 300 requests per 30 seconds
     message: {
         error: 'Too many chat requests, please try again later.',
         retryAfter: 30
@@ -128,7 +128,7 @@ export const chatRateLimit = rateLimit({
 // Health check rate limiter (more lenient)
 export const healthCheckRateLimit = rateLimit({
     windowMs: 1 * 60 * 1000, // 1 minute
-    max: 100000, // 100k health checks per minute
+    max: 60, // 60 health checks per minute (1 per second)
     message: {
         error: 'Too many health check requests.',
         retryAfter: 60

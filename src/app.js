@@ -3,11 +3,18 @@ import cors from 'cors';
 import cookieParser from 'cookie-parser';
 import compression from 'compression';
 import morgan from 'morgan';
+import helmet from 'helmet';
 import { errorHandler } from './middlewares/errorHandler.js';
 import { redisHealthCheck } from './config/redis.config.js';
 import { generalRateLimit, healthCheckRateLimit } from './middlewares/rateLimiter.middleware.js';
 
 const app = express();
+
+// Security headers middleware - Helmet.js
+app.use(helmet({
+        contentSecurityPolicy: false, // Disable CSP for now to avoid breaking existing functionality
+        crossOriginEmbedderPolicy: false // Needed for some CDN integrations
+}));
 
 // Morgan logging middleware - Only in development mode
 if (process.env.NODE_ENV === 'development') {
@@ -139,15 +146,17 @@ app.get('/', healthCheckRateLimit, (req, res) => {
         });
 });
 
-// Simple debug endpoint
-app.get('/debug', (req, res) => {
-        res.status(200).json({
-                message: 'Debug endpoint working',
-                port: process.env.PORT || 3000,
-                env: process.env.NODE_ENV,
-                timestamp: new Date().toISOString()
+// Debug endpoint - Only available in development
+if (process.env.NODE_ENV === 'development') {
+        app.get('/debug', (req, res) => {
+                res.status(200).json({
+                        message: 'Debug endpoint working',
+                        port: process.env.PORT || 3000,
+                        env: process.env.NODE_ENV,
+                        timestamp: new Date().toISOString()
+                });
         });
-});
+}
 
 app.get('/health', healthCheckRateLimit, async (req, res) => {
         try {
