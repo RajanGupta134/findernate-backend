@@ -40,22 +40,6 @@ app.use(compression({
         threshold: 1024, // Only compress responses > 1KB
 }));
 
-// Handle OPTIONS requests BEFORE any other middleware
-app.use((req, res, next) => {
-        if (req.method === 'OPTIONS') {
-                res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-                res.header('Access-Control-Allow-Credentials', 'true');
-                res.header('Access-Control-Allow-Methods', 'GET,POST,PUT,DELETE,PATCH,OPTIONS');
-                res.header('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-Requested-With,Accept,Origin,Cache-Control,Pragma,Expires');
-                return res.status(200).end();
-        }
-        next();
-});
-
-// Request parsing middleware
-app.use(express.json({ limit: '10mb' })); // Limit JSON payload size
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
 
 const allowedOrigins = [
         "https://p0k804os4c4scowcg488800c.194.164.151.15.sslip.io",
@@ -120,6 +104,9 @@ app.use(cors({
         preflightContinue: false
 }));
 
+// Request parsing middleware - Must come after CORS
+app.use(express.json({ limit: '10mb' })); // Limit JSON payload size
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 app.use(cookieParser());
 
 // Trust proxy for production (needed when behind nginx, load balancer, or using X-Forwarded-For headers)
@@ -225,8 +212,7 @@ import feedbackRouter from "./routes/feedback.routes.js";
 import qrRouter from "./routes/qr.routes.js";
 import streamRouter from "./routes/stream.routes.js";
 
-// Handle all preflight requests
-app.options('*', cors());
+
 
 app.use("/api/v1/users", userRouter);
 app.use("/api/v1/posts", postRouter);
