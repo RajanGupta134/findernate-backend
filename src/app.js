@@ -56,6 +56,8 @@ const allowedOrigins = [
         "https://z0n8vrlt-4000.inc1.devtunnels.ms",
          /^https?:\/\/[\w-]+\.194\.164\.151\.15\.sslip\.io$/,
         "https://apis.findernate.com",
+        "https://findernate1.netlify.app,
+        "https://findernate-backend-ofzx.onrender.com",
         // Allow all local network IPs for development
         ...(process.env.NODE_ENV === 'development' ? [/^http:\/\/192\.168\.\d+\.\d+:4000$/] : []),
         ...(process.env.ADDITIONAL_CORS_ORIGINS ? process.env.ADDITIONAL_CORS_ORIGINS.split(',') : [])
