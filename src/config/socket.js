@@ -28,11 +28,13 @@ class SocketManager {
                 "http://127.0.0.1:3001",
                 "http://127.0.0.1:4000",
                 "https://z0n8vrlt-4000.inc1.devtunnels.ms",
-                /^https?:\/\/[\w-]+\.194\.164\.151\.15\.sslip\.io$/,
-                "https://apis.findernate.com"
-                // Allow all local network IPs for development
-                ...(process.env.NODE_ENV === 'development' ? [/^http:\/\/192\.168\.\d+\.\d+:4000$/] : []),
+                 /^https?:\/\/[\w-]+\.194\.164\.151\.15\.sslip\.io$/
             ];
+
+            // Allow all local network IPs for development
+            if (process.env.NODE_ENV === 'development') {
+                allowedOrigins.push(/^http:\/\/192\.168\.\d+\.\d+:4000$/);
+            }
 
             this.io = new Server(server, {
                 cors: {
