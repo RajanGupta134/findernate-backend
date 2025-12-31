@@ -175,10 +175,28 @@ class SocketManager {
             // Note: No Redis pattern subscriptions needed - Socket.IO rooms handle routing
 
             // Handle joining chat rooms
-            socket.on('join_chat', (chatId) => {
-                socket.join(`chat:${chatId}`);
-                socket.chatRooms.add(chatId); // Track for cleanup
-                console.log(`User ${socket.userId} joined chat ${chatId}`);
+            socket.on('join_chat', async (chatId) => {
+                try {
+                    // 🔒 SECURITY: Verify user is a participant before allowing them to join
+                    const Chat = (await import('../models/chat.models.js')).default;
+                    const chat = await Chat.findOne({
+                        _id: chatId,
+                        participants: socket.userId
+                    }).select('_id');
+
+                    if (!chat) {
+                        console.warn(`🚫 User ${socket.userId} attempted to join unauthorized chat ${chatId}`);
+                        socket.emit('error', { message: 'Unauthorized: You are not a participant in this chat' });
+                        return;
+                    }
+
+                    socket.join(`chat:${chatId}`);
+                    socket.chatRooms.add(chatId); // Track for cleanup
+                    console.log(`✅ User ${socket.userId} joined authorized chat ${chatId}`);
+                } catch (error) {
+                    console.error(`Error joining chat ${chatId}:`, error);
+                    socket.emit('error', { message: 'Failed to join chat' });
+                }
             });
 
             // Handle leaving chat rooms
@@ -188,9 +206,30 @@ class SocketManager {
                 console.log(`User ${socket.userId} left chat ${chatId}`);
             });
 
+            // Helper function to verify chat participation
+            const verifyChatParticipant = async (chatId, userId) => {
+                try {
+                    const Chat = (await import('../models/chat.models.js')).default;
+                    const chat = await Chat.findOne({
+                        _id: chatId,
+                        participants: userId
+                    }).select('_id');
+                    return !!chat;
+                } catch (error) {
+                    console.error('Error verifying chat participant:', error);
+                    return false;
+                }
+            };
+
             // Handle typing events
-            socket.on('typing_start', (data) => {
+            socket.on('typing_start', async (data) => {
                 const { chatId } = data;
+
+                // 🔒 SECURITY: Verify user is a participant
+                if (!await verifyChatParticipant(chatId, socket.userId)) {
+                    console.warn(`🚫 User ${socket.userId} attempted typing_start in unauthorized chat ${chatId}`);
+                    return;
+                }
 
                 // Emit to chat room - Socket.IO adapter syncs across processes
                 socket.to(`chat:${chatId}`).emit('user_typing', {
@@ -201,8 +240,15 @@ class SocketManager {
                 });
             });
 
-            socket.on('typing_stop', (data) => {
+            socket.on('typing_stop', async (data) => {
                 const { chatId } = data;
+
+                // 🔒 SECURITY: Verify user is a participant
+                if (!await verifyChatParticipant(chatId, socket.userId)) {
+                    console.warn(`🚫 User ${socket.userId} attempted typing_stop in unauthorized chat ${chatId}`);
+                    return;
+                }
+
                 socket.to(`chat:${chatId}`).emit('user_stopped_typing', {
                     userId: socket.userId,
                     chatId
@@ -210,8 +256,26 @@ class SocketManager {
             });
 
             // Handle message events
-            socket.on('send_message', (data) => {
+            // ⚠️ DEPRECATED: This handler is not used by the frontend and bypasses HTTP validation
+            // Messages should only be sent via HTTP POST /chats/:chatId/messages
+            // Keeping this for backwards compatibility but it's a security risk
+            socket.on('send_message', async (data) => {
+                console.warn('⚠️ DEPRECATED: send_message socket event used. Use HTTP POST instead.');
+
                 const { chatId, message, messageType = 'text', replyTo } = data;
+
+                // 🔒 SECURITY: Verify user is a participant
+                if (!await verifyChatParticipant(chatId, socket.userId)) {
+                    console.warn(`🚫 User ${socket.userId} attempted send_message in unauthorized chat ${chatId}`);
+                    socket.emit('error', { message: 'Unauthorized: You are not a participant in this chat' });
+                    return;
+                }
+
+                // 🔒 SECURITY: Validate message content
+                if (!message || typeof message !== 'string' || message.trim().length === 0) {
+                    socket.emit('error', { message: 'Invalid message content' });
+                    return;
+                }
 
                 // Emit to all users in the chat (except sender)
                 socket.to(`chat:${chatId}`).emit('new_message', {
@@ -223,7 +287,7 @@ class SocketManager {
                             fullName: socket.user.fullName,
                             profileImageUrl: socket.user.profileImageUrl
                         },
-                        message,
+                        message: message.trim(),
                         messageType,
                         replyTo,
                         timestamp: new Date()
@@ -232,8 +296,14 @@ class SocketManager {
             });
 
             // Handle message read events
-            socket.on('mark_read', (data) => {
+            socket.on('mark_read', async (data) => {
                 const { chatId, messageIds } = data;
+
+                // 🔒 SECURITY: Verify user is a participant
+                if (!await verifyChatParticipant(chatId, socket.userId)) {
+                    console.warn(`🚫 User ${socket.userId} attempted mark_read in unauthorized chat ${chatId}`);
+                    return;
+                }
 
                 // Emit to message senders that their messages were read
                 socket.to(`chat:${chatId}`).emit('messages_read', {
@@ -248,8 +318,14 @@ class SocketManager {
             });
 
             // Handle message deletion
-            socket.on('delete_message', (data) => {
+            socket.on('delete_message', async (data) => {
                 const { chatId, messageId } = data;
+
+                // 🔒 SECURITY: Verify user is a participant
+                if (!await verifyChatParticipant(chatId, socket.userId)) {
+                    console.warn(`🚫 User ${socket.userId} attempted delete_message in unauthorized chat ${chatId}`);
+                    return;
+                }
 
                 socket.to(`chat:${chatId}`).emit('message_deleted', {
                     chatId,
@@ -263,8 +339,14 @@ class SocketManager {
             });
 
             // Handle message restoration
-            socket.on('restore_message', (data) => {
+            socket.on('restore_message', async (data) => {
                 const { chatId, messageId, restoredMessage } = data;
+
+                // 🔒 SECURITY: Verify user is a participant
+                if (!await verifyChatParticipant(chatId, socket.userId)) {
+                    console.warn(`🚫 User ${socket.userId} attempted restore_message in unauthorized chat ${chatId}`);
+                    return;
+                }
 
                 socket.to(`chat:${chatId}`).emit('message_restored', {
                     chatId,
@@ -605,6 +687,34 @@ class SocketManager {
         } else {
             console.warn(`Socket.IO not initialized, skipping emitToChat for chat ${chatId}, event: ${event}`);
         }
+    }
+
+    emitToChatExcept(chatId, excludeUserId, event, data) {
+        if (!this.io) {
+            console.warn(`Socket.IO not initialized, skipping emitToChatExcept for chat ${chatId}, event: ${event}`);
+            return;
+        }
+
+        // Get all sockets in the chat room
+        const chatRoom = `chat:${chatId}`;
+        const socketsInRoom = this.io.sockets.adapter.rooms.get(chatRoom);
+
+        if (!socketsInRoom) {
+            console.warn(`No sockets in chat room ${chatRoom}`);
+            return;
+        }
+
+        // Emit to each socket except the excluded user
+        let emittedCount = 0;
+        socketsInRoom.forEach(socketId => {
+            const userId = this.userSockets.get(socketId);
+            if (userId && userId !== excludeUserId.toString()) {
+                this.io.to(socketId).emit(event, data);
+                emittedCount++;
+            }
+        });
+
+        console.log(`📡 Emitted '${event}' to ${emittedCount} socket(s) in chat ${chatId} (excluded user: ${excludeUserId})`);
     }
 
     emitToUsers(userIds, event, data) {

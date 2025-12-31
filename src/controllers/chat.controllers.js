@@ -825,11 +825,34 @@ export const addMessage = asyncHandler(async (req, res) => {
         })
         .lean();
 
-    // Emit message - Socket.IO Redis adapter handles cross-process sync automatically
-    safeEmitToChat(chatId, 'new_message', {
-        chatId,
-        message: populatedMessage
-    });
+    // Emit message to OTHER participants only (sender already has it from HTTP response)
+    // Socket.IO Redis adapter handles cross-process sync automatically
+    if (socketManager.isReady()) {
+        // Calculate unread count for each recipient and emit individually
+        const otherParticipants = chat.participants.filter(
+            participantId => participantId.toString() !== currentUserId.toString()
+        );
+
+        // For each recipient, calculate their specific unread count
+        otherParticipants.forEach(async (participantId) => {
+            try {
+                const unreadCount = await Message.countDocuments({
+                    chatId,
+                    isDeleted: { $ne: true },
+                    readBy: { $ne: participantId },
+                    sender: { $ne: participantId }
+                });
+
+                socketManager.emitToUser(participantId.toString(), 'new_message', {
+                    chatId,
+                    message: populatedMessage,
+                    unreadCount
+                });
+            } catch (err) {
+                console.error(`Failed to emit message to user ${participantId}:`, err);
+            }
+        });
+    }
 
     // Send push notifications to other participants (fire-and-forget)
     (async () => {
