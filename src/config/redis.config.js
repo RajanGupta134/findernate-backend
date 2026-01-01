@@ -1,11 +1,9 @@
 import Redis from 'ioredis';
 import dotenv from 'dotenv';
+
 dotenv.config();
+
 // Redis Configuration
-console.log(process.env.REDIS_HOST);
-console.log(process.env.REDIS_PORT);
-console.log(process.env.REDIS_PASSWORD);
-console.log(process.env.REDIS_DB);
 const REDIS_CONFIG = {
     host: process.env.REDIS_HOST || 'localhost',
     port: parseInt(process.env.REDIS_PORT) || 6379,
