@@ -43,6 +43,8 @@ app.use(compression({
 
 const allowedOrigins = [
         "https://p0k804os4c4scowcg488800c.194.164.151.15.sslip.io",
+        "https://xos8kg4cwsk0ckgwg4wcgk48.194.164.151.15.sslip.io",
+        "https://lcks40o4goog4og4c048skgs.194.164.151.15.sslip.io",
         "https://findernate.com",
         "https://www.findernate.com",
         "https://apis.findernate.com", // API domain
